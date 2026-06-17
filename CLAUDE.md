@@ -1,0 +1,51 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+"Работяга" — Telegram Mini App for bar shift management (tasks, schedule, hours, "yellow/orange/red card" discipline system, revenue tracking). Two independent halves: a React frontend (Vite) and a small Express + Telegraf bot backend. Russian-language UI and code comments throughout — keep new UI strings/comments in Russian to match.
+
+## Commands
+
+Frontend (`frontend/`):
+- `npm run dev` — Vite dev server on :5173 (proxies `/api/*` to `http://localhost:3001`, see `vite.config.js`)
+- `npm run build` — production build
+- `npm run lint` — ESLint
+- No test suite exists in this repo.
+
+Backend (`rabotyaga-bot/`):
+- `npm start` (or `node server.js`) — runs Express API + Telegraf bot together on port 3001
+- Requires `.env` with `TELEGRAM_TOKEN` (required) and `WEBAPP_URL` (optional — without it the bot's menu button won't appear)
+
+To run the full app locally: start `rabotyaga-bot` first (port 3001), then `frontend` (port 5173) which proxies API calls to it.
+
+## Architecture
+
+### Frontend is one file
+Nearly the entire app lives in `frontend/src/App.jsx` (~1700 lines): all CSS (as a template-string injected via `<style>`), all business logic, and ~30 component functions, all in one module. There is no router — navigation is tab-state (`tab` in the root `App` component) switching which component renders. When making changes, search within this file rather than expecting a conventional multi-file component tree.
+
+`rabotyaga-bot/shift-tasks.jsx` is an **earlier, unused copy** of this same app (slightly different CSS palette/feature set). It is not imported by `server.js` or anything else — don't edit it expecting it to affect the running app; treat it as historical reference only, or ask the user before touching it.
+
+### Data model & persistence (read this before changing storage logic)
+- Source of truth is the backend's flat KV store (`rabotyaga-bot/data.json`, written via debounced `fs.writeFileSync`), accessed through `GET/PUT /api/kv/:key`. Values are JSON-stringified blobs keyed by names like `tasks:v4`, `done:hist:v2`, `profiles:v1`, `schedule:v1`, `cards:v1`, etc. (see the `Promise.all([ld(...)])` block in `App.jsx`).
+- `localStorage` (prefixed `rab:`) is a **per-device fallback/cache**, not the primary store — `ld()` reads server-first and falls back to local on failure; `sv()` writes to both. `SERVER_OK` tracks reachability and drives the connectivity dot in the nav bar.
+- `usePersist(key, value, ready)` skips writing on the first effect run after load, specifically to avoid echoing a freshly-loaded snapshot back to the server and clobbering concurrent edits from another device.
+- Versioned key suffixes (`:v1`, `:v2`, `:v4`) are bumped manually when the shape of stored data changes — when changing a data shape, bump the suffix rather than mutating in place, and merge/migrate old data if needed (see `mergeSeeds()` for the pattern used to add new seed tasks without clobbering user customizations).
+
+### Task system
+Tasks (`tasks:v4`) have a `repeat` mode (`opening`/`closing`/`daily`/`workday`/`weekly`/`once`) or `kind:"irregular"` (backlog items with no schedule). `isToday(task, dateStr)` is the single function that decides whether a task applies to a given date — both frontend (`App.jsx`) and backend (`server.js`, duplicated logic for the `/today` bot command) implement this the same way; if you change the rule, update both.
+
+Completion is tracked in `done:hist:v2`, keyed `${taskId}::${dateStr}` (or `${taskId}::irregular`), storing either `true` or `{done, ts, by}`.
+
+### Roles & permissions
+Three roles (`ROLES` in `App.jsx`): `barman`, `head_barman`, `manager` (plus a hardcoded `developer` super-account). Permissions are an allowlist of perm strings or `"*"`; `hasPerm(who, profiles, perm)` is the gate used throughout to decide which tabs/actions render. Auth itself is a plaintext password map (`auth:v1`) — there's a `// SERVER:` comment marking this as intentionally a stub for the real (bcrypt + session token) implementation.
+
+### Shift status & staffing rules
+`getShiftStatus()` derives a person's current status (`on_shift`/`today_shift`/`worked`/`day_off`/etc.) from `schedule:v1` plus manual `statusOverrides` (for sick days/vacation/etc., which take precedence). `staffNorm()`/`staffCheck()` encode the bar's staffing requirements (3 people from 18:00 on Wed/Fri/Sat/holidays/certain events, else 2) — `HOLIDAYS` and `EMBEDDED_EVENTS` are hardcoded 2026 reference data marked `// SERVER:` for eventual move to an editable store.
+
+### Shift-closing flow
+When all of a day's regular (non-irregular) tasks are marked done, the day is considered "closed" (`dayClosed`). A closing push/summary only fires after 23:30 (`PUSH_GATE_MIN`/`afterPushGate()`) — both as an automatic popup on the frontend and (per code comments) as a planned Telegram push to managers. `carryOver()` clones unfinished tasks into tomorrow with a `[Перенос]` prefix.
+
+### Telegram integration
+`window.Telegram.WebApp` (aliased `TG`) is used for Mini App init (`TG.ready()/expand()`) and to read the Telegram user id (`tgUserId()`), which is POSTed to `/api/bind` to link a chosen in-app name to a Telegram chat id — this is what lets the bot DM that person later via `sendToName()` in `server.js`. Test this flow only inside actual Telegram (ngrok tunnel + bot), not a plain browser — `tgUserId()` returns null outside Telegram.

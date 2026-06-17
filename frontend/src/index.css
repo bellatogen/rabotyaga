@@ -1,0 +1,19 @@
+/* Минимальный сброс. Всю раскладку держит CSS внутри App.jsx. */
+* { box-sizing: border-box; }
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+}
+html, body {
+  min-height: 100dvh;
+  background: #0b0b0c;            /* тёмный фон приложения */
+  overflow-x: hidden;            /* никакого горизонтального скролла */
+  -webkit-text-size-adjust: 100%; /* iOS не масштабирует текст сам */
+}
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+img, svg { max-width: 100%; }

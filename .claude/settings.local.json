@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"require.resolve\\('playwright'\\)\")",
+      "Bash(npx --yes playwright --version)",
+      "Bash(timeout 25 bash -c 'until curl -sf http://localhost:3001/api/health >/dev/null; do sleep 1; done')",
+      "Bash(timeout 25 bash -c 'until curl -sf http://localhost:5173 >/dev/null; do sleep 1; done')",
+      "Read(//private/tmp/**)",
+      "Bash(curl -sf http://localhost:3001/api/health)",
+      "Bash(curl -sf http://localhost:5174 -o /dev/null -w \"%{http_code}\\\\n\")",
+      "Bash(npm install *)",
+      "Read(//tmp/**)",
+      "Bash(npx playwright *)",
+      "Bash(node /tmp/rabotyaga_ui_test.js)",
+      "Bash(cp /tmp/rabotyaga_ui_test.js \"/Users/pavelfrolov/Desktop/Пивная карта/Софт/rabotyaga/frontend/rabotyaga_ui_test.js\")",
+      "Bash(node rabotyaga_ui_test.js)",
+      "Bash(node rabotyaga_ui_test.cjs)",
+      "Bash(rm -f rabotyaga_ui_test.cjs)",
+      "Bash(npm uninstall *)",
+      "Bash(pkill -f \"node server.js\")",
+      "Bash(pkill -f \"vite\")",
+      "Bash(npm run *)"
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "rabotyaga-bot",
+  "version": "1.0.0",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^5.2.1",
+    "telegraf": "^4.16.3"
+  }
+}
