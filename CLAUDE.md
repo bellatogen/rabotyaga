@@ -20,6 +20,10 @@ Backend (`rabotyaga-bot/`):
 
 To run the full app locally: start `rabotyaga-bot` first (port 3001), then `frontend` (port 5173) which proxies API calls to it.
 
+## Deployment (planned, not yet wired up)
+
+Target host: **Timeweb**, domain **rabotyaga55.ru**. Not deployed yet — no `Procfile`/`railway.toml`/Dockerfile in the repo. `server.js` still hardcodes port 3001 and `data.json`'s local path; before deploying it'll need `process.env.PORT` / a configurable data dir, and to serve `frontend/dist` as static + SPA fallback so frontend+backend share one origin.
+
 ## Architecture
 
 ### Frontend is one file
