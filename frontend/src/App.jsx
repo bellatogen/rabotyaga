@@ -1,9 +1,10 @@
+
 import { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 import { CheckCircle, Plus, X, BarChart2, Clock, User, ArrowRight, Trash2, Pencil,
   Beer, Award, FileText, Users, Lock, Bell, AtSign, Inbox, Key, Shield, Eye, EyeOff, GripVertical, Archive, RotateCcw, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, CalendarDays,
   AlertTriangle, TrendingUp, TrendingDown, Minus, Send, DollarSign, Activity } from "lucide-react";
 
-const FONTS = `@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');`;
+const FONTS = ``;
 const CSS = `
 :root{--bg:#0b0b0c;--sf:#151517;--bd:#26262a;--mt:#8a857d;--pp:#f3efe7;
   --cu:#c9a24b;--cu2:#a8842f;--hp:#5b8f5b;--am:#e0b450;--rs:#b04a36;}
@@ -685,10 +686,10 @@ export default function App(){
   const goToggle=id=>setGoList(p=>p.map(i=>i.id===id?{...i,done:!i.done}:i));
   const goRemove=id=>setGoList(p=>p.filter(i=>i.id!==id));
 
-  if(loading)return (<div className="app" style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh"}}><style>{FONTS}{CSS}</style><span className="mono" style={{color:"var(--mt)"}}>Загрузка…</span></div>);
+  if(loading)return (<div className="app" style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh"}}><style>{CSS}</style><span className="mono" style={{color:"var(--mt)"}}>Загрузка…</span></div>);
 
   if(picking)return (
-    <div className="app"><style>{FONTS}{CSS}</style>
+    <div className="app"><style>{CSS}</style>
       <div className="login">
         <div style={{marginBottom:16}}><Mascot size={56} color="var(--cu)"/></div>
         <div className="login-title">Работяга</div>
@@ -731,7 +732,7 @@ export default function App(){
     </div>);
 
   if(viewingDay)return (
-    <div className="app"><style>{FONTS}{CSS}</style>
+    <div className="app"><style>{CSS}</style>
       <div className="nav"><div className="nav-row">
         <button onClick={()=>setViewingDay(null)} style={{background:"transparent",border:"none",color:"var(--cu)",cursor:"pointer",display:"flex",alignItems:"center",gap:6,fontSize:14,fontWeight:600}}><ChevronLeft size={16}/>Календарь</button>
       </div><div className="nav-date" style={{paddingTop:6}}>День</div></div>
@@ -744,7 +745,7 @@ export default function App(){
     </div>);
 
   if(viewingEmployee&&isManager)return (
-    <div className="app"><style>{FONTS}{CSS}</style>
+    <div className="app"><style>{CSS}</style>
       <div className="nav"><div className="nav-row">
         <button onClick={()=>setViewingEmployee(null)} style={{background:"transparent",border:"none",color:"var(--cu)",cursor:"pointer",display:"flex",alignItems:"center",gap:6,fontSize:14,fontWeight:600}}><ChevronLeft size={16}/>Назад</button>
       </div><div className="nav-date" style={{paddingTop:6}}>Кабинет сотрудника</div></div>
@@ -763,7 +764,7 @@ export default function App(){
   ];
 
   return (
-    <div className="app"><style>{FONTS}{CSS}</style>
+    <div className="app"><style>{CSS}</style>
       <div className="nav">
         <div className="nav-row">
           <div className="nav-title"><Mascot size={26} color="var(--cu)"/>Работяга</div>

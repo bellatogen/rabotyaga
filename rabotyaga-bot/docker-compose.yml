@@ -1,0 +1,13 @@
+version: '3.8'
+services:
+  rabotyaga-bot:
+    build: .
+    container_name: rabotyaga-bot
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./data.json:/app/data.json
+      - ./.env:/app/.env
+    environment:
+      - NODE_ENV=production

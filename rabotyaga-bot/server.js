@@ -5,11 +5,15 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 
+// Импорт модулей пушей (строго в начале!)
+const pushApi = require('./src/api/push');
+const pushSender = require('./src/push/sender');
+
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use('/api/push', pushApi);
 
-// Токен и URL берутся из .env файла
 const TOKEN = process.env.TELEGRAM_TOKEN;
 const WEBAPP_URL = process.env.WEBAPP_URL || 'https://rabotyaga.ru';
 
@@ -19,24 +23,22 @@ if (!TOKEN) {
 }
 
 const bot = new Telegraf(TOKEN);
-
-// Общее хранилище: kv (тот же KV, что грузит/пишет фронтенд через ld()/sv())
-// и bindings (имя сотрудника -> telegram chat id, для пушей и /today).
 const DATA_FILE = path.join(__dirname, 'data.json');
 
-let data = { kv: {}, bindings: {} };
+let data = { kv: {}, bindings: {}, pushSettings: {}, adminUsers: [] };
 if (fs.existsSync(DATA_FILE)) {
   try {
     const loaded = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
     data.kv = loaded.kv || {};
     data.bindings = loaded.bindings || {};
-    console.log(`📂 Загружено ${Object.keys(data.kv).length} kv-ключей, ${Object.keys(data.bindings).length} привязок`);
+    data.pushSettings = loaded.pushSettings || {};
+    data.adminUsers = loaded.adminUsers || [];
+    console.log(`📂 Загружено ${Object.keys(data.kv).length} kv-ключей, ${Object.keys(data.bindings).length} привязок, ${Object.keys(data.pushSettings).length} настроек пушей`);
   } catch (e) {
     console.error('Ошибка чтения data.json:', e);
   }
 }
 
-// Дебаунс записи, чтобы не дёргать диск на каждый чих
 let saveTimer = null;
 function saveData() {
   clearTimeout(saveTimer);
@@ -57,12 +59,11 @@ function sendToName(name, text) {
   const id = data.bindings[name];
   if (!id) return Promise.resolve(false);
   return bot.telegram.sendMessage(id, text).then(() => true).catch(err => {
-    console.error('Ошибка отправки сообщения:', err);
+    console.error('Ошибка отправки:', err);
     return false;
   });
 }
 
-// ── Та же логика «применяется ли задача сегодня», что и isToday() во фронтенде (App.jsx) ──
 function isToday(task, ds) {
   if (task.kind === 'irregular') return false;
   if (task.from && ds < task.from) return false;
@@ -89,7 +90,7 @@ function todayTasksText(name) {
   return `📋 Дела на сегодня${name ? ` (${name})` : ''}:\n\n${lines.join('\n')}`;
 }
 
-// Обработчик команды /start
+// === КОМАНДЫ БОТА ===
 bot.command('start', (ctx) => {
   ctx.reply(
     '🍺 «Работяга» на связи!\n\n' +
@@ -99,7 +100,8 @@ bot.command('start', (ctx) => {
       reply_markup: {
         inline_keyboard: [
           [{ text: '📋 Дела на сегодня', callback_data: 'today' }],
-          [{ text: '👤 Мой статус', callback_data: 'status' }]
+          [{ text: ' Мой статус', callback_data: 'status' }],
+          [{ text: '🔔 Настройки пушей', callback_data: 'pushsettings' }]
         ]
       }
     }
@@ -111,7 +113,66 @@ bot.command('today', (ctx) => {
   ctx.reply(todayTasksText(name));
 });
 
-// Обработчик callback-кнопок
+bot.command('startpush', async (ctx) => {
+  const userId = String(ctx.from.id);
+  const chatId = String(ctx.chat.id);
+  pushSender.updatePushSettings(userId, {
+    enabled: true, chatId,
+    notifications: { dayBeforeShift: true, personalTasks: true, closeShiftReminder: true, individualTasks: true }
+  });
+  await ctx.reply('✅ Пуши включены! /pushsettings — настройки');
+});
+
+bot.command('stoppush', async (ctx) => {
+  const userId = String(ctx.from.id);
+  pushSender.updatePushSettings(userId, { enabled: false });
+  await ctx.reply('❌ Пуши отключены');
+});
+
+bot.command('pushsettings', async (ctx) => {
+  const userId = String(ctx.from.id);
+  const settings = pushSender.getPushSettings(userId);
+  if (!settings) return ctx.reply(' Настройки не найдены. Используй /startpush');
+  const text = `📱 Настройки пушей:\n\nВключены: ${settings.enabled ? '✅' : '❌'}\n\n🔔 Уведомления:\n• За сутки до смены: ${settings.notifications?.dayBeforeShift ? '✅' : '❌'}\n• Личные задачи: ${settings.notifications?.personalTasks ? '✅' : '❌'}\n• Закрытие смены: ${settings.notifications?.closeShiftReminder ? '✅' : '❌'}\n• Индивидуальные: ${settings.notifications?.individualTasks ? '✅' : '❌'}`;
+  await ctx.reply(text);
+});
+
+bot.command('toggle_daybefore', async (ctx) => {
+  const userId = String(ctx.from.id);
+  const settings = pushSender.getPushSettings(userId);
+  if (!settings) return ctx.reply('Сначала /startpush');
+  const newVal = !settings.notifications?.dayBeforeShift;
+  pushSender.updatePushSettings(userId, { notifications: { ...settings.notifications, dayBeforeShift: newVal } });
+  await ctx.reply(`За сутки до смены: ${newVal ? '✅' : '❌'}`);
+});
+
+bot.command('toggle_personal', async (ctx) => {
+  const userId = String(ctx.from.id);
+  const settings = pushSender.getPushSettings(userId);
+  if (!settings) return ctx.reply('Сначала /startpush');
+  const newVal = !settings.notifications?.personalTasks;
+  pushSender.updatePushSettings(userId, { notifications: { ...settings.notifications, personalTasks: newVal } });
+  await ctx.reply(`Личные задачи: ${newVal ? '✅' : '❌'}`);
+});
+
+bot.command('toggle_closeshift', async (ctx) => {
+  const userId = String(ctx.from.id);
+  const settings = pushSender.getPushSettings(userId);
+  if (!settings) return ctx.reply('Сначала /startpush');
+  const newVal = !settings.notifications?.closeShiftReminder;
+  pushSender.updatePushSettings(userId, { notifications: { ...settings.notifications, closeShiftReminder: newVal } });
+  await ctx.reply(`Закрытие смены: ${newVal ? '✅' : '❌'}`);
+});
+
+bot.command('toggle_individual', async (ctx) => {
+  const userId = String(ctx.from.id);
+  const settings = pushSender.getPushSettings(userId);
+  if (!settings) return ctx.reply('Сначала /startpush');
+  const newVal = !settings.notifications?.individualTasks;
+  pushSender.updatePushSettings(userId, { notifications: { ...settings.notifications, individualTasks: newVal } });
+  await ctx.reply(`Индивидуальные: ${newVal ? '✅' : '❌'}`);
+});
+
 bot.on('callback_query', (ctx) => {
   const cdata = ctx.callbackQuery.data;
   if (cdata === 'today') {
@@ -119,11 +180,14 @@ bot.on('callback_query', (ctx) => {
     ctx.reply(todayTasksText(name));
   } else if (cdata === 'status') {
     ctx.reply('👤 Чтобы узнать свой статус, открой приложение и выбери своё имя.');
+  } else if (cdata === 'pushsettings') {
+    ctx.answerCbQuery();
+    return ctx.reply('Команды пушей:\n/startpush — включить\n/stoppush — выключить\n/pushsettings — настройки\n/toggle_daybefore\n/toggle_personal\n/toggle_closeshift\n/toggle_individual');
   }
   ctx.answerCbQuery();
 });
 
-// KV-хранилище: то самое, что читает/пишет фронтенд через ld()/sv() (см. App.jsx)
+// === API ===
 app.get('/api/kv/:key', (req, res) => {
   res.json({ value: data.kv[req.params.key] ?? null });
 });
@@ -138,46 +202,32 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, ts: Date.now() });
 });
 
-// Фронтенд вызывает это, чтобы привязать Telegram ID к имени сотрудника
 app.post('/api/bind', (req, res) => {
   const { name, telegramId } = req.body;
-  if (!name || !telegramId) {
-    return res.status(400).json({ error: 'name и telegramId обязательны' });
-  }
+  if (!name || !telegramId) return res.status(400).json({ error: 'name и telegramId обязательны' });
   data.bindings[name] = telegramId;
   saveData();
   console.log(`✅ Привязан: ${name} -> ID ${telegramId}`);
-
-  bot.telegram.sendMessage(
-    telegramId,
-    `👋 Привет, ${name}! Ты успешно подключен к системе "Работяга".\n\nТеперь я буду присылать тебе уведомления о сменах и задачах.`
-  ).catch(err => console.error('Ошибка отправки сообщения:', err));
-
+  bot.telegram.sendMessage(telegramId, ` Привет, ${name}! Ты подключен к "Работяга".`).catch(err => console.error('Ошибка отправки:', err));
   res.json({ success: true });
 });
 
-// Эндпоинт для тестовых пушей
-app.get('/api/push/:name', async (req, res) => {
-  const ok = await sendToName(req.params.name, '🔔 Тестовое уведомление: не забудь протереть краны! 🍻');
-  res.json(ok
-    ? { success: true, msg: 'Пуш отправлен' }
-    : { success: false, msg: 'Пользователь еще не заходил в бота' });
+app.get('/api/push/test/:name', async (req, res) => {
+  const ok = await sendToName(req.params.name, '🔔 Тестовое уведомление! 🍻');
+  res.json(ok ? { success: true, msg: 'Пуш отправлен' } : { success: false, msg: 'Пользователь не заходил' });
 });
 
-// Запускаем бота
+// === ЗАПУСК ===
 bot.launch().catch(err => {
   console.error('Ошибка запуска бота:', err);
   process.exit(1);
 });
 
-// HTTP-сервер
 const httpServer = app.listen(3001, () => {
   console.log('🚀 Сервер Работяги запущен на порту 3001');
   console.log(`🌐 Web App URL: ${WEBAPP_URL}`);
 });
 
-// Корректное завершение — закрываем и бота, и HTTP-сервер, иначе процесс
-// не выходит по SIGTERM/SIGINT (открытый listen держит event loop вечно)
 function shutdown(signal) {
   bot.stop(signal);
   httpServer.close(() => process.exit(0));
