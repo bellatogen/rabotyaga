@@ -7,12 +7,15 @@ const path = require('path');
 
 // Импорт модулей пушей (строго в начале!)
 const pushApi = require('./src/api/push');
+const adminApi = require("./src/api/admin");
 const pushSender = require('./src/push/sender');
+const pushScheduler = require("./src/push/scheduler");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use('/api/push', pushApi);
+app.use('/api/admin', adminApi);
 
 const TOKEN = process.env.TELEGRAM_TOKEN;
 const WEBAPP_URL = process.env.WEBAPP_URL || 'https://rabotyaga.ru';
@@ -219,6 +222,7 @@ app.get('/api/push/test/:name', async (req, res) => {
 
 // === ЗАПУСК ===
 bot.launch().catch(err => {
+  pushScheduler.startScheduler(bot);
   console.error('Ошибка запуска бота:', err);
   process.exit(1);
 });
