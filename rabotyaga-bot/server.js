@@ -220,12 +220,11 @@ app.get('/api/push/test/:name', async (req, res) => {
   res.json(ok ? { success: true, msg: 'Пуш отправлен' } : { success: false, msg: 'Пользователь не заходил' });
 });
 
-// === ЗАПУСК ===
 bot.launch().catch(err => {
-  pushScheduler.startScheduler(bot);
   console.error('Ошибка запуска бота:', err);
   process.exit(1);
 });
+pushScheduler.startScheduler(bot);
 
 const httpServer = app.listen(3001, () => {
   console.log('🚀 Сервер Работяги запущен на порту 3001');
