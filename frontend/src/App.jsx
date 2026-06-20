@@ -5,335 +5,31 @@ import { CheckCircle, Plus, X, BarChart2, Clock, User, ArrowRight, Trash2, Penci
   Beer, Award, FileText, Users, Lock, Bell, AtSign, Inbox, Key, Shield, Eye, EyeOff, GripVertical, Archive, RotateCcw, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, CalendarDays,
   AlertTriangle, TrendingUp, TrendingDown, Minus, Send, DollarSign, Activity, Sun, Moon, MonitorSmartphone } from "lucide-react";
 import './styles/app.css';
+import { ROLES, ALL_PERMS } from './constants/roles.js';
+import { SHIFT_STATUSES } from './constants/shifts.js';
+import { DAYS_RU, MONTHS_RU, REPEAT_OPTS, DEFAULT_MEMBERS, DEFAULT_PROFILES } from './constants/locale.js';
+import { EMBEDDED_SCHEDULE, EMBEDDED_EVENTS, HOLIDAYS } from './constants/schedule.js';
+import { HOUR_NORMS, hourNorm } from './constants/staff.js';
+import { SEED_TASKS, defaultTasks, mergeSeeds } from './constants/seeds.js';
+import { uid, nowISO, hmm, fmtDate, addDays, rangeDays } from './utils/dateUtils.js';
+import { isToday, isDone, todayStr, getTodayTasks, doneInfo, nextDue, dueLabel, buildDaySummary } from './utils/taskUtils.js';
+import { hasPerm } from './utils/authUtils.js';
+import { PUSH_GATE_MIN, afterPushGate, staffNorm, staffCheck, getShiftStatus } from './utils/staffUtils.js';
+import { getActiveCards, processCard } from './utils/cardUtils.js';
+import { rateFor, progressTrend, suspiciousFlags, genRecs } from './utils/statsUtils.js';
+import { applyTheme, THEME_KEY, systemPrefersLight } from './utils/theme.js';
+import { ld, sv, pingServer, tgBind } from './services/api.js';
+import { usePersist } from './hooks/usePersist.js';
 
-const DAYS_RU=["вс","пн","вт","ср","чт","пт","сб"];
 const DOW_FULL=["Воскресенье","Понедельник","Вторник","Среда","Четверг","Пятница","Суббота"];
-const MONTHS_RU=["Января","Февраля","Марта","Апреля","Мая","Июня","Июля","Августа","Сентября","Октября","Ноября","Декабря"];
-const REPEAT_OPTS=[{id:"opening",label:"Открытие смены"},{id:"closing",label:"Закрытие смены"},{id:"daily",label:"Каждый день"},{id:"workday",label:"По будням"},{id:"weekly",label:"Еженедельно"},{id:"once",label:"Разово"}];
-const DEFAULT_MEMBERS=["Александр","Павел","Евгений","Тимофей","Ярослав","Антон","Андрей"];
-
-const ROLES={
-  barman:{label:"Бармен",perms:["view_own_tasks","mark_own_tasks","view_schedule","view_own_stats"]},
-  head_barman:{label:"Шеф-бармен",perms:["view_own_tasks","mark_own_tasks","view_schedule","view_own_stats","view_all_tasks","add_tasks","view_team_stats"]},
-  manager:{label:"Управляющий",perms:["*"]},
-};
-const ALL_PERMS=[
-  {id:"view_own_tasks",label:"Видеть свои задачи"},{id:"mark_own_tasks",label:"Отмечать задачи"},
-  {id:"view_all_tasks",label:"Видеть все задачи"},{id:"add_tasks",label:"Создавать задачи"},
-  {id:"view_schedule",label:"Расписание и календарь"},{id:"view_own_stats",label:"Своя статистика"},
-  {id:"view_team_stats",label:"Статистика команды"},
-];
-
-// NOTE FOR TELEGRAM VERSION — push-уведомления по статусам:
-// "Завтра смена" → вечером накануне (19:00) · "Сегодня смена" → 6:00 или за 1ч до начала
-// "В смене" → при старте · "Карточка" → сразу сотруднику (+команде если публично)
-// "Передача смене" → push следующей смене · "Задача просрочена" → в конце смены
-// "@упоминание" → push назначенному (assignedTo) сразу при создании задачи
-// "Смена закрыта" → push управляющему/шефу ТОЛЬКО после 23:30 (PUSH_GATE_MIN), с краткой сводкой дня
-// "Регулярные задачи" → бэкенд автогенерирует на нужные дни (cron) с учётом периода from/until и расписания
-const SHIFT_STATUSES={
-  on_shift:{label:"В смене",color:"#4e7040",bg:"rgba(78,112,64,.2)"},
-  today_shift:{label:"Сегодня смена",color:"#c97d3c",bg:"rgba(201,125,60,.18)"},
-  worked:{label:"Отработал",color:"#6b7a8c",bg:"rgba(107,122,140,.18)"},
-  tomorrow_shift:{label:"Завтра смена",color:"#7a6a55",bg:"rgba(122,106,85,.18)"},
-  day_off:{label:"Выходной",color:"#4a4a4a",bg:"rgba(100,100,100,.12)"},
-  sick:{label:"Больничный",color:"#e07a60",bg:"rgba(224,122,96,.18)"},
-  vacation:{label:"Отпуск",color:"#5b8b9b",bg:"rgba(91,139,155,.18)"},
-  business_trip:{label:"Командировка",color:"#8b6b9b",bg:"rgba(139,107,155,.18)"},
-};
-const DEFAULT_PROFILES=DEFAULT_MEMBERS.map((name,i)=>({name,role:i===0?"head_barman":"barman",perms:i===0?ROLES.head_barman.perms:ROLES.barman.perms}));
-
-// Индивидуальные нормы часов в месяц (коридор). SERVER: вынести в редактируемый справочник.
-const HOUR_NORMS={"Павел":{min:60,max:70}};
-const DEFAULT_HOUR_NORM={min:140,max:160};
-function hourNorm(name){const n=HOUR_NORMS[name]||DEFAULT_HOUR_NORM;return{...n,target:Math.round((n.min+n.max)/2)};}
-
-// Праздники РФ 2026 (нужен 3-й человек с 18:00, как в загруженный день). SERVER: вынести в редактируемый справочник.
-const HOLIDAYS=["2026-01-01","2026-01-07","2026-02-23","2026-03-08","2026-05-01","2026-05-09","2026-06-12","2026-11-04","2026-12-31"];
-
-const EMBEDDED_SCHEDULE={"2026-06-01":[{"name":"сорокоумов/попов","start":"11:00/13:00","end":"","report":false,"guest":true}],"2026-06-02":[{"name":"Тимофей","start":"11:00","end":"12:00","report":true},{"name":"Попов","start":"13:00","end":"","report":false,"guest":true}],"2026-06-03":[{"name":"Александр","start":"11:00","end":"12:00","report":true},{"name":"Ярослав","start":"13:00","end":"10:00","report":false}],"2026-06-04":[{"name":"Евгений","start":"11:00","end":"12:00","report":true},{"name":"Ярослав","start":"13:00","end":"10:00","report":false}],"2026-06-05":[{"name":"Евгений","start":"13:00","end":"10:00","report":false},{"name":"Тимофей","start":"18:00","end":"5:00","report":false},{"name":"Ярослав","start":"11:00","end":"12:00","report":true}],"2026-06-06":[{"name":"Александр","start":"11:00","end":"12:00","report":true},{"name":"Тимофей","start":"13:00","end":"10:00","report":false},{"name":"Юра Воронцов","start":"18:00","end":"","report":false,"guest":true}],"2026-06-07":[{"name":"Александр","start":"11:00","end":"12:00","report":false},{"name":"Тимофей","start":"13:00","end":"10:00","report":true}],"2026-06-08":[{"name":"Александр","start":"13:00","end":"10:00","report":false},{"name":"Ярослав","start":"11:00","end":"12:00","report":true}],"2026-06-09":[{"name":"Евгений","start":"10:00","end":"13:00","report":true},{"name":"Ярослав","start":"13:00","end":"10:00","report":false}],"2026-06-10":[{"name":"Александр","start":"11:00","end":"12:00","report":true},{"name":"Ярослав","start":"13:00","end":"10:00","report":false}],"2026-06-11":[{"name":"Александр","start":"13:00","end":"10:00","report":false},{"name":"Евгений","start":"18:00","end":"5:00","report":false},{"name":"Тимофей","start":"11:00","end":"12:00","report":true}],"2026-06-12":[{"name":"Евгений","start":"13:00","end":"10:00","report":false},{"name":"Тимофей","start":"18:00","end":"5:00","report":false},{"name":"Ярослав","start":"11:00","end":"12:00","report":true}],"2026-06-13":[{"name":"Евгений","start":"18:00","end":"5:00","report":true},{"name":"Тимофей","start":"13:00","end":"10:00","report":false},{"name":"Ярослав","start":"11:00","end":"12:00","report":false}],"2026-06-14":[{"name":"Александр","start":"11:00","end":"12:00","report":true},{"name":"Евгений","start":"13:00","end":"10:00","report":false},{"name":"Ярослав","start":"18:00","end":"5:00","report":false}],"2026-06-15":[{"name":"Павел","start":"11:00","end":"12:00","report":true}],"2026-06-16":[{"name":"Александр","start":"11:00","end":"12:00","report":true},{"name":"Павел","start":"13:00","end":"10:00","report":false}],"2026-06-17":[{"name":"Павел","start":"18:00","end":"5:00","report":false},{"name":"Евгений","start":"13:00","end":"10:00","report":false},{"name":"Тимофей","start":"11:00","end":"12:00","report":true}],"2026-06-18":[{"name":"Тимофей","start":"13:00","end":"10:00","report":false},{"name":"Ярослав","start":"11:00","end":"12:00","report":true}],"2026-06-19":[{"name":"Александр","start":"11:00","end":"12:00","report":false},{"name":"Евгений","start":"13:00","end":"10:00","report":true},{"name":"Ярослав","start":"18:00","end":"5:00","report":false}],"2026-06-20":[{"name":"Александр","start":"18:00","end":"5:00","report":false},{"name":"Евгений","start":"13:00","end":"10:00","report":false},{"name":"Тимофей","start":"11:00","end":"12:00","report":true}],"2026-06-21":[{"name":"Павел","start":"13:00","end":"10:00","report":false},{"name":"Ярослав","start":"11:00","end":"12:00","report":true}],"2026-06-22":[{"name":"Александр","start":"11:00","end":"12:00","report":true},{"name":"Павел","start":"13:00","end":"10:00","report":true}],"2026-06-23":[{"name":"Евгений","start":"10:00","end":"13:00","report":false},{"name":"Тимофей","start":"12:00","end":"11:00","report":true}],"2026-06-24":[{"name":"Евгений","start":"13:00","end":"10:00","report":false},{"name":"Тимофей","start":"18:00","end":"5:00","report":false},{"name":"Ярослав","start":"11:00","end":"12:00","report":true}],"2026-06-25":[{"name":"Александр","start":"11:00","end":"12:00","report":true},{"name":"Ярослав","start":"13:00","end":"10:00","report":false}],"2026-06-26":[{"name":"Александр","start":"18:00","end":"5:00","report":false},{"name":"Павел","start":"11:00","end":"12:00","report":true},{"name":"Евгений","start":"13:00","end":"10:00","report":false}],"2026-06-27":[{"name":"Павел","start":"13:00","end":"10:00","report":false},{"name":"Евгений","start":"18:00","end":"5:00","report":false},{"name":"Тимофей","start":"11:00","end":"12:00","report":true}],"2026-06-28":[{"name":"Павел","start":"18:00","end":"5:00","report":false},{"name":"Тимофей","start":"13:00","end":"10:00","report":false},{"name":"Ярослав","start":"11:00","end":"12:00","report":true}],"2026-06-29":[{"name":"Александр","start":"11:00","end":"12:00","report":true},{"name":"Ярослав","start":"13:00","end":"10:00","report":false}],"2026-06-30":[{"name":"Евгений","start":"11:00","end":"12:00","report":true},{"name":"Тимофей","start":"13:00","end":"10:00","report":false}]};
-const EMBEDDED_EVENTS={"2026-06-03":"истории в бутылке","2026-06-10":"истории в бутылке","2026-06-14":"стерео 55","2026-06-17":"истории в бутылке","2026-06-23":"инвента","2026-06-24":"истории в бутылке","2026-06-28":"стерео 55"};
-
-const uid=()=>Math.random().toString(36).slice(2,9);
 const accountLabel=acc=>acc==="manager"?"Управляющий":acc==="developer"?"Разработчик":acc;
 // SERVER: пароли в проде хранятся хешированными (bcrypt) на сервере, проверка серверная, сессия по токену.
 function canManageAccounts(acc){return acc==="manager"||acc==="developer";}
 function canViewPasswords(acc,acl){return acc==="developer"||(acc==="manager"&&!!acl.managerCanViewPasswords);}
-const todayStr=()=>new Date().toISOString().slice(0,10);
-const nowISO=()=>new Date().toISOString();
-const hmm=s=>{if(!s)return 0;const[h,m]=s.split(":").map(Number);return h*60+(m||0);};
-const fmtDate=ds=>{const d=new Date(ds);return `${d.getDate()} ${MONTHS_RU[d.getMonth()]}`;};
-const isDone=v=>v===true||(v&&typeof v==="object"&&!!v.done);
-const doneInfo=v=>(v&&typeof v==="object")?v:(v===true?{done:true,ts:null,by:null}:null);
-const addDays=(ds,n)=>{const d=new Date(ds);d.setDate(d.getDate()+n);return d.toISOString().slice(0,10);};
-const rangeDays=(ds,n)=>Array.from({length:n},(_,i)=>addDays(ds,-i));
-
-// ближайшая дата, когда задача актуальна
-function nextDue(task,fromDs){
-  if(task.repeat==="once")return task.date;
-  if(["daily","opening","closing"].includes(task.repeat))return fromDs;
-  if(task.repeat==="workday"){let d=fromDs;for(let i=0;i<7;i++){const dw=new Date(d).getDay();if(dw!==0&&dw!==6)return d;d=addDays(d,1);}return fromDs;}
-  if(task.repeat==="weekly"){let d=fromDs;for(let i=0;i<8;i++){if(new Date(d).getDay()===task.dayOfWeek)return d;d=addDays(d,1);}return fromDs;}
-  return fromDs;
-}
-function dueLabel(task,ds){
-  if(task.kind==="irregular")return{dueDate:"irregular",text:"нерегулярная · требует внимания",overdue:false};
-  if(task.repeat==="once"){const overdue=task.date<ds;return{dueDate:task.date,text:fmtDate(task.date),overdue};}
-  const nd=nextDue(task,ds);const rl=REPEAT_OPTS.find(r=>r.id===task.repeat)?.label||task.repeat;
-  const period=task.until?` (до ${fmtDate(task.until)})`:"";
-  return{dueDate:nd,text:`${rl} · ${nd===ds?"сегодня":fmtDate(nd)}${period}`,overdue:false};
-}
-// Пуш о закрытии можно слать только после 23:30 (бар закрывается, отчёты сданы)
-const PUSH_GATE_MIN=23*60+30;
-const afterPushGate=now=>(now.getHours()*60+now.getMinutes())>=PUSH_GATE_MIN;
-function buildDaySummary(tasks,history,ds){
-  const reg=tasks.filter(t=>!t.archived&&t.kind!=="irregular"&&isToday(t,ds));
-  const done=reg.filter(t=>isDone(history[`${t.id}::${ds}`]));
-  const notDone=reg.filter(t=>!isDone(history[`${t.id}::${ds}`]));
-  const irregOpen=tasks.filter(t=>!t.archived&&t.kind==="irregular"&&!isDone(history[`${t.id}::irregular`]));
-  return{date:ds,total:reg.length,done:done.length,notDone,irregOpen};
-}
-
-function isToday(task,ds){
-  if(task.kind==="irregular")return false;
-  if(task.from&&ds<task.from)return false;
-  if(task.until&&ds>task.until)return false;
-  if(task.repeat==="once")return task.date===ds;
-  if(["daily","opening","closing"].includes(task.repeat))return true;
-  if(task.repeat==="workday"){const d=new Date(ds).getDay();return d!==0&&d!==6;}
-  if(task.repeat==="weekly")return task.dayOfWeek===new Date(ds).getDay();
-  return false;
-}
-function hasPerm(who,profiles,perm){
-  if(who==="manager"||who==="developer")return true;
-  const p=profiles.find(x=>x.name===who);
-  return p?(p.perms.includes("*")||p.perms.includes(perm)):false;
-}
-
-// ── Норматив по штату ──
-function staffNorm(ds,events){
-  const dow=new Date(ds).getDay();
-  const ev=(events[ds]||"").toLowerCase();
-  const holiday=HOLIDAYS.includes(ds);
-  if([3,5,6].includes(dow)||holiday) return {count:3,thirdFrom:"18:00",reason:holiday?"праздник":"пт/сб/ср"};
-  if(dow===0&&ev.includes("стерео")) return {count:3,thirdFrom:"18:00",reason:"Стерео 55"};
-  return {count:2,thirdFrom:null,reason:"будний"};
-}
-function staffCheck(ds,schedule,events){
-  const norm=staffNorm(ds,events);
-  const shifts=(schedule[ds]||[]).filter(s=>!s.guest);
-  const actual=shifts.length;
-  const hasEvening=shifts.some(s=>hmm(s.start)>=hmm("18:00"));
-  let ok=actual>=norm.count;
-  let msg="";
-  if(actual<norm.count) msg=`Не хватает ${norm.count-actual} чел. (норма ${norm.count}, в графике ${actual})`;
-  else if(norm.thirdFrom&&!hasEvening&&actual>=3) msg="Норма закрыта, но нет смены с 18:00";
-  return {norm,actual,ok,msg,hasEvening};
-}
-
-function getShiftStatus(name,ds,schedule,overrides,now){
-  const ov=overrides.find(o=>o.name===name&&o.from<=ds&&(!o.until||o.until>=ds));
-  if(ov)return ov.status;
-  const todayShifts=(schedule[ds]||[]).filter(s=>s.name===name);
-  if(!todayShifts.length){
-    if((schedule[addDays(ds,1)]||[]).some(s=>s.name===name))return"tomorrow_shift";
-    return"day_off";
-  }
-  const sh=todayShifts[0];
-  const nowM=now.getHours()*60+now.getMinutes();
-  const startM=hmm(sh.start), endM=Math.min(startM+hmm(sh.end),1440);
-  if(nowM>=startM&&nowM<endM)return"on_shift";
-  if(nowM>=360&&nowM<startM)return"today_shift";
-  if(nowM>=endM)return"worked";
-  return"today_shift";
-}
-function getActiveCards(cards,name){
-  const cut=addDays(todayStr(),-90);
-  return cards.filter(c=>c.name===name&&c.active&&c.date>=cut);
-}
-function processCard(cards,name,type,comment,isPrivate,issuedBy){
-  const active=getActiveCards(cards,name);
-  const yellows=active.filter(c=>c.type==="yellow"), oranges=active.filter(c=>c.type==="orange");
-  let finalType=type, updated=[...cards];
-  if(type==="yellow"){
-    if(oranges.length>0)finalType="red";
-    else if(yellows.length>=1){updated=updated.map(c=>c.name===name&&c.type==="yellow"&&c.active?{...c,active:false}:c);finalType="orange";}
-  }
-  return{cards:[...updated,{id:uid(),name,type:finalType,date:todayStr(),comment,isPrivate,issuedBy,active:true}],finalType};
-}
-
-// ── 30-дневная статистика + тренд прогресса ──
-function rateFor(name,tasks,history,ds,fromAgo,span){
-  let t=0,d=0;
-  for(let i=fromAgo;i<fromAgo+span;i++){
-    const k=addDays(ds,-i);
-    tasks.filter(x=>(x.assignee===name||x.assignee==="смена")&&isToday(x,k)).forEach(x=>{t++;if(isDone(history[`${x.id}::${k}`]))d++;});
-  }
-  return{t,d,rate:t?d/t:null};
-}
-function progressTrend(name,tasks,history,ds){
-  const recent=rateFor(name,tasks,history,ds,0,15);
-  const prev=rateFor(name,tasks,history,ds,15,15);
-  if(recent.rate===null||prev.rate===null)return null;
-  return{recent:recent.rate,prev:prev.rate,delta:recent.rate-prev.rate};
-}
-
-// ── Детектор нереалистичного закрытия ──
-function suspiciousFlags(name,tasks,history){
-  const byId=Object.fromEntries(tasks.map(t=>[t.id,t]));
-  const byDate={};
-  Object.entries(history).forEach(([k,v])=>{
-    const info=doneInfo(v);
-    if(!info||!info.done||!info.ts||info.by!==name)return;
-    const[tid,date]=k.split("::");
-    (byDate[date]=byDate[date]||[]).push({ts:info.ts,task:byId[tid]});
-  });
-  const flags=[];
-  Object.entries(byDate).forEach(([date,arr])=>{
-    const minutes={};
-    arr.forEach(a=>{const m=a.ts.slice(0,16);minutes[m]=(minutes[m]||0)+1;});
-    const massMin=Object.entries(minutes).find(([,c])=>c>=3);
-    if(massMin)flags.push({date,type:"mass",text:`${fmtDate(date)}: ${massMin[1]} задач отмечены в одну минуту — возможно «накликал»`});
-    arr.forEach(a=>{
-      if(!a.task)return;
-      const hour=new Date(a.ts).getHours();
-      if((a.task.repeat==="closing"||a.task.isReport)&&hour>=6&&hour<20)
-        flags.push({date,type:"early",text:`${fmtDate(date)}: задача закрытия отмечена в ${String(hour).padStart(2,"0")}:00 (рано)`});
-    });
-  });
-  return flags;
-}
-
-function genRecs(name,tasks,history,schedule,cards,profiles,ds){
-  const recs=[];
-  const r=rateFor(name,tasks,history,ds,0,14);
-  const rate=r.rate;
-  // отчётные/открытие/закрытие
-  let repTot=0,repDon=0,opTot=0,opDon=0,clTot=0,clDon=0;
-  rangeDays(ds,14).forEach(d=>{
-    tasks.filter(t=>t.assignee===name||t.assignee==="смена").filter(t=>isToday(t,d)).forEach(t=>{
-      const ok=isDone(history[`${t.id}::${d}`]);
-      if(t.isReport){repTot++;if(ok)repDon++;}
-      if(t.repeat==="opening"){opTot++;if(ok)opDon++;}
-      if(t.repeat==="closing"){clTot++;if(ok)clDon++;}
-    });
-  });
-  if(rate!==null){
-    if(rate>=.9)recs.push({type:"success",icon:"⭐",text:"Отличная дисциплина — 90%+ задач. Держи темп."});
-    else if(rate>=.7)recs.push({type:"info",icon:"📈",text:`${Math.round(rate*100)}% задач — хороший уровень, есть куда расти.`});
-    else if(rate>=.5)recs.push({type:"warning",icon:"⚠️",text:`${Math.round(rate*100)}% задач за 2 недели — подтяни пунктуальность.`});
-    else recs.push({type:"danger",icon:"🚨",text:`Только ${Math.round(rate*100)}% задач — нужно внимание.`});
-  }
-  // тренд прогресса
-  const tr=progressTrend(name,tasks,history,ds);
-  if(tr&&Math.abs(tr.delta)>=.1){
-    if(tr.delta>0)recs.push({type:"success",icon:"🚀",text:`Прогресс! Было ${Math.round(tr.prev*100)}% → стало ${Math.round(tr.recent*100)}%. Так держать.`});
-    else recs.push({type:"warning",icon:"📉",text:`Снижение: было ${Math.round(tr.prev*100)}% → стало ${Math.round(tr.recent*100)}%. Вернёмся в форму.`});
-  }
-  if(repTot>=2){const rr=repDon/repTot;if(rate&&rr<rate-.15)recs.push({type:"warning",icon:"📋",text:"Отчётные задачи проседают — важная зона роста."});else if(rr>=.9)recs.push({type:"success",icon:"📋",text:"Отчётная дисциплина на высоте!"});}
-  if(opTot>=2&&clTot>=2){const or2=opDon/opTot,cr=clDon/clTot;if(cr<or2-.2)recs.push({type:"info",icon:"🌙",text:`Открытие (${Math.round(or2*100)}%) лучше закрытия (${Math.round(cr*100)}%) — добей закрытие.`});}
-  // серия смен
-  let streak=0;
-  for(const d of rangeDays(ds,30)){if((schedule[d]||[]).some(s=>s.name===name))streak++;else break;}
-  if(streak>=5)recs.push({type:"warning",icon:"😴",text:`${streak} смен подряд — дай себе отдых, усталость бьёт по качеству.`});
-  else if(streak>=3)recs.push({type:"info",icon:"💡",text:`${streak} смены подряд — отдохни на ближайшем выходном.`});
-  const wh=rangeDays(ds,7).reduce((a,d)=>{const s=(schedule[d]||[]).find(x=>x.name===name);return a+(s&&s.end?hmm(s.end)/60:0);},0);
-  if(wh>48)recs.push({type:"warning",icon:"⏰",text:`${Math.round(wh)}ч за 7 дней — высокая нагрузка.`});
-  // подозрительное закрытие
-  const susp=suspiciousFlags(name,tasks,history);
-  if(susp.length)recs.push({type:"danger",icon:"🔍",text:`Замечено нереалистичное закрытие задач (${susp.length}). Стоит проверить — возможно отмечает не делая.`});
-  // карточки
-  const ac=getActiveCards(cards,name);
-  if(ac.some(c=>c.type==="red"))recs.push({type:"danger",icon:"🟥",text:"Красная карточка — нужна встреча с руководством."});
-  else if(ac.some(c=>c.type==="orange"))recs.push({type:"warning",icon:"🟧",text:"Оранжевая карточка — следующее нарушение станет красной."});
-  else if(ac.some(c=>c.type==="yellow"))recs.push({type:"info",icon:"🟨",text:"Жёлтая карточка — следующая станет оранжевой."});
-  else if(rate&&rate>.8&&streak<4&&!susp.length)recs.push({type:"success",icon:"✅",text:"Чистая история и хорошие показатели — супер!"});
-  const p=profiles.find(x=>x.name===name);
-  if(p?.role==="barman"&&rate&&rate>.85&&!ac.length&&!susp.length)recs.push({type:"growth",icon:"🎯",text:"Стабильно высокие показатели — можно брать больше ответственности."});
-  if(!recs.length)recs.push({type:"info",icon:"📊",text:"Данных пока мало — выполняй задачи, рекомендации появятся."});
-  return recs;
-}
-
-// Память: источник истины — бэкенд (общий для всех устройств),
-// localStorage — резерв на устройстве (приложение помнит даже если сервер недоступен).
-const API="/api";
-let SERVER_OK=null; // null=ещё не знаем, true/false
-const _lsk=k=>"rab:"+k;
-function lsGet(k,fb){try{const v=localStorage.getItem(_lsk(k));return v!=null?JSON.parse(v):fb;}catch{return fb;}}
-function lsSet(k,v){try{localStorage.setItem(_lsk(k),JSON.stringify(v));}catch{}}
-async function ld(k,fb){
-  try{
-    const r=await fetch(`${API}/kv/${encodeURIComponent(k)}`);
-    if(r.ok){SERVER_OK=true;const d=await r.json();
-      if(d&&d.value!=null){const val=JSON.parse(d.value);lsSet(k,val);return val;}
-      return lsGet(k,fb);
-    }
-  }catch{}
-  SERVER_OK=false; // бэкенд недоступен — берём из локального резерва
-  return lsGet(k,fb);
-}
-async function sv(k,v){
-  lsSet(k,v); // мгновенно и всегда — это и есть «не забывает после перезагрузки»
-  try{const r=await fetch(`${API}/kv/${encodeURIComponent(k)}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({value:JSON.stringify(v)})});SERVER_OK=r.ok;}
-  catch{SERVER_OK=false;}
-}
-async function pingServer(){try{const r=await fetch(`${API}/health`,{cache:"no-store"});SERVER_OK=r.ok;return r.ok;}catch{SERVER_OK=false;return false;}}
 
 // Telegram Mini App
 const TG=(typeof window!=="undefined"&&window.Telegram)?window.Telegram.WebApp:null;
 function tgUserId(){try{return TG?.initDataUnsafe?.user?.id||null;}catch{return null;}}
-async function tgBind(name){const id=tgUserId();if(!id)return;try{await fetch(`${API}/bind`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,telegramId:id})});}catch{}}
-
-// Тема: "auto" следует за системной/Telegram настройкой устройства, либо "light"/"dark" — выбор пользователя
-const THEME_KEY="rab:theme_pref";
-function systemPrefersLight(){
-  try{
-    if(TG?.colorScheme)return TG.colorScheme==="light";
-    return window.matchMedia("(prefers-color-scheme: light)").matches;
-  }catch{return false;}
-}
-function applyTheme(pref){
-  const resolved=pref==="auto"?(systemPrefersLight()?"light":"dark"):pref;
-  try{document.documentElement.setAttribute("data-theme",resolved);}catch{}
-}
-
-// Сохраняет value в хранилище ТОЛЬКО при реальных изменениях.
-// Пропускает первый прогон после загрузки, чтобы не записать только что прочитанный снимок
-// обратно и не затереть изменения с другого устройства.
-function usePersist(key,value,ready){
-  const first=useRef(true);
-  useEffect(()=>{
-    if(!ready)return;
-    if(first.current){first.current=false;return;}
-    sv(key,value);
-  },[value,ready]);
-}
-
-function defaultTasks(){return[
-  {id:uid(),title:"Проверить остатки пива",repeat:"opening",time:"10:30",assignee:"смена",notes:"",isReport:false},
-  {id:uid(),title:"Протереть краны, проверить давление",repeat:"opening",time:"11:00",assignee:"смена",notes:"",isReport:false},
-  {id:uid(),title:"Выставить меню и карту пива",repeat:"opening",time:"11:00",assignee:"смена",notes:"",isReport:false},
-  {id:uid(),title:"Заполнить отчёт по смене",repeat:"closing",time:"23:00",assignee:"смена",notes:"Выручка, инциденты, списания",isReport:true},
-  {id:uid(),title:"Инвентаризация кассы",repeat:"closing",time:"22:45",assignee:"смена",notes:"",isReport:true},
-  {id:uid(),title:"Уборка зала и стойки",repeat:"closing",time:"23:00",assignee:"смена",notes:"",isReport:false},
-  {id:uid(),title:"Проверить поступления на завтра",repeat:"daily",time:"15:00",assignee:"смена",notes:"",isReport:false},
-  ...SEED_TASKS,
-];}
-// Задачи со стабильными id — подмешиваются к сохранённым, не затирая кастомные. Cadence можно менять в редакторе.
-const SEED_TASKS=[
-  {id:"seed-nuts",title:"Заказать орехи в Blackchops",repeat:"weekly",dayOfWeek:1,time:"12:00",assignee:"смена",assignedTo:null,notes:"",isReport:false},
-  {id:"seed-cheese",title:"Заказать сыры",repeat:"weekly",dayOfWeek:1,time:"12:00",assignee:"смена",assignedTo:null,notes:"",isReport:false},
-  {id:"seed-meat",title:"Заказать мясные закуски (Meatsiders)",repeat:"weekly",dayOfWeek:2,time:"12:00",assignee:"смена",assignedTo:null,notes:"",isReport:false},
-  {id:"seed-sandwiches",title:"Заказать сэндвичи",repeat:"weekly",dayOfWeek:4,time:"12:00",assignee:"смена",assignedTo:null,notes:"",isReport:false},
-  {id:"seed-staff",title:"Заказать стаф-питание",repeat:"weekly",dayOfWeek:1,time:"13:00",assignee:"смена",assignedTo:null,notes:"",isReport:false},
-  {id:"seed-dust",title:"Протереть полки от пыли",repeat:"weekly",dayOfWeek:3,time:"11:30",assignee:"смена",assignedTo:null,notes:"",isReport:false},
-  {id:"seed-cash",title:"Разменять наличные",repeat:"opening",time:"11:00",assignee:"смена",assignedTo:null,notes:"",isReport:false},
-];
-function mergeSeeds(tasks){
-  const ids=new Set(tasks.map(t=>t.id));
-  const missing=SEED_TASKS.filter(s=>!ids.has(s.id));
-  return missing.length?[...tasks,...missing]:tasks;
-}
 
 // Маскот «Работяга» — контурный скетч по фото (пучок-хвостик + широкая улыбка со щербинкой)
 function Mascot({size=24,color="var(--cu)"}){
@@ -553,7 +249,7 @@ export default function App(){
     if(createTask&&taskTitle){const nt={id:uid(),title:`[Перенос] ${taskTitle}`,repeat:"once",date:forDate,time:"",assignee:"смена",notes:text,isReport:false};setTasks(p=>[...p,nt]);}
     logEvent("handover",`на ${fmtDate(forDate)}: ${text.slice(0,40)}`);
   };
-  const doLogin=name=>{setWho(name);sv("currentUser",name);setPicking(false);setAuthPending(null);logEvent("login",accountLabel(name));tgBind(name);};
+  const doLogin=name=>{setWho(name);sv("currentUser",name);setPicking(false);setAuthPending(null);logEvent("login",accountLabel(name));tgBind(name, tgUserId());};
   const requestLogin=account=>setAuthPending(account);
   const submitAuth=(account,pwd)=>{
     const existing=auth[account];
@@ -718,7 +414,6 @@ export default function App(){
         onView={isManager?n=>setViewingEmployee(n):null}
         setCardModal={v=>setModal(v)} onRevoke={id=>setCards(prev=>prev.map(c=>c.id===id?{...c,active:false}:c))}/>}
 
-      {tab==="admin"&&isManager&&<AdminTab auth={auth} members={members} ds={ds}/>}
 
       {canAddTasks&&["today"].includes(tab)&&<button className="fab" onClick={()=>setModal({_new:true})}><Plus size={24} color="var(--bg)"/></button>}
       {modal&&!modal._card&&!modal._handover&&!modal._inbox&&!modal._closing&&<TaskModal task={modal._new?null:modal} ds={modal._date||ds} members={members} onClose={()=>setModal(null)} onSave={saveTask} onDelete={delTask}/>}
