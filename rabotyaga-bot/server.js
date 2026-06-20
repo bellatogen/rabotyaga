@@ -13,10 +13,20 @@ const adminApi = require('./src/api/admin');
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
-app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
+
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+function requireAdminToken(req, res, next) {
+  const token = req.query.token || req.headers['x-admin-token'];
+  if (!ADMIN_TOKEN || token !== ADMIN_TOKEN) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+}
+
+// Раздаём admin.html только через гейт, не через express.static — иначе /admin.html доступен без токена
+app.get('/admin', requireAdminToken, (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 app.use('/api/push', pushApi);
-app.use('/api/admin', adminApi);
+app.use('/api/admin', requireAdminToken, adminApi);
 
 const TOKEN = process.env.TELEGRAM_TOKEN;
 const WEBAPP_URL = process.env.WEBAPP_URL || 'https://rabotyaga.ru';
@@ -225,7 +235,7 @@ app.post('/api/bind', (req, res) => {
   res.json({ success: true });
 });
 
-app.delete('/api/bind/:name', (req, res) => {
+app.delete('/api/bind/:name', requireAdminToken, (req, res) => {
   const { name } = req.params;
   if (data.bindings[name]) {
     delete data.bindings[name];
@@ -236,11 +246,11 @@ app.delete('/api/bind/:name', (req, res) => {
   res.status(404).json({ error: 'Сотрудник не найден' });
 });
 
-app.get('/api/bindings', (req, res) => {
+app.get('/api/bindings', requireAdminToken, (req, res) => {
   res.json({ success: true, bindings: data.bindings });
 });
 
-app.get("/api/push/test/:name", async (req, res) => {
+app.get("/api/push/test/:name", requireAdminToken, async (req, res) => {
   const name = req.params.name;
   const userId = data.bindings[name];
   if (!userId) return res.json({ success: false, msg: "Пользователь не найден" });

@@ -130,14 +130,22 @@
   <div id="toast" class="toast"></div>
   <script>
     const API='';let currentFilter='all';
+    let ADMIN_TOKEN=sessionStorage.getItem('adminToken')||prompt('Админ-токен:')||'';
+    if(ADMIN_TOKEN)sessionStorage.setItem('adminToken',ADMIN_TOKEN);
+    async function adminFetch(url,opts={}){
+      opts.headers={...(opts.headers||{}),'X-Admin-Token':ADMIN_TOKEN};
+      const res=await fetch(url,opts);
+      if(res.status===401){sessionStorage.removeItem('adminToken');alert('Неверный токен — обнови страницу и введи заново');}
+      return res;
+    }
     document.querySelectorAll('.tab').forEach(tab=>{tab.addEventListener('click',()=>{document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));tab.classList.add('active');document.getElementById(tab.dataset.tab).classList.add('active');if(tab.dataset.tab==='logs')loadLogs();});});
     document.querySelectorAll('.log-filter').forEach(btn=>{btn.addEventListener('click',()=>{document.querySelectorAll('.log-filter').forEach(b=>b.classList.remove('active'));btn.classList.add('active');currentFilter=btn.dataset.filter;loadLogs();});});
     function toast(msg,isError=false){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(isError?' error':'');setTimeout(()=>t.className='toast',3000);}
     async function loadEmployees(){
-      const res=await fetch(API+'/api/bindings');
+      const res=await adminFetch(API+'/api/bindings');
       const data=await res.json();
       const list=document.getElementById('employees-list');
-      const pushRes=await fetch(API+'/api/admin/push-settings');
+      const pushRes=await adminFetch(API+'/api/admin/push-settings');
       const pushData=await pushRes.json();
       const pushSettings=pushData.settings||{};
       if(!data.bindings||Object.keys(data.bindings).length===0){
@@ -167,7 +175,7 @@
       }).join('');
     }
     async function enablePush(name,userId){
-      const res=await fetch(API+'/api/admin/push-settings',{
+      const res=await adminFetch(API+'/api/admin/push-settings',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body:JSON.stringify({
@@ -187,12 +195,12 @@
         toast('❌ Ошибка',true);
       }
     }
-    async function deleteEmployee(name){if(!confirm(`Удалить "${name}"?`))return;const res=await fetch(API+'/api/bind/'+encodeURIComponent(name),{method:'DELETE'});const data=await res.json();if(data.success){toast('✅ Удалён');loadEmployees();}else toast('❌ Ошибка',true);}
-    async function loadTemplates(){const res=await fetch(API+'/api/admin/default-templates');const data=await res.json();if(data.templates){document.getElementById('tpl-dayBeforeShift').value=data.templates.dayBeforeShift||'';document.getElementById('tpl-closeShiftReminder').value=data.templates.closeShiftReminder||'';document.getElementById('tpl-personalTasks').value=data.templates.personalTasks||'';}}
-    async function saveTemplates(){const templates={dayBeforeShift:document.getElementById('tpl-dayBeforeShift').value,closeShiftReminder:document.getElementById('tpl-closeShiftReminder').value,personalTasks:document.getElementById('tpl-personalTasks').value};const res=await fetch(API+'/api/admin/default-templates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({templates})});const data=await res.json();if(data.success){toast('✅ Сохранено');loadTemplates();}else toast('❌ Ошибка',true);}
-    async function loadSchedule(){const res=await fetch(API+'/api/admin/schedule');const data=await res.json();if(data.schedule){['dayBeforeShift','personalTasks','closeShiftReminder'].forEach(key=>{const s=data.schedule[key];if(s){document.getElementById('time-'+key).value=s.time||'00:00';document.getElementById('enabled-'+key).checked=s.enabled!==false;}});}}
-    async function saveSchedule(){const schedule={dayBeforeShift:{time:document.getElementById('time-dayBeforeShift').value,enabled:document.getElementById('enabled-dayBeforeShift').checked},personalTasks:{time:document.getElementById('time-personalTasks').value,enabled:document.getElementById('enabled-personalTasks').checked},closeShiftReminder:{time:document.getElementById('time-closeShiftReminder').value,enabled:document.getElementById('enabled-closeShiftReminder').checked}};const res=await fetch(API+'/api/admin/schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({schedule})});const data=await res.json();if(data.success){toast('✅ Сохранено');loadSchedule();}else toast('❌ Ошибка',true);}
-    async function loadLogs(){const res=await fetch(API+'/api/admin/push-logs');const data=await res.json();const list=document.getElementById('logs-list');if(!data.logs||data.logs.length===0){list.innerHTML='<div class="empty"><div class="empty-icon">📊</div>Нет записей</div>';document.getElementById('stat-logs').textContent='0';return;}let logs=data.logs;const today=new Date().toISOString().slice(0,10);if(currentFilter==='today')logs=logs.filter(l=>l.timestamp?.slice(0,10)===today);else if(currentFilter==='success')logs=logs.filter(l=>l.success);else if(currentFilter==='error')logs=logs.filter(l=>!l.success);const todayLogs=data.logs.filter(l=>l.timestamp?.slice(0,10)===today);document.getElementById('stat-logs').textContent=todayLogs.length;if(logs.length===0){list.innerHTML='<div class="empty"><div class="empty-icon">📊</div>Нет записей по фильтру</div>';return;}const typeLabels={dayBeforeShift:'🔔 За сутки',personalTasks:'📬 Задачи',closeShiftReminder:'⏰ Закрытие',individualTasks:'📩 Индив.',test:'🧪 Тест'};list.innerHTML=logs.slice(0,50).map(log=>{const date=new Date(log.timestamp);const timeStr=date.toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});return `<div class="log-entry"><div class="log-time">${timeStr}</div><div class="log-user"><span class="log-type ${log.success?'success':'error'}">${log.success?'✅':'❌'}</span>${log.userName||'ID: '+log.userId}</div><div class="log-message"><strong>${typeLabels[log.type]||log.type}</strong>${log.error?' — '+log.error:''}</div></div>`;}).join('');}
+    async function deleteEmployee(name){if(!confirm(`Удалить "${name}"?`))return;const res=await adminFetch(API+'/api/bind/'+encodeURIComponent(name),{method:'DELETE'});const data=await res.json();if(data.success){toast('✅ Удалён');loadEmployees();}else toast('❌ Ошибка',true);}
+    async function loadTemplates(){const res=await adminFetch(API+'/api/admin/default-templates');const data=await res.json();if(data.templates){document.getElementById('tpl-dayBeforeShift').value=data.templates.dayBeforeShift||'';document.getElementById('tpl-closeShiftReminder').value=data.templates.closeShiftReminder||'';document.getElementById('tpl-personalTasks').value=data.templates.personalTasks||'';}}
+    async function saveTemplates(){const templates={dayBeforeShift:document.getElementById('tpl-dayBeforeShift').value,closeShiftReminder:document.getElementById('tpl-closeShiftReminder').value,personalTasks:document.getElementById('tpl-personalTasks').value};const res=await adminFetch(API+'/api/admin/default-templates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({templates})});const data=await res.json();if(data.success){toast('✅ Сохранено');loadTemplates();}else toast('❌ Ошибка',true);}
+    async function loadSchedule(){const res=await adminFetch(API+'/api/admin/schedule');const data=await res.json();if(data.schedule){['dayBeforeShift','personalTasks','closeShiftReminder'].forEach(key=>{const s=data.schedule[key];if(s){document.getElementById('time-'+key).value=s.time||'00:00';document.getElementById('enabled-'+key).checked=s.enabled!==false;}});}}
+    async function saveSchedule(){const schedule={dayBeforeShift:{time:document.getElementById('time-dayBeforeShift').value,enabled:document.getElementById('enabled-dayBeforeShift').checked},personalTasks:{time:document.getElementById('time-personalTasks').value,enabled:document.getElementById('enabled-personalTasks').checked},closeShiftReminder:{time:document.getElementById('time-closeShiftReminder').value,enabled:document.getElementById('enabled-closeShiftReminder').checked}};const res=await adminFetch(API+'/api/admin/schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({schedule})});const data=await res.json();if(data.success){toast('✅ Сохранено');loadSchedule();}else toast('❌ Ошибка',true);}
+    async function loadLogs(){const res=await adminFetch(API+'/api/admin/push-logs');const data=await res.json();const list=document.getElementById('logs-list');if(!data.logs||data.logs.length===0){list.innerHTML='<div class="empty"><div class="empty-icon">📊</div>Нет записей</div>';document.getElementById('stat-logs').textContent='0';return;}let logs=data.logs;const today=new Date().toISOString().slice(0,10);if(currentFilter==='today')logs=logs.filter(l=>l.timestamp?.slice(0,10)===today);else if(currentFilter==='success')logs=logs.filter(l=>l.success);else if(currentFilter==='error')logs=logs.filter(l=>!l.success);const todayLogs=data.logs.filter(l=>l.timestamp?.slice(0,10)===today);document.getElementById('stat-logs').textContent=todayLogs.length;if(logs.length===0){list.innerHTML='<div class="empty"><div class="empty-icon">📊</div>Нет записей по фильтру</div>';return;}const typeLabels={dayBeforeShift:'🔔 За сутки',personalTasks:'📬 Задачи',closeShiftReminder:'⏰ Закрытие',individualTasks:'📩 Индив.',test:'🧪 Тест'};list.innerHTML=logs.slice(0,50).map(log=>{const date=new Date(log.timestamp);const timeStr=date.toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});return `<div class="log-entry"><div class="log-time">${timeStr}</div><div class="log-user"><span class="log-type ${log.success?'success':'error'}">${log.success?'✅':'❌'}</span>${log.userName||'ID: '+log.userId}</div><div class="log-message"><strong>${typeLabels[log.type]||log.type}</strong>${log.error?' — '+log.error:''}</div></div>`;}).join('');}
     loadEmployees();loadTemplates();loadSchedule();
   </script>
 </body>
