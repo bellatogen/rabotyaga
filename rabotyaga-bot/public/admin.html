@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Админка — Работяга</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:wght@700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root{--bg:#0b0b0c;--sf:#151517;--bd:#26262a;--mt:#8a857d;--pp:#f3efe7;--cu:#c9a24b;--cu2:#a8842f;--hp:#5b8f5b;--am:#e0b450;--rs:#b04a36;}
+    *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+    body{background:var(--bg);color:var(--pp);font-family:"Inter",sans-serif;min-height:100vh;}
+    .app{max-width:680px;margin:0 auto;padding:20px 16px 40px;}
+    .header{margin-bottom:24px;}
+    .header h1{font-family:"Fraunces",serif;font-size:28px;font-weight:700;color:var(--am);display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+    .header p{font-size:13px;color:var(--mt);}
+    .tabs{display:flex;gap:4px;overflow-x:auto;padding-bottom:12px;margin-bottom:20px;border-bottom:1px solid var(--bd);}
+    .tab{flex-shrink:0;padding:8px 14px;font-size:13px;font-weight:500;color:var(--mt);background:transparent;border:1px solid var(--bd);border-radius:8px;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:6px;}
+    .tab:hover{color:var(--pp);border-color:var(--cu);}
+    .tab.active{background:var(--cu);color:var(--bg);border-color:var(--cu);font-weight:600;}
+    .panel{display:none;animation:fadeIn .3s;}
+    .panel.active{display:block;}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+    .card{background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:18px;margin-bottom:14px;}
+    .card-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--cu);margin-bottom:12px;display:flex;align-items:center;gap:6px;}
+    .employee-row{display:flex;justify-content:space-between;align-items:center;padding:14px;background:var(--bg);border:1px solid var(--bd);border-radius:10px;margin-bottom:8px;transition:border-color .2s;}
+    .employee-row:hover{border-color:var(--cu);}
+    .employee-info{flex:1;}
+    .employee-name{font-size:15px;font-weight:600;color:var(--pp);margin-bottom:3px;}
+    .employee-id{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--mt);}
+    .employee-status{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 8px;border-radius:6px;margin-top:4px;}
+    .status-on{background:rgba(91,143,91,.15);color:var(--hp);}
+    .status-off{background:rgba(138,133,125,.1);color:var(--mt);}
+    .btn{padding:9px 16px;border-radius:8px;border:none;cursor:pointer;font-size:13px;font-weight:600;transition:all .2s;display:inline-flex;align-items:center;gap:6px;font-family:"Inter",sans-serif;}
+    .btn-primary{background:var(--cu);color:var(--bg);}
+    .btn-primary:hover{background:var(--cu2);}
+    .btn-danger{background:var(--rs);color:var(--pp);}
+    .btn-danger:hover{background:#8f3a28;}
+    .btn-success{background:var(--hp);color:var(--pp);}
+    .btn-success:hover{background:#4a7a4a;}
+    .form-group{margin-bottom:16px;}
+    .form-group label{display:block;margin-bottom:7px;font-size:12px;font-weight:600;color:var(--mt);text-transform:uppercase;letter-spacing:.05em;}
+    .form-group input,.form-group textarea{width:100%;padding:11px 13px;background:var(--bg);border:1px solid var(--bd);border-radius:8px;color:var(--pp);font-size:14px;font-family:"Inter",sans-serif;transition:border-color .2s;}
+    .form-group textarea{min-height:90px;resize:vertical;font-family:"Inter",sans-serif;line-height:1.5;}
+    .form-group input:focus,.form-group textarea:focus{outline:none;border-color:var(--cu);}
+    .form-group .hint{font-size:11px;color:var(--mt);margin-top:5px;}
+    .schedule-row{display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;padding:14px;background:var(--bg);border:1px solid var(--bd);border-radius:10px;margin-bottom:10px;transition:border-color .2s;}
+    .schedule-row:hover{border-color:var(--cu);}
+    .schedule-info{flex:1;}
+    .schedule-name{font-size:14px;font-weight:600;color:var(--pp);margin-bottom:3px;display:flex;align-items:center;gap:6px;}
+    .schedule-desc{font-size:12px;color:var(--mt);line-height:1.4;}
+    .schedule-time{font-family:"IBM Plex Mono",monospace;font-size:14px;font-weight:500;color:var(--am);padding:8px 12px;background:var(--sf);border:1px solid var(--bd);border-radius:7px;}
+    .toggle{position:relative;display:inline-block;width:44px;height:24px;}
+    .toggle input{opacity:0;width:0;height:0;}
+    .slider{position:absolute;cursor:pointer;inset:0;background:var(--bd);border-radius:24px;transition:.3s;}
+    .slider:before{position:absolute;content:"";height:18px;width:18px;left:3px;bottom:3px;background:var(--mt);border-radius:50%;transition:.3s;}
+    input:checked+.slider{background:var(--hp);}
+    input:checked+.slider:before{transform:translateX(20px);background:var(--pp);}
+    .toast{position:fixed;bottom:24px;right:24px;padding:13px 20px;background:var(--hp);color:var(--pp);border-radius:10px;opacity:0;transition:opacity .3s;z-index:1000;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.4);}
+    .toast.show{opacity:1;}
+    .toast.error{background:var(--rs);}
+    .empty{text-align:center;color:var(--mt);padding:48px 20px;font-style:italic;}
+    .empty-icon{font-size:48px;margin-bottom:12px;opacity:.5;}
+    .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px;}
+    .stat-card{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;text-align:center;}
+    .stat-value{font-family:"Fraunces",serif;font-size:32px;font-weight:700;color:var(--am);line-height:1;}
+    .stat-label{font-size:12px;color:var(--mt);margin-top:6px;}
+    .log-entry{padding:12px;background:var(--bg);border:1px solid var(--bd);border-radius:8px;margin-bottom:8px;font-size:13px;}
+    .log-time{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--mt);margin-bottom:4px;}
+    .log-user{font-weight:600;color:var(--pp);margin-bottom:3px;}
+    .log-type{display:inline-block;padding:2px 8px;border-radius:5px;font-size:11px;font-weight:600;margin-right:6px;}
+    .log-type.success{background:rgba(91,143,91,.15);color:var(--hp);}
+    .log-type.error{background:rgba(176,74,54,.15);color:var(--rs);}
+    .log-message{color:var(--mt);font-size:12px;margin-top:4px;line-height:1.4;}
+    .log-filters{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;}
+    .log-filter{padding:6px 12px;font-size:12px;font-weight:500;color:var(--mt);background:transparent;border:1px solid var(--bd);border-radius:6px;cursor:pointer;transition:all .2s;}
+    .log-filter:hover{color:var(--pp);border-color:var(--cu);}
+    .log-filter.active{background:var(--cu);color:var(--bg);border-color:var(--cu);}
+    .employee-actions{display:flex;gap:6px;}
+    @media(max-width:600px){.schedule-row{grid-template-columns:1fr;gap:10px;}.schedule-time{width:100%;}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="header">
+      <h1>🍺 Админка Работяги</h1>
+      <p>Управление сотрудниками, пушами и расписанием</p>
+    </div>
+    <div class="stats">
+      <div class="stat-card"><div class="stat-value" id="stat-employees">0</div><div class="stat-label">Сотрудников</div></div>
+      <div class="stat-card"><div class="stat-value" id="stat-pushes">0</div><div class="stat-label">С пушами</div></div>
+      <div class="stat-card"><div class="stat-value" id="stat-logs">0</div><div class="stat-label">Пушей сегодня</div></div>
+    </div>
+    <div class="tabs">
+      <button class="tab active" data-tab="employees">👥 Сотрудники</button>
+      <button class="tab" data-tab="templates">📝 Шаблоны</button>
+      <button class="tab" data-tab="schedule">⏰ Расписание</button>
+      <button class="tab" data-tab="logs">📊 Логи</button>
+    </div>
+    <div id="employees" class="panel active"><div class="card"><div class="card-title">Привязанные сотрудники</div><div id="employees-list"></div></div></div>
+    <div id="templates" class="panel">
+      <div class="card"><div class="card-title">🔔 За сутки до смены</div><div class="form-group"><textarea id="tpl-dayBeforeShift"></textarea><div class="hint">Переменная {tasks} — список задач</div></div></div>
+      <div class="card"><div class="card-title">📬 Личные задачи</div><div class="form-group"><textarea id="tpl-personalTasks"></textarea><div class="hint">Переменная {tasks} — список задач</div></div></div>
+      <div class="card"><div class="card-title">⏰ Закрытие смены</div><div class="form-group"><textarea id="tpl-closeShiftReminder"></textarea></div></div>
+      <button class="btn btn-success" onclick="saveTemplates()" style="width:100%;justify-content:center;">💾 Сохранить шаблоны</button>
+    </div>
+    <div id="schedule" class="panel">
+      <div class="card">
+        <div class="card-title">Время отправки пушей</div>
+        <div class="schedule-row"><div class="schedule-info"><div class="schedule-name">🔔 За сутки до смены</div><div class="schedule-desc">За день до смены с задачами</div></div><input type="time" id="time-dayBeforeShift" value="20:00" class="schedule-time"><label class="toggle"><input type="checkbox" id="enabled-dayBeforeShift" checked><span class="slider"></span></label></div>
+        <div class="schedule-row"><div class="schedule-info"><div class="schedule-name">📬 Личные задачи</div><div class="schedule-desc">Утром перед сменой</div></div><input type="time" id="time-personalTasks" value="09:00" class="schedule-time"><label class="toggle"><input type="checkbox" id="enabled-personalTasks" checked><span class="slider"></span></label></div>
+        <div class="schedule-row"><div class="schedule-info"><div class="schedule-name">⏰ Закрытие смены</div><div class="schedule-desc">В конце дня</div></div><input type="time" id="time-closeShiftReminder" value="22:00" class="schedule-time"><label class="toggle"><input type="checkbox" id="enabled-closeShiftReminder" checked><span class="slider"></span></label></div>
+        <button class="btn btn-success" onclick="saveSchedule()" style="width:100%;justify-content:center;margin-top:16px;">💾 Сохранить расписание</button>
+      </div>
+    </div>
+    <div id="logs" class="panel">
+      <div class="card">
+        <div class="card-title">История пуш-уведомлений</div>
+        <div class="log-filters">
+          <button class="log-filter active" data-filter="all">Все</button>
+          <button class="log-filter" data-filter="success">✅ Успешные</button>
+          <button class="log-filter" data-filter="error">❌ Ошибки</button>
+          <button class="log-filter" data-filter="today">Сегодня</button>
+        </div>
+        <div id="logs-list"></div>
+      </div>
+    </div>
+  </div>
+  <div id="toast" class="toast"></div>
+  <script>
+    const API='';let currentFilter='all';
+    document.querySelectorAll('.tab').forEach(tab=>{tab.addEventListener('click',()=>{document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));tab.classList.add('active');document.getElementById(tab.dataset.tab).classList.add('active');if(tab.dataset.tab==='logs')loadLogs();});});
+    document.querySelectorAll('.log-filter').forEach(btn=>{btn.addEventListener('click',()=>{document.querySelectorAll('.log-filter').forEach(b=>b.classList.remove('active'));btn.classList.add('active');currentFilter=btn.dataset.filter;loadLogs();});});
+    function toast(msg,isError=false){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show'+(isError?' error':'');setTimeout(()=>t.className='toast',3000);}
+    async function loadEmployees(){
+      const res=await fetch(API+'/api/bindings');
+      const data=await res.json();
+      const list=document.getElementById('employees-list');
+      const pushRes=await fetch(API+'/api/admin/push-settings');
+      const pushData=await pushRes.json();
+      const pushSettings=pushData.settings||{};
+      if(!data.bindings||Object.keys(data.bindings).length===0){
+        list.innerHTML='<div class="empty"><div class="empty-icon">👥</div>Нет сотрудников</div>';
+        document.getElementById('stat-employees').textContent='0';
+        document.getElementById('stat-pushes').textContent='0';
+        return;
+      }
+      const employees=Object.entries(data.bindings);
+      const withPushes=employees.filter(([name,id])=>pushSettings[id]?.enabled);
+      document.getElementById('stat-employees').textContent=employees.length;
+      document.getElementById('stat-pushes').textContent=withPushes.length;
+      list.innerHTML=employees.map(([name,id])=>{
+        const s=pushSettings[id];
+        const on=s?.enabled;
+        return `<div class="employee-row">
+          <div class="employee-info">
+            <div class="employee-name">${name}</div>
+            <div class="employee-id">ID: ${id}</div>
+            <div class="employee-status ${on?'status-on':'status-off'}">${on?'✅ Пуши включены':'⚪ Пуши выключены'}</div>
+          </div>
+          <div class="employee-actions">
+            ${on?'':`<button class="btn btn-success" onclick="enablePush('${name}','${id}')">🔔 Включить</button>`}
+            <button class="btn btn-danger" onclick="deleteEmployee('${name}')">🗑 Удалить</button>
+          </div>
+        </div>`;
+      }).join('');
+    }
+    async function enablePush(name,userId){
+      const res=await fetch(API+'/api/admin/push-settings',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          userId:userId,
+          settings:{
+            enabled:true,
+            chatId:userId,
+            notifications:{dayBeforeShift:true,personalTasks:true,closeShiftReminder:true,individualTasks:true}
+          }
+        })
+      });
+      const data=await res.json();
+      if(data.success){
+        toast('✅ Пуши включены для '+name);
+        loadEmployees();
+      }else{
+        toast('❌ Ошибка',true);
+      }
+    }
+    async function deleteEmployee(name){if(!confirm(`Удалить "${name}"?`))return;const res=await fetch(API+'/api/bind/'+encodeURIComponent(name),{method:'DELETE'});const data=await res.json();if(data.success){toast('✅ Удалён');loadEmployees();}else toast('❌ Ошибка',true);}
+    async function loadTemplates(){const res=await fetch(API+'/api/admin/default-templates');const data=await res.json();if(data.templates){document.getElementById('tpl-dayBeforeShift').value=data.templates.dayBeforeShift||'';document.getElementById('tpl-closeShiftReminder').value=data.templates.closeShiftReminder||'';document.getElementById('tpl-personalTasks').value=data.templates.personalTasks||'';}}
+    async function saveTemplates(){const templates={dayBeforeShift:document.getElementById('tpl-dayBeforeShift').value,closeShiftReminder:document.getElementById('tpl-closeShiftReminder').value,personalTasks:document.getElementById('tpl-personalTasks').value};const res=await fetch(API+'/api/admin/default-templates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({templates})});const data=await res.json();if(data.success){toast('✅ Сохранено');loadTemplates();}else toast('❌ Ошибка',true);}
+    async function loadSchedule(){const res=await fetch(API+'/api/admin/schedule');const data=await res.json();if(data.schedule){['dayBeforeShift','personalTasks','closeShiftReminder'].forEach(key=>{const s=data.schedule[key];if(s){document.getElementById('time-'+key).value=s.time||'00:00';document.getElementById('enabled-'+key).checked=s.enabled!==false;}});}}
+    async function saveSchedule(){const schedule={dayBeforeShift:{time:document.getElementById('time-dayBeforeShift').value,enabled:document.getElementById('enabled-dayBeforeShift').checked},personalTasks:{time:document.getElementById('time-personalTasks').value,enabled:document.getElementById('enabled-personalTasks').checked},closeShiftReminder:{time:document.getElementById('time-closeShiftReminder').value,enabled:document.getElementById('enabled-closeShiftReminder').checked}};const res=await fetch(API+'/api/admin/schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({schedule})});const data=await res.json();if(data.success){toast('✅ Сохранено');loadSchedule();}else toast('❌ Ошибка',true);}
+    async function loadLogs(){const res=await fetch(API+'/api/admin/push-logs');const data=await res.json();const list=document.getElementById('logs-list');if(!data.logs||data.logs.length===0){list.innerHTML='<div class="empty"><div class="empty-icon">📊</div>Нет записей</div>';document.getElementById('stat-logs').textContent='0';return;}let logs=data.logs;const today=new Date().toISOString().slice(0,10);if(currentFilter==='today')logs=logs.filter(l=>l.timestamp?.slice(0,10)===today);else if(currentFilter==='success')logs=logs.filter(l=>l.success);else if(currentFilter==='error')logs=logs.filter(l=>!l.success);const todayLogs=data.logs.filter(l=>l.timestamp?.slice(0,10)===today);document.getElementById('stat-logs').textContent=todayLogs.length;if(logs.length===0){list.innerHTML='<div class="empty"><div class="empty-icon">📊</div>Нет записей по фильтру</div>';return;}const typeLabels={dayBeforeShift:'🔔 За сутки',personalTasks:'📬 Задачи',closeShiftReminder:'⏰ Закрытие',individualTasks:'📩 Индив.',test:'🧪 Тест'};list.innerHTML=logs.slice(0,50).map(log=>{const date=new Date(log.timestamp);const timeStr=date.toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});return `<div class="log-entry"><div class="log-time">${timeStr}</div><div class="log-user"><span class="log-type ${log.success?'success':'error'}">${log.success?'✅':'❌'}</span>${log.userName||'ID: '+log.userId}</div><div class="log-message"><strong>${typeLabels[log.type]||log.type}</strong>${log.error?' — '+log.error:''}</div></div>`;}).join('');}
+    loadEmployees();loadTemplates();loadSchedule();
+  </script>
+</body>
+</html>
