@@ -4,216 +4,265 @@ const { Telegraf } = require('telegraf');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
-const pool = require('./db/pool');
-const data = require('./db/adapter');
+
+const pushApi = require('./src/api/push');
+const pushSender = require('./src/push/sender');
+const pushScheduler = require('./src/push/scheduler');
+const adminApi = require('./src/api/admin');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(express.static(path.join(__dirname, 'frontend', 'dist')));
+app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
+app.use('/api/push', pushApi);
+app.use('/api/admin', adminApi);
 
 const TOKEN = process.env.TELEGRAM_TOKEN;
-const WEBAPP_URL = process.env.WEBAPP_URL || 'https://rabotyaga55.ru';
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'changeme';
+const WEBAPP_URL = process.env.WEBAPP_URL || 'https://rabotyaga.ru';
 
 if (!TOKEN) {
-  console.error('❌ TELEGRAM_TOKEN не задан в .env');
+  console.error('❌ Ошибка: не задан TELEGRAM_TOKEN в файле .env');
   process.exit(1);
 }
 
 const bot = new Telegraf(TOKEN);
+const DATA_FILE = path.join(__dirname, 'data.json');
 
-// Инициализация БД
-let dbReady = false;
-pool.query('SELECT 1')
-  .then(() => {
-    dbReady = true;
-    console.log('✅ Подключение к БД установлено');
-  })
-  .catch(err => {
-    console.error('❌ Ошибка подключения к БД:', err);
-    process.exit(1);
-  });
-
-function requireAdminToken(req, res, next) {
-  const token = req.query.token || req.headers['x-admin-token'];
-  if (token !== ADMIN_TOKEN) {
-    return res.status(401).json({ error: 'Unauthorized' });
+let data = { kv: {}, bindings: {}, pushSettings: {}, adminUsers: [] };
+if (fs.existsSync(DATA_FILE)) {
+  try {
+    const loaded = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+    data.kv = loaded.kv || {};
+    data.bindings = loaded.bindings || {};
+    data.pushSettings = loaded.pushSettings || {};
+    data.adminUsers = loaded.adminUsers || [];
+    console.log(`📂 Загружено ${Object.keys(data.kv).length} kv-ключей, ${Object.keys(data.bindings).length} привязок, ${Object.keys(data.pushSettings).length} настроек пушей`);
+  } catch (e) {
+    console.error('Ошибка чтения data.json:', e);
   }
-  next();
 }
 
-// === БОТ КОМАНДЫ ===
+let saveTimer = null;
+function saveData() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try {
+      fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+    } catch (e) {
+      console.error('Ошибка записи data.json:', e);
+    }
+  }, 300);
+}
+
+function nameByTelegramId(id) {
+  return Object.keys(data.bindings).find(name => data.bindings[name] === id) || null;
+}
+
+function sendToName(name, text) {
+  const id = data.bindings[name];
+  if (!id) return Promise.resolve(false);
+  return bot.telegram.sendMessage(id, text).then(() => true).catch(err => {
+    console.error('Ошибка отправки:', err);
+    return false;
+  });
+}
+
+function isToday(task, ds) {
+  if (task.kind === 'irregular') return false;
+  if (task.from && ds < task.from) return false;
+  if (task.until && ds > task.until) return false;
+  if (task.repeat === 'once') return task.date === ds;
+  if (['daily', 'opening', 'closing'].includes(task.repeat)) return true;
+  if (task.repeat === 'workday') { const d = new Date(ds).getDay(); return d !== 0 && d !== 6; }
+  if (task.repeat === 'weekly') return task.dayOfWeek === new Date(ds).getDay();
+  return false;
+}
+const isDone = v => v === true || (v && typeof v === 'object' && !!v.done);
+const todayStr = () => new Date().toISOString().slice(0, 10);
+
+function todayTasksText(name) {
+  const tasks = JSON.parse(data.kv['tasks:v4'] || '[]');
+  const history = JSON.parse(data.kv['done:hist:v2'] || '{}');
+  const ds = todayStr();
+  const reg = tasks.filter(t => !t.archived && isToday(t, ds));
+  if (!reg.length) return '📋 На сегодня задач нет.';
+  const lines = reg.map(t => {
+    const done = isDone(history[`${t.id}::${ds}`]);
+    return `${done ? '✅' : '⬜️'} ${t.title}`;
+  });
+  return `📋 Дела на сегодня${name ? ` (${name})` : ''}:\n\n${lines.join('\n')}`;
+}
+
+// === КОМАНДЫ ===
 bot.command('start', (ctx) => {
-  ctx.reply('🍺 Работяга на связи!');
+  ctx.reply(
+    '🍺 «Работяга» на связи!\n\n' +
+    'Открыть приложение — синей кнопкой меню слева внизу.\n' +
+    'А здесь — быстрые действия:',
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '📋 Общие дела на сегодня', callback_data: 'today' }],
+          [{ text: '📋 Мои задачи на сегодня', callback_data: 'mytasks' }],
+          [{ text: '👤 Мой статус', callback_data: 'status' }],
+          [{ text: '🔔 Настройки пушей', callback_data: 'pushsettings' }]
+        ]
+      }
+    }
+  );
+});
+
+bot.command('today', (ctx) => {
+  ctx.reply(todayTasksText(null));
+});
+
+bot.command('mytasks', (ctx) => {
+  const name = nameByTelegramId(ctx.from.id);
+  if (!name) return ctx.reply('❌ Ты не привязан к системе. Обратись к администратору.');
+  ctx.reply(todayTasksText(name));
+});
+
+bot.command('startpush', async (ctx) => {
+  const userId = String(ctx.from.id);
+  const chatId = String(ctx.chat.id);
+  pushSender.updatePushSettings(userId, {
+    enabled: true, chatId,
+    notifications: { dayBeforeShift: true, personalTasks: true, closeShiftReminder: true, individualTasks: true }
+  });
+  await ctx.reply('✅ Пуши включены! /pushsettings — настройки');
+});
+
+bot.command('stoppush', async (ctx) => {
+  const userId = String(ctx.from.id);
+  pushSender.updatePushSettings(userId, { enabled: false });
+  await ctx.reply('❌ Пуши отключены');
+});
+
+bot.command('pushsettings', async (ctx) => {
+  const userId = String(ctx.from.id);
+  const settings = pushSender.getPushSettings(userId);
+  if (!settings) return ctx.reply('🔔 Настройки не найдены. Используй /startpush');
+  const text = `📱 Настройки пушей:\n\nВключены: ${settings.enabled ? '✅' : '❌'}\n\n🔔 Уведомления:\n• За сутки до смены: ${settings.notifications?.dayBeforeShift ? '✅' : '❌'}\n• Личные задачи: ${settings.notifications?.personalTasks ? '✅' : '❌'}\n• Закрытие смены: ${settings.notifications?.closeShiftReminder ? '✅' : '❌'}\n• Индивидуальные: ${settings.notifications?.individualTasks ? '✅' : '❌'}`;
+  await ctx.reply(text);
+});
+
+bot.command('toggle_daybefore', async (ctx) => {
+  const userId = String(ctx.from.id);
+  const settings = pushSender.getPushSettings(userId);
+  if (!settings) return ctx.reply('Сначала /startpush');
+  const newVal = !settings.notifications?.dayBeforeShift;
+  pushSender.updatePushSettings(userId, { notifications: { ...settings.notifications, dayBeforeShift: newVal } });
+  await ctx.reply(`За сутки до смены: ${newVal ? '✅' : '❌'}`);
+});
+
+bot.command('toggle_personal', async (ctx) => {
+  const userId = String(ctx.from.id);
+  const settings = pushSender.getPushSettings(userId);
+  if (!settings) return ctx.reply('Сначала /startpush');
+  const newVal = !settings.notifications?.personalTasks;
+  pushSender.updatePushSettings(userId, { notifications: { ...settings.notifications, personalTasks: newVal } });
+  await ctx.reply(`Личные задачи: ${newVal ? '✅' : '❌'}`);
+});
+
+bot.command('toggle_closeshift', async (ctx) => {
+  const userId = String(ctx.from.id);
+  const settings = pushSender.getPushSettings(userId);
+  if (!settings) return ctx.reply('Сначала /startpush');
+  const newVal = !settings.notifications?.closeShiftReminder;
+  pushSender.updatePushSettings(userId, { notifications: { ...settings.notifications, closeShiftReminder: newVal } });
+  await ctx.reply(`Закрытие смены: ${newVal ? '✅' : '❌'}`);
+});
+
+bot.command('toggle_individual', async (ctx) => {
+  const userId = String(ctx.from.id);
+  const settings = pushSender.getPushSettings(userId);
+  if (!settings) return ctx.reply('Сначала /startpush');
+  const newVal = !settings.notifications?.individualTasks;
+  pushSender.updatePushSettings(userId, { notifications: { ...settings.notifications, individualTasks: newVal } });
+  await ctx.reply(`Индивидуальные: ${newVal ? '✅' : '❌'}`);
 });
 
 bot.on('callback_query', (ctx) => {
+  const cdata = ctx.callbackQuery.data;
+  if (cdata === 'today') {
+    ctx.reply(todayTasksText(null));
+  } else if (cdata === 'mytasks') {
+    const name = nameByTelegramId(ctx.from.id);
+    if (!name) return ctx.reply('❌ Ты не привязан к системе.');
+    ctx.reply(todayTasksText(name));
+  } else if (cdata === 'status') {
+    ctx.reply('👤 Чтобы узнать свой статус, открой приложение и выбери своё имя.');
+  } else if (cdata === 'pushsettings') {
+    ctx.answerCbQuery();
+    return ctx.reply('Команды пушей:\n/startpush — включить\n/stoppush — выключить\n/pushsettings — настройки\n/toggle_daybefore\n/toggle_personal\n/toggle_closeshift\n/toggle_individual');
+  }
   ctx.answerCbQuery();
 });
 
 // === API ===
-
-// KV Store (совместимость со старым кодом)
-app.get('/api/kv/:key', async (req, res) => {
-  try {
-    const value = await data.kvGet(req.params.key);
-    res.json({ value: value ? JSON.parse(value) : null });
-  } catch (err) {
-    console.error('KV GET error:', err);
-    res.status(500).json({ error: 'Internal error' });
-  }
+app.get('/api/kv/:key', (req, res) => {
+  res.json({ value: data.kv[req.params.key] ?? null });
 });
 
-app.put('/api/kv/:key', async (req, res) => {
-  try {
-    await data.kvSet(req.params.key, req.body.value);
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('KV SET error:', err);
-    res.status(500).json({ error: 'Internal error' });
-  }
+app.put('/api/kv/:key', (req, res) => {
+  data.kv[req.params.key] = req.body.value;
+  saveData();
+  res.json({ ok: true });
 });
 
 app.get('/api/health', (req, res) => {
-  res.json({ ok: dbReady, ts: Date.now() });
+  res.json({ ok: true, ts: Date.now() });
 });
 
-// Привязка сотрудника
-app.post('/api/bind', async (req, res) => {
+app.post('/api/bind', (req, res) => {
   const { name, telegramId } = req.body;
-  if (!name || !telegramId) {
-    return res.status(400).json({ error: 'name и telegramId обязательны' });
-  }
-  try {
-    await data.bindEmployee(name, telegramId);
-    console.log(`✅ Привязан: ${name} -> ID ${telegramId}`);
-    bot.telegram.sendMessage(
-      telegramId,
-      `👋 Привет, ${name}! Ты подключен к "Работяга".`
-    ).catch(err => console.error('Ошибка отправки:', err));
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Bind error:', err);
-    res.status(500).json({ error: 'Failed to bind' });
-  }
+  if (!name || !telegramId) return res.status(400).json({ error: 'name и telegramId обязательны' });
+  data.bindings[name] = telegramId;
+  saveData();
+  console.log(`✅ Привязан: ${name} -> ID ${telegramId}`);
+  bot.telegram.sendMessage(telegramId, `👋 Привет, ${name}! Ты подключен к "Работяга".`).catch(err => console.error('Ошибка отправки:', err));
+  res.json({ success: true });
 });
 
-// Привязка по телефону (новая фича)
-app.post('/api/bind-phone', async (req, res) => {
-  const { name, phone } = req.body;
-  if (!name || !phone) {
-    return res.status(400).json({ error: 'name и phone обязательны' });
+app.delete('/api/bind/:name', (req, res) => {
+  const { name } = req.params;
+  if (data.bindings[name]) {
+    delete data.bindings[name];
+    saveData();
+    console.log(`❌ Удалена привязка: ${name}`);
+    return res.json({ success: true });
   }
-  try {
-    const bindCode = Math.random().toString(36).substr(2, 6).toUpperCase();
-    await data.kvSet(`bind_phone:${bindCode}`, JSON.stringify({ name, phone, created: Date.now() }));
-    res.json({
-      success: true,
-      bindCode,
-      instructions: `Отправьте боту код: ${bindCode}`
-    });
-  } catch (err) {
-    console.error('Bind phone error:', err);
-    res.status(500).json({ error: 'Failed' });
-  }
+  res.status(404).json({ error: 'Сотрудник не найден' });
 });
 
-// Список привязок (админ)
-app.get('/api/bindings', requireAdminToken, async (req, res) => {
-  try {
-    const bindings = await data.getBindings();
-    res.json({ bindings });
-  } catch (err) {
-    console.error('Bindings error:', err);
-    res.status(500).json({ error: 'Failed' });
-  }
+app.get('/api/bindings', (req, res) => {
+  res.json({ success: true, bindings: data.bindings });
 });
 
-// Логи пушей (админ)
-app.get('/api/push-log', requireAdminToken, async (req, res) => {
-  try {
-    const logs = await data.getPushLog();
-    res.json({ logs });
-  } catch (err) {
-    console.error('Push log error:', err);
-    res.status(500).json({ error: 'Failed' });
-  }
+app.get("/api/push/test/:name", async (req, res) => {
+  const name = req.params.name;
+  const userId = data.bindings[name];
+  if (!userId) return res.json({ success: false, msg: "Пользователь не найден" });
+  const ok = await pushSender.sendPush(bot, String(userId), "🔔 Тестовое уведомление! 🍻", "test");
+  res.json(ok ? { success: true, msg: "Пуш отправлен" } : { success: false, msg: "Пуши отключены" });
 });
-
-// График пушей (админ)
-app.post('/api/push-schedule', requireAdminToken, async (req, res) => {
-  const { date, items } = req.body;
-  if (!date || !Array.isArray(items)) {
-    return res.status(400).json({ error: 'date и items обязательны' });
-  }
-  try {
-    await data.setPushSchedule(date, items);
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Push schedule set error:', err);
-    res.status(500).json({ error: 'Failed' });
-  }
-});
-
-app.get('/api/push-schedule/:date', requireAdminToken, async (req, res) => {
-  try {
-    const items = await data.getPushSchedule(req.params.date);
-    res.json({ items });
-  } catch (err) {
-    console.error('Push schedule get error:', err);
-    res.status(500).json({ error: 'Failed' });
-  }
-});
-
-// Тестовый пуш
-app.get('/api/push/test/:name', requireAdminToken, async (req, res) => {
-  try {
-    const bindings = await data.getBindings();
-    const telegramId = bindings[req.params.name];
-    if (!telegramId) {
-      return res.json({ success: false, msg: 'Пользователь не найден' });
-    }
-    await bot.telegram.sendMessage(telegramId, '🔔 Тестовое уведомление! 🍻');
-    await data.logPush(req.params.name, telegramId, 'Тестовое уведомление', 'sent');
-    res.json({ success: true, msg: 'Пуш отправлен' });
-  } catch (err) {
-    console.error('Test push error:', err);
-    res.status(500).json({ error: 'Failed' });
-  }
-});
-
-// === СТАТИКА ФРОНТЕНДА ===
-const distPath = path.join(__dirname, '..', 'frontend', 'dist');
-if (fs.existsSync(distPath)) {
-  app.use(express.static(distPath));
-  app.use((req, res) => {
-    res.sendFile(path.join(distPath, 'index.html'));
-  });
-  console.log('📦 Фронтенд сервится');
-} else {
-  console.warn('⚠️ Фронтенд не найден');
-}
 
 // === ЗАПУСК ===
 bot.launch().catch(err => {
   console.error('Ошибка запуска бота:', err);
   process.exit(1);
 });
+pushScheduler.startScheduler(bot);
 
-const PORT = process.env.PORT || 3001;
-const httpServer = app.listen(PORT, () => {
-  console.log(`🚀 Сервер запущен на порту ${PORT}`);
-  console.log(`🌐 URL: ${WEBAPP_URL}`);
+const httpServer = app.listen(3001, () => {
+  console.log('🚀 Сервер Работяги запущен на порту 3001');
+  console.log(`🌐 Web App URL: ${WEBAPP_URL}`);
 });
 
 function shutdown(signal) {
-  console.log(`Завершение по сигналу ${signal}...`);
   bot.stop(signal);
-  pool.end();
-  httpServer.close(() => {
-    console.log('✅ Сервер остановлен');
-    process.exit(0);
-  });
+  httpServer.close(() => process.exit(0));
 }
 process.once('SIGINT', () => shutdown('SIGINT'));
 process.once('SIGTERM', () => shutdown('SIGTERM'));

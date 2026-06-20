@@ -11,6 +11,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme123}
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
+      - /root/rabotyaga/frontend/dist:/app/frontend/dist
       - postgres_data:/var/lib/postgresql/data
       - ./db:/docker-entrypoint-initdb.d
     ports:
@@ -31,6 +32,7 @@ services:
     ports:
       - "3001:3001"
     volumes:
+      - /root/rabotyaga/frontend/dist:/app/frontend/dist
       - ./.env:/app/.env
     environment:
       - NODE_ENV=production
@@ -39,6 +41,7 @@ services:
       - rabotyaga-network
 
 volumes:
+      - /root/rabotyaga/frontend/dist:/app/frontend/dist
   postgres_data:
 
 networks:
