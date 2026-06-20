@@ -19,7 +19,14 @@
       "Bash(npm uninstall *)",
       "Bash(pkill -f \"node server.js\")",
       "Bash(pkill -f \"vite\")",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(repomix --style plain --output repo-prompt.txt)",
+      "Bash(open repo-prompt.txt)",
+      "Bash(cat)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(node -c rabotyaga-bot/src/api/admin.js)"
     ]
   }
 }

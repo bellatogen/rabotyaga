@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build artifacts
+frontend/dist/
+
+# OS files
+.DS_Store
+
+# IDE
+.claude/
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+
+# Data files (слишком большие)
+data.json
+
+# Historical/unused files
+rabotyaga-bot/shift-tasks.jsx
+
+# Docker (не нужен для разработки)
+Dockerfile
+docker-compose.yml
+
+# Assets (картинки)
+frontend/public/*.svg
+frontend/src/assets/*
