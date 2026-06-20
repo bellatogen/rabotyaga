@@ -9,7 +9,15 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:wght@700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     :root{--bg:#0b0b0c;--sf:#151517;--bd:#26262a;--mt:#8a857d;--pp:#f3efe7;--cu:#c9a24b;--cu2:#a8842f;--hp:#5b8f5b;--am:#e0b450;--rs:#b04a36;}
+    @media(prefers-color-scheme:light){
+      :root{--bg:#f7f4ee;--sf:#ffffff;--bd:#e2dccf;--mt:#83796b;--pp:#221d14;--cu:#a8742f;--cu2:#8c5e22;--hp:#3f7a3f;--am:#a87a1a;--rs:#a8392a;}
+    }
+    [data-theme="dark"]{--bg:#0b0b0c;--sf:#151517;--bd:#26262a;--mt:#8a857d;--pp:#f3efe7;--cu:#c9a24b;--cu2:#a8842f;--hp:#5b8f5b;--am:#e0b450;--rs:#b04a36;}
+    [data-theme="light"]{--bg:#f7f4ee;--sf:#ffffff;--bd:#e2dccf;--mt:#83796b;--pp:#221d14;--cu:#a8742f;--cu2:#8c5e22;--hp:#3f7a3f;--am:#a87a1a;--rs:#a8392a;}
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+    body{transition:background .2s ease,color .2s ease;}
+    .theme-btn{background:transparent;border:1px solid var(--bd);color:var(--mt);border-radius:20px;width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:border-color .2s,color .2s;font-size:15px;}
+    .theme-btn:hover{border-color:var(--cu);color:var(--cu);}
     body{background:var(--bg);color:var(--pp);font-family:"Inter",sans-serif;min-height:100vh;}
     .app{max-width:680px;margin:0 auto;padding:20px 16px 40px;}
     .header{margin-bottom:24px;}
@@ -83,9 +91,12 @@
 </head>
 <body>
   <div class="app">
-    <div class="header">
-      <h1>🍺 Админка Работяги</h1>
-      <p>Управление сотрудниками, пушами и расписанием</p>
+    <div class="header" style="display:flex;justify-content:space-between;align-items:flex-start;">
+      <div>
+        <h1>🍺 Админка Работяги</h1>
+        <p>Управление сотрудниками, пушами и расписанием</p>
+      </div>
+      <button class="theme-btn" id="themeBtn" onclick="cycleTheme()" title="Переключить тему">🖥️</button>
     </div>
     <div class="stats">
       <div class="stat-card"><div class="stat-value" id="stat-employees">0</div><div class="stat-label">Сотрудников</div></div>
@@ -130,6 +141,24 @@
   <div id="toast" class="toast"></div>
   <script>
     const API='';let currentFilter='all';
+    const THEME_KEY='rab:theme_pref';
+    function systemPrefersLight(){return window.matchMedia('(prefers-color-scheme: light)').matches;}
+    function applyTheme(pref){
+      const resolved=pref==='auto'?(systemPrefersLight()?'light':'dark'):pref;
+      document.documentElement.setAttribute('data-theme',resolved);
+      const btn=document.getElementById('themeBtn');
+      if(btn)btn.textContent=pref==='auto'?'🖥️':pref==='light'?'☀️':'🌙';
+    }
+    function cycleTheme(){
+      const cur=localStorage.getItem(THEME_KEY)||'auto';
+      const next=cur==='auto'?'light':cur==='light'?'dark':'auto';
+      localStorage.setItem(THEME_KEY,next);
+      applyTheme(next);
+    }
+    applyTheme(localStorage.getItem(THEME_KEY)||'auto');
+    window.matchMedia('(prefers-color-scheme: light)').addEventListener?.('change',()=>{
+      if((localStorage.getItem(THEME_KEY)||'auto')==='auto')applyTheme('auto');
+    });
     let ADMIN_TOKEN=sessionStorage.getItem('adminToken')||prompt('Админ-токен:')||'';
     if(ADMIN_TOKEN)sessionStorage.setItem('adminToken',ADMIN_TOKEN);
     async function adminFetch(url,opts={}){

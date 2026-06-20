@@ -1,15 +1,26 @@
+import { AdminTab } from "./AdminTab.jsx";
 
 import { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 import { CheckCircle, Plus, X, BarChart2, Clock, User, ArrowRight, Trash2, Pencil,
   Beer, Award, FileText, Users, Lock, Bell, AtSign, Inbox, Key, Shield, Eye, EyeOff, GripVertical, Archive, RotateCcw, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, CalendarDays,
-  AlertTriangle, TrendingUp, TrendingDown, Minus, Send, DollarSign, Activity } from "lucide-react";
+  AlertTriangle, TrendingUp, TrendingDown, Minus, Send, DollarSign, Activity, Sun, Moon, MonitorSmartphone } from "lucide-react";
 
 const FONTS = ``;
 const CSS = `
 :root{--bg:#0b0b0c;--sf:#151517;--bd:#26262a;--mt:#8a857d;--pp:#f3efe7;
   --cu:#c9a24b;--cu2:#a8842f;--hp:#5b8f5b;--am:#e0b450;--rs:#b04a36;}
+@media(prefers-color-scheme:light){
+  :root{--bg:#f7f4ee;--sf:#ffffff;--bd:#e2dccf;--mt:#83796b;--pp:#221d14;
+    --cu:#a8742f;--cu2:#8c5e22;--hp:#3f7a3f;--am:#a87a1a;--rs:#a8392a;}
+}
+[data-theme="dark"]{--bg:#0b0b0c;--sf:#151517;--bd:#26262a;--mt:#8a857d;--pp:#f3efe7;
+  --cu:#c9a24b;--cu2:#a8842f;--hp:#5b8f5b;--am:#e0b450;--rs:#b04a36;}
+[data-theme="light"]{--bg:#f7f4ee;--sf:#ffffff;--bd:#e2dccf;--mt:#83796b;--pp:#221d14;
+  --cu:#a8742f;--cu2:#8c5e22;--hp:#3f7a3f;--am:#a87a1a;--rs:#a8392a;}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
-body{background:var(--bg);color:var(--pp);}
+body{background:var(--bg);color:var(--pp);transition:background .2s ease,color .2s ease;}
+.theme-btn{background:transparent;border:1px solid var(--bd);color:var(--mt);border-radius:20px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;}
+.theme-btn:hover{border-color:var(--cu);color:var(--cu);}
 .app{font-family:"Inter",sans-serif;width:100%;max-width:480px;margin:0 auto;min-height:100dvh;min-height:var(--tg-viewport-stable-height,100dvh);padding-bottom:90px;overflow-x:hidden;}
 .mono{font-family:"IBM Plex Mono",monospace;}
 .nav{position:sticky;top:0;z-index:40;background:var(--bg);border-bottom:1px solid var(--bd);padding:12px 16px 0;}
@@ -132,6 +143,29 @@ body{background:var(--bg);color:var(--pp);}
 .cal-ev{font-size:8px;color:var(--cu);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .log-ev{display:flex;gap:8px;padding:9px 0;border-bottom:1px dashed var(--bd);font-size:13px;align-items:flex-start;}
 .log-ev-ts{font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--mt);flex-shrink:0;width:62px;}
+
+/* ховеры на всех активных кнопках (только устройства с мышью — на тач-экранах :hover не липнет) */
+@media(hover:hover) and (pointer:fine){
+  .tab,.mini-btn,.btn,.chip,.chk,.acc-head,.fab,.nav-who,.cal-cell,.swipe-actions button,
+  .theme-btn,.grip,.login-btn{transition:filter .15s ease,background-color .15s ease,border-color .15s ease,color .15s ease,opacity .15s ease,transform .1s ease;}
+  .tab:hover{border-color:var(--cu);color:var(--pp);}
+  .tab.on:hover{filter:brightness(1.08);}
+  .mini-btn:hover{background:var(--bd);color:var(--pp);}
+  .btn:hover{filter:brightness(1.1);}
+  .btn-g:hover{background:var(--bd);color:var(--pp);}
+  .btn-d:hover{background:rgba(176,74,54,.14);border-color:var(--rs);}
+  .chip:hover{border-color:var(--cu);color:var(--pp);}
+  .chip.on:hover{filter:brightness(1.08);}
+  .chk:hover{filter:brightness(1.12);}
+  .acc-head:hover{color:var(--cu);}
+  .fab:hover{filter:brightness(1.08);transform:translateY(-1px);}
+  .nav-who:hover{background:rgba(201,125,60,.18);}
+  .cal-cell:hover{border-color:var(--cu);}
+  .swipe-actions button:hover{filter:brightness(1.1);}
+  button{cursor:pointer;}
+  /* запасной ховер для кнопок без выделенного класса (иконки в nav, модалках и т.п.) */
+  button:not(:disabled):hover{opacity:.8;}
+}
 `;
 
 const DAYS_RU=["вс","пн","вт","ср","чт","пт","сб"];
@@ -412,6 +446,19 @@ const TG=(typeof window!=="undefined"&&window.Telegram)?window.Telegram.WebApp:n
 function tgUserId(){try{return TG?.initDataUnsafe?.user?.id||null;}catch{return null;}}
 async function tgBind(name){const id=tgUserId();if(!id)return;try{await fetch(`${API}/bind`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,telegramId:id})});}catch{}}
 
+// Тема: "auto" следует за системной/Telegram настройкой устройства, либо "light"/"dark" — выбор пользователя
+const THEME_KEY="rab:theme_pref";
+function systemPrefersLight(){
+  try{
+    if(TG?.colorScheme)return TG.colorScheme==="light";
+    return window.matchMedia("(prefers-color-scheme: light)").matches;
+  }catch{return false;}
+}
+function applyTheme(pref){
+  const resolved=pref==="auto"?(systemPrefersLight()?"light":"dark"):pref;
+  try{document.documentElement.setAttribute("data-theme",resolved);}catch{}
+}
+
 // Сохраняет value в хранилище ТОЛЬКО при реальных изменениях.
 // Пропускает первый прогон после загрузки, чтобы не записать только что прочитанный снимок
 // обратно и не затереть изменения с другого устройства.
@@ -499,11 +546,24 @@ export default function App(){
   const[viewingEmployee,setViewingEmployee]=useState(null);
   const[viewingDay,setViewingDay]=useState(null);
   const[loading,setLoading]=useState(true);
+  const[themePref,setThemePref]=useState(()=>{try{return localStorage.getItem(THEME_KEY)||"auto";}catch{return "auto";}});
 
   const ds=todayStr(), now=new Date(), dateObj=new Date(ds);
   const dateLabel=`${DOW_FULL[dateObj.getDay()]}, ${dateObj.getDate()} ${MONTHS_RU[dateObj.getMonth()]}`;
 
   useEffect(()=>{if(TG){try{TG.ready();TG.expand();}catch{}}},[]);
+  useEffect(()=>{
+    applyTheme(themePref);
+    try{localStorage.setItem(THEME_KEY,themePref);}catch{}
+    if(themePref!=="auto")return;
+    // в режиме "авто" следим за сменой темы устройства вживую, без перезагрузки страницы
+    let mq;
+    try{mq=window.matchMedia("(prefers-color-scheme: light)");}catch{return;}
+    const onChange=()=>applyTheme("auto");
+    mq.addEventListener?.("change",onChange);
+    return()=>mq.removeEventListener?.("change",onChange);
+  },[themePref]);
+  function cycleTheme(){setThemePref(p=>p==="auto"?"light":p==="light"?"dark":"auto");}
   useEffect(()=>{let on=true;const tick=async()=>{const ok=await pingServer();if(on)setServerOk(ok);};tick();const id=setInterval(tick,15000);return()=>{on=false;clearInterval(id);};},[]);
   useEffect(()=>{(async()=>{
     const[t,hist,profs,cds,so,rev,ho,ev,savedWho,seen,sc,cn,au,ac,tord,mem,sch,gl]=await Promise.all([
@@ -761,6 +821,7 @@ export default function App(){
     ...(hasPerm(who,profiles,"view_all_tasks")||hasPerm(who,profiles,"view_own_tasks")?[{id:"tasks",label:"Задачи"}]:[]),
     ...(hasPerm(who,profiles,"view_schedule")?[{id:"schedule",label:"График"}]:[]),
     ...(canTeam||canStats?[{id:"team",label:"Команда"}]:[]),
+    ...(isManager?[{id:"admin",label:"⚙️ Админка"}]:[]),
   ];
 
   return (
@@ -773,6 +834,10 @@ export default function App(){
               <Inbox size={19}/>{inboxUnread>0&&<span style={{position:"absolute",top:-5,right:-7,background:"var(--rs)",color:"#fff",fontSize:9,fontWeight:700,borderRadius:8,minWidth:15,height:15,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px"}}>{inboxUnread}</span>}
             </button>}
             {myStatus&&<span className="sb" style={{background:SHIFT_STATUSES[myStatus]?.bg,color:SHIFT_STATUSES[myStatus]?.color}}>{SHIFT_STATUSES[myStatus]?.label}</span>}
+            <button className="theme-btn" onClick={cycleTheme}
+              title={themePref==="auto"?"Тема: авто (по устройству)":themePref==="light"?"Тема: светлая":"Тема: тёмная"}>
+              {themePref==="auto"?<MonitorSmartphone size={14}/>:themePref==="light"?<Sun size={14}/>:<Moon size={14}/>}
+            </button>
             <button className="nav-who" onClick={()=>setPicking(true)}><User size={12}/>{accountLabel(who)}
               <span title={serverOk===false?"Сервер недоступен — данные только на этом устройстве":serverOk?"Сервер на связи":"проверка связи"}
                 style={{width:7,height:7,borderRadius:"50%",marginLeft:6,display:"inline-block",
@@ -814,6 +879,8 @@ export default function App(){
         tasks={tasks} history={history} ds={ds} schedule={schedule} cards={cards} eventsLog={eventsLog}
         onView={isManager?n=>setViewingEmployee(n):null}
         setCardModal={v=>setModal(v)} onRevoke={id=>setCards(prev=>prev.map(c=>c.id===id?{...c,active:false}:c))}/>}
+
+      {tab==="admin"&&isManager&&<AdminTab auth={auth} members={members} ds={ds}/>}
 
       {canAddTasks&&["today"].includes(tab)&&<button className="fab" onClick={()=>setModal({_new:true})}><Plus size={24} color="var(--bg)"/></button>}
       {modal&&!modal._card&&!modal._handover&&!modal._inbox&&!modal._closing&&<TaskModal task={modal._new?null:modal} ds={modal._date||ds} members={members} onClose={()=>setModal(null)} onSave={saveTask} onDelete={delTask}/>}
