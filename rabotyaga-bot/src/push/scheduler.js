@@ -32,32 +32,37 @@ function isToday(task, ds) {
   return false;
 }
 
-// За сутки до смены - отправляем задачи на завтра
+function getSchedule() {
+  const data = loadData();
+  return data.schedule || {
+    dayBeforeShift: { time: '20:00', enabled: true },
+    personalTasks: { time: '09:00', enabled: true },
+    closeShiftReminder: { time: '22:00', enabled: true }
+  };
+}
+
+function timeToMinutes(timeStr) {
+  const [h, m] = timeStr.split(':').map(Number);
+  return h * 60 + m;
+}
+
 async function sendDayBeforeShiftPushes(bot) {
   const data = loadData();
   const tasks = JSON.parse(data.kv['tasks:v4'] || '[]');
   const tomorrow = tomorrowStr();
-  
-  // Находим задачи на завтра
   const tomorrowTasks = tasks.filter(t => !t.archived && isToday(t, tomorrow));
   if (!tomorrowTasks.length) return;
-  
   const taskTitles = tomorrowTasks.map(t => t.title);
-  
-  // Отправляем всем у кого включены пуши
   for (const [userId, settings] of Object.entries(data.pushSettings || {})) {
     if (!settings.enabled || !settings.notifications?.dayBeforeShift) continue;
     await sender.sendDayBeforeShiftPush(bot, userId, taskTitles);
   }
 }
 
-// Личные задачи - отправляем задачи назначенные пользователю
 async function sendPersonalTasksPushes(bot) {
   const data = loadData();
   const tasks = JSON.parse(data.kv['tasks:v4'] || '[]');
   const today = todayStr();
-  
-  // Группируем задачи по назначенным
   const userTasks = {};
   tasks.forEach(t => {
     if (!t.archived && t.assignedTo && isToday(t, today)) {
@@ -70,8 +75,6 @@ async function sendPersonalTasksPushes(bot) {
       });
     }
   });
-  
-  // Отправляем каждому пользователю его задачи
   for (const [userId, settings] of Object.entries(data.pushSettings || {})) {
     if (!settings.enabled || !settings.notifications?.personalTasks) continue;
     if (userTasks[userId]?.length > 0) {
@@ -80,44 +83,63 @@ async function sendPersonalTasksPushes(bot) {
   }
 }
 
-// Напоминание о закрытии смены
 async function sendCloseShiftPushes(bot) {
   const data = loadData();
-  
   for (const [userId, settings] of Object.entries(data.pushSettings || {})) {
     if (!settings.enabled || !settings.notifications?.closeShiftReminder) continue;
     await sender.sendCloseShiftPush(bot, userId);
   }
 }
 
-// Запускаем планировщик
 function startScheduler(bot) {
   console.log('⏰ Планировщик пушей запущен');
   
-  // Проверяем каждую минуту
+  // Отслеживаем что уже отправлено сегодня (чтобы не дублировать)
+  const sentToday = { dayBeforeShift: null, personalTasks: null, closeShiftReminder: null };
+  
   setInterval(async () => {
     const now = new Date();
-    const hour = now.getHours();
-    const minute = now.getMinutes();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const today = todayStr();
+    const schedule = getSchedule();
     
-    // В 20:00 - пуш за сутки до смены
-    if (hour === 20 && minute === 0) {
-      console.log('📅 Отправка пушей "За сутки до смены"');
-      await sendDayBeforeShiftPushes(bot);
+    // Сбрасываем счётчик в полночь
+    if (currentMinutes === 0) {
+      sentToday.dayBeforeShift = null;
+      sentToday.personalTasks = null;
+      sentToday.closeShiftReminder = null;
     }
     
-    // В 09:00 - личные задачи
-    if (hour === 9 && minute === 0) {
-      console.log('📬 Отправка личных задач');
-      await sendPersonalTasksPushes(bot);
+    // За сутки до смены
+    if (schedule.dayBeforeShift?.enabled !== false) {
+      const targetTime = timeToMinutes(schedule.dayBeforeShift?.time || '20:00');
+      if (currentMinutes === targetTime && sentToday.dayBeforeShift !== today) {
+        console.log('📅 Отправка пушей "За сутки до смены"');
+        await sendDayBeforeShiftPushes(bot);
+        sentToday.dayBeforeShift = today;
+      }
     }
     
-    // В 22:00 - закрытие смены
-    if (hour === 22 && minute === 0) {
-      console.log('⏰ Отправка напоминания о закрытии смены');
-      await sendCloseShiftPushes(bot);
+    // Личные задачи
+    if (schedule.personalTasks?.enabled !== false) {
+      const targetTime = timeToMinutes(schedule.personalTasks?.time || '09:00');
+      if (currentMinutes === targetTime && sentToday.personalTasks !== today) {
+        console.log('📬 Отправка личных задач');
+        await sendPersonalTasksPushes(bot);
+        sentToday.personalTasks = today;
+      }
     }
-  }, 60000);
+    
+    // Закрытие смены
+    if (schedule.closeShiftReminder?.enabled !== false) {
+      const targetTime = timeToMinutes(schedule.closeShiftReminder?.time || '22:00');
+      if (currentMinutes === targetTime && sentToday.closeShiftReminder !== today) {
+        console.log('⏰ Отправка напоминания о закрытии смены');
+        await sendCloseShiftPushes(bot);
+        sentToday.closeShiftReminder = today;
+      }
+    }
+  }, 30000); // Проверяем каждые 30 секунд
 }
 
 module.exports = { startScheduler, sendDayBeforeShiftPushes, sendPersonalTasksPushes, sendCloseShiftPushes };

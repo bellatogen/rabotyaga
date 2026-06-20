@@ -5,15 +5,16 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 
-// Импорт модулей пушей (строго в начале!)
 const pushApi = require('./src/api/push');
-const adminApi = require("./src/api/admin");
 const pushSender = require('./src/push/sender');
-const pushScheduler = require("./src/push/scheduler");
+const pushScheduler = require('./src/push/scheduler');
+const adminApi = require('./src/api/admin');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
+app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 app.use('/api/push', pushApi);
 app.use('/api/admin', adminApi);
 
@@ -93,7 +94,7 @@ function todayTasksText(name) {
   return `📋 Дела на сегодня${name ? ` (${name})` : ''}:\n\n${lines.join('\n')}`;
 }
 
-// === КОМАНДЫ БОТА ===
+// === КОМАНДЫ ===
 bot.command('start', (ctx) => {
   ctx.reply(
     '🍺 «Работяга» на связи!\n\n' +
@@ -102,8 +103,9 @@ bot.command('start', (ctx) => {
     {
       reply_markup: {
         inline_keyboard: [
-          [{ text: '📋 Дела на сегодня', callback_data: 'today' }],
-          [{ text: ' Мой статус', callback_data: 'status' }],
+          [{ text: '📋 Общие дела на сегодня', callback_data: 'today' }],
+          [{ text: '📋 Мои задачи на сегодня', callback_data: 'mytasks' }],
+          [{ text: '👤 Мой статус', callback_data: 'status' }],
           [{ text: '🔔 Настройки пушей', callback_data: 'pushsettings' }]
         ]
       }
@@ -112,7 +114,12 @@ bot.command('start', (ctx) => {
 });
 
 bot.command('today', (ctx) => {
+  ctx.reply(todayTasksText(null));
+});
+
+bot.command('mytasks', (ctx) => {
   const name = nameByTelegramId(ctx.from.id);
+  if (!name) return ctx.reply('❌ Ты не привязан к системе. Обратись к администратору.');
   ctx.reply(todayTasksText(name));
 });
 
@@ -135,7 +142,7 @@ bot.command('stoppush', async (ctx) => {
 bot.command('pushsettings', async (ctx) => {
   const userId = String(ctx.from.id);
   const settings = pushSender.getPushSettings(userId);
-  if (!settings) return ctx.reply(' Настройки не найдены. Используй /startpush');
+  if (!settings) return ctx.reply('🔔 Настройки не найдены. Используй /startpush');
   const text = `📱 Настройки пушей:\n\nВключены: ${settings.enabled ? '✅' : '❌'}\n\n🔔 Уведомления:\n• За сутки до смены: ${settings.notifications?.dayBeforeShift ? '✅' : '❌'}\n• Личные задачи: ${settings.notifications?.personalTasks ? '✅' : '❌'}\n• Закрытие смены: ${settings.notifications?.closeShiftReminder ? '✅' : '❌'}\n• Индивидуальные: ${settings.notifications?.individualTasks ? '✅' : '❌'}`;
   await ctx.reply(text);
 });
@@ -179,7 +186,10 @@ bot.command('toggle_individual', async (ctx) => {
 bot.on('callback_query', (ctx) => {
   const cdata = ctx.callbackQuery.data;
   if (cdata === 'today') {
+    ctx.reply(todayTasksText(null));
+  } else if (cdata === 'mytasks') {
     const name = nameByTelegramId(ctx.from.id);
+    if (!name) return ctx.reply('❌ Ты не привязан к системе.');
     ctx.reply(todayTasksText(name));
   } else if (cdata === 'status') {
     ctx.reply('👤 Чтобы узнать свой статус, открой приложение и выбери своё имя.');
@@ -211,15 +221,34 @@ app.post('/api/bind', (req, res) => {
   data.bindings[name] = telegramId;
   saveData();
   console.log(`✅ Привязан: ${name} -> ID ${telegramId}`);
-  bot.telegram.sendMessage(telegramId, ` Привет, ${name}! Ты подключен к "Работяга".`).catch(err => console.error('Ошибка отправки:', err));
+  bot.telegram.sendMessage(telegramId, `👋 Привет, ${name}! Ты подключен к "Работяга".`).catch(err => console.error('Ошибка отправки:', err));
   res.json({ success: true });
 });
 
-app.get('/api/push/test/:name', async (req, res) => {
-  const ok = await sendToName(req.params.name, '🔔 Тестовое уведомление! 🍻');
-  res.json(ok ? { success: true, msg: 'Пуш отправлен' } : { success: false, msg: 'Пользователь не заходил' });
+app.delete('/api/bind/:name', (req, res) => {
+  const { name } = req.params;
+  if (data.bindings[name]) {
+    delete data.bindings[name];
+    saveData();
+    console.log(`❌ Удалена привязка: ${name}`);
+    return res.json({ success: true });
+  }
+  res.status(404).json({ error: 'Сотрудник не найден' });
 });
 
+app.get('/api/bindings', (req, res) => {
+  res.json({ success: true, bindings: data.bindings });
+});
+
+app.get("/api/push/test/:name", async (req, res) => {
+  const name = req.params.name;
+  const userId = data.bindings[name];
+  if (!userId) return res.json({ success: false, msg: "Пользователь не найден" });
+  const ok = await pushSender.sendPush(bot, String(userId), "🔔 Тестовое уведомление! 🍻", "test");
+  res.json(ok ? { success: true, msg: "Пуш отправлен" } : { success: false, msg: "Пуши отключены" });
+});
+
+// === ЗАПУСК ===
 bot.launch().catch(err => {
   console.error('Ошибка запуска бота:', err);
   process.exit(1);
