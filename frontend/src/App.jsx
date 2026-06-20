@@ -170,7 +170,7 @@ body{background:var(--bg);color:var(--pp);transition:background .2s ease,color .
 
 const DAYS_RU=["вс","пн","вт","ср","чт","пт","сб"];
 const DOW_FULL=["Воскресенье","Понедельник","Вторник","Среда","Четверг","Пятница","Суббота"];
-const MONTHS_RU=["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
+const MONTHS_RU=["Января","Февраля","Марта","Апреля","Мая","Июня","Июля","Августа","Сентября","Октября","Ноября","Декабря"];
 const REPEAT_OPTS=[{id:"opening",label:"Открытие смены"},{id:"closing",label:"Закрытие смены"},{id:"daily",label:"Каждый день"},{id:"workday",label:"По будням"},{id:"weekly",label:"Еженедельно"},{id:"once",label:"Разово"}];
 const DEFAULT_MEMBERS=["Александр","Павел","Евгений","Тимофей","Ярослав","Антон","Андрей"];
 
@@ -817,11 +817,11 @@ export default function App(){
 
   const canStats=hasPerm(who,profiles,"view_team_stats")||isManager;
   const tabs=[
-    {id:"today",label:"Сегодня"},{id:"cabinet",label:"Кабинет"},
+    {id:"today",label:"Сегодня"},
     ...(hasPerm(who,profiles,"view_all_tasks")||hasPerm(who,profiles,"view_own_tasks")?[{id:"tasks",label:"Задачи"}]:[]),
     ...(hasPerm(who,profiles,"view_schedule")?[{id:"schedule",label:"График"}]:[]),
     ...(canTeam||canStats?[{id:"team",label:"Команда"}]:[]),
-    ...(isManager?[{id:"admin",label:"⚙️ Админка"}]:[]),
+    {id:"settings",label:"️ Управление"},
   ];
 
   return (
@@ -859,7 +859,7 @@ export default function App(){
         onToggle={toggle} onEdit={isManager?t=>setModal(t):null} onViewEmployee={isManager?n=>setViewingEmployee(n):null}
         onHandover={t=>setModal({_handover:true,task:t})}/>}
 
-      {tab==="cabinet"&&<PersonalCabinet name={who==="manager"||who==="developer"?who:who} account={who} isOwnCabinet={true} tasks={tasks} history={history}
+      {tab==="settings"&&isManager&&<AdminTab auth={auth} members={members} ds={ds}/>}\n      {tab==="settings"&&!isManager&&<PersonalCabinet name={who==="manager"||who==="developer"?who:who} account={who} isOwnCabinet={true} tasks={tasks} history={history}
         schedule={schedule} cards={cards} profiles={profiles} ds={ds} now={now} statusOverrides={statusOverrides}
         members={members} eventsLog={eventsLog}
         onIssueCard={isManager?issueCard:null} onUpdateProfile={isManager?p=>setProfiles(prev=>prev.map(x=>x.name===p.name?p:x)):null}
