@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const DATA_FILE = path.join(__dirname, '../../data.json');
+const { data: serverData } = require('../../server');
 
 function loadData() {
   return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
@@ -34,7 +35,14 @@ router.post('/templates/:userId', (req, res) => {
     ...templates
   };
   saveData(data);
-  
+  // Mirror into serverData so debounced flush doesn't clobber this write
+  if (serverData.pushSettings[userId]) {
+    serverData.pushSettings[userId].templates = {
+      ...serverData.pushSettings[userId].templates,
+      ...templates
+    };
+  }
+
   res.json({ success: true });
 });
 
@@ -52,13 +60,14 @@ router.get('/templates/:userId', (req, res) => {
 });
 
 // Глобальные шаблоны (по умолчанию)
+const DEFAULT_TEMPLATES = {
+  dayBeforeShift: '🔔 Завтра твоя смена!\n\nЗадачи:\n{tasks}',
+  closeShiftReminder: '⏰ Пора закрывать смену!\n\n✅ Чек-лист:\n• Пересчитать кассу\n• Убраться\n• Сдать отчёт\n• Закрыть бар'
+};
 router.get('/default-templates', (req, res) => {
   res.json({
     success: true,
-    templates: {
-      dayBeforeShift: '🔔 Завтра твоя смена!\n\nЗадачи:\n{tasks}',
-      closeShiftReminder: '⏰ Пора закрывать смену!\n\n✅ Чек-лист:\n• Пересчитать кассу\n• Убраться\n• Сдать отчёт\n• Закрыть бар'
-    }
+    templates: { ...DEFAULT_TEMPLATES, ...(serverData.defaultTemplates || {}) }
   });
 });
 
@@ -70,8 +79,14 @@ router.post('/default-templates', (req, res) => {
   if (!data.defaultTemplates) data.defaultTemplates = {};
   data.defaultTemplates = { ...data.defaultTemplates, ...templates };
   saveData(data);
+  serverData.defaultTemplates = { ...serverData.defaultTemplates, ...templates };
   
   res.json({ success: true });
+});
+
+// Получение привязок (для админки)
+router.get('/bindings', (req, res) => {
+  res.json({ success: true, bindings: serverData.bindings || {} });
 });
 
 module.exports = router;

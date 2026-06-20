@@ -7,6 +7,9 @@ const path = require('path');
 
 // Импорт модулей пушей (строго в начале!)
 const pushApi = require('./src/api/push');
+const DATA_FILE = path.join(__dirname, 'data.json');
+let data = { kv: {}, bindings: {}, pushSettings: {}, adminUsers: [], defaultTemplates: {} };
+module.exports = { data };
 const adminApi = require("./src/api/admin");
 const pushSender = require('./src/push/sender');
 const pushScheduler = require("./src/push/scheduler");
@@ -26,9 +29,6 @@ if (!TOKEN) {
 }
 
 const bot = new Telegraf(TOKEN);
-const DATA_FILE = path.join(__dirname, 'data.json');
-
-let data = { kv: {}, bindings: {}, pushSettings: {}, adminUsers: [] };
 if (fs.existsSync(DATA_FILE)) {
   try {
     const loaded = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
@@ -36,6 +36,7 @@ if (fs.existsSync(DATA_FILE)) {
     data.bindings = loaded.bindings || {};
     data.pushSettings = loaded.pushSettings || {};
     data.adminUsers = loaded.adminUsers || [];
+    data.defaultTemplates = loaded.defaultTemplates || {};
     console.log(`📂 Загружено ${Object.keys(data.kv).length} kv-ключей, ${Object.keys(data.bindings).length} привязок, ${Object.keys(data.pushSettings).length} настроек пушей`);
   } catch (e) {
     console.error('Ошибка чтения data.json:', e);
