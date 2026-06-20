@@ -8,7 +8,7 @@ Building products that turn hospitality operations into scalable systems.
 
 ## Who I Am
 
-I'm the CEO of **beercard.ru**, managing 8 premium-class restaurants across Saint Petersburg as part of **dreamteam.fm** group. I code solutions to real business problems—reducing operational friction, scaling teams, and automating what shouldn't be manual.
+I'm the GM of **beercard.ru**, first of th one of the most relevant restaraunt group across Saint Petersburg as part of **dreamteam.fm**. I code solutions to real business problems—reducing operational friction, scaling teams, and automating what shouldn't be manual.
 
 Started as a full-stack developer. Now I build tech products that solve my own business challenges and scale them to market.
 
