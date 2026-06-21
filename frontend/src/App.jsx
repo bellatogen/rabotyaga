@@ -322,7 +322,7 @@ export default function App(){
   if(viewingDay)return (
     <div className="app">
       <div className="nav"><div className="nav-row">
-        <button onClick={()=>setViewingDay(null)} style={{background:"transparent",border:"none",color:"var(--cu)",cursor:"pointer",display:"flex",alignItems:"center",gap:6,fontSize:14,fontWeight:600}}><ChevronLeft size={16}/>Календарь</button>
+        <button onClick={()=>setViewingDay(null)} style={{background:"transparent",border:"none",color:"var(--cu)",cursor:"pointer",display:"flex",alignItems:"center",gap:6,fontSize:14,fontWeight:600,padding:"6px 10px",borderRadius:6,transition:"all .2s ease"}} onMouseEnter={(e)=>{e.currentTarget.style.background="var(--sf)";e.currentTarget.style.color="var(--pp)"}} onMouseLeave={(e)=>{e.currentTarget.style.background="transparent";e.currentTarget.style.color="var(--cu)"}}><ChevronLeft size={16}/>Календарь</button>
       </div><div className="nav-date" style={{paddingTop:6}}>День</div></div>
       <DayDetail date={viewingDay} schedule={schedule} events={events} tasks={tasks} history={history}
         revenue={revenue} handovers={handovers} isManager={isManager} canTeam={canTeam} members={members}
@@ -335,7 +335,7 @@ export default function App(){
   if(viewingEmployee&&isManager)return (
     <div className="app">
       <div className="nav"><div className="nav-row">
-        <button onClick={()=>setViewingEmployee(null)} style={{background:"transparent",border:"none",color:"var(--cu)",cursor:"pointer",display:"flex",alignItems:"center",gap:6,fontSize:14,fontWeight:600}}><ChevronLeft size={16}/>Назад</button>
+        <button onClick={()=>setViewingEmployee(null)} style={{background:"transparent",border:"none",color:"var(--cu)",cursor:"pointer",display:"flex",alignItems:"center",gap:6,fontSize:14,fontWeight:600,padding:"6px 10px",borderRadius:6,transition:"all .2s ease"}} onMouseEnter={(e)=>{e.currentTarget.style.background="var(--sf)";e.currentTarget.style.color="var(--pp)"}} onMouseLeave={(e)=>{e.currentTarget.style.background="transparent";e.currentTarget.style.color="var(--cu)"}}><ChevronLeft size={16}/>Назад</button>
       </div><div className="nav-date" style={{paddingTop:6}}>Кабинет сотрудника</div></div>
       <PersonalCabinet name={viewingEmployee} isOwnCabinet={false} tasks={tasks} history={history}
         schedule={schedule} cards={cards} profiles={profiles} ds={ds} now={now} statusOverrides={statusOverrides}
