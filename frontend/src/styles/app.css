@@ -155,6 +155,15 @@ body{background:var(--bg);color:var(--pp);transition:background .2s ease,color .
   .fab:hover{filter:brightness(1.08);transform:translateY(-1px);}
   .nav-who:hover{background:rgba(201,125,60,.18);}
   .cal-cell:hover{border-color:var(--cu);}
+}
+/* Тултип календаря — тематичный (var-цвета), позиция задаётся инлайн */
+.cal-tooltip{position:fixed;z-index:9999;min-width:210px;max-width:300px;background:var(--sf);color:var(--pp);border:1px solid var(--bd);border-radius:12px;padding:11px 13px;box-shadow:0 12px 40px rgba(0,0,0,.35);font-size:13px;line-height:1.5;pointer-events:none;animation:tooltipFade .15s ease-out;}
+.cal-tt-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;border-bottom:1px solid var(--bd);padding-bottom:7px;margin-bottom:7px;}
+.cal-tt-row{display:flex;justify-content:space-between;gap:12px;padding:1px 0;}
+.cal-tt-mt{color:var(--mt);}
+@keyframes tooltipFade{from{opacity:0}to{opacity:1}
+}
+@media(hover:hover) and (pointer:fine){
   .swipe-actions button:hover{filter:brightness(1.1);}
   button{cursor:pointer;}
   /* запасной ховер для кнопок без выделенного класса (иконки в nav, модалках и т.п.) */

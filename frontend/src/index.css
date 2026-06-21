@@ -1,16 +1,4 @@
-
-/* Tooltip animation */
-@keyframes tooltipFade {
-  from {
-    opacity: 0;
-    transform: translate(-50%, -100%) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: translate(-50%, -100%) scale(1);
-  }
-}
-/* Минимальный сброс. Всю раскладку держит CSS внутри App.jsx. */
+/* Минимальный сброс. Всю раскладку держит CSS внутри styles/app.css. */
 * { box-sizing: border-box; }
 html, body, #root {
   margin: 0;
@@ -19,7 +7,7 @@ html, body, #root {
 }
 html, body {
   min-height: 100dvh;
-  background: var(--bg);          /* фон зависит от темы — см. :root в App.jsx */
+  background: var(--bg);          /* фон зависит от темы — см. :root в app.css */
   overflow-x: hidden;            /* никакого горизонтального скролла */
   -webkit-text-size-adjust: 100%; /* iOS не масштабирует текст сам */
 }
@@ -29,16 +17,3 @@ html, body {
   min-height: 100dvh;
 }
 img, svg { max-width: 100%; }
-
-/* Tooltip animation */
-@keyframes tooltipFade {
-  from {
-    opacity: 0;
-    transform: translate(-50%, -100%) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: translate(-50%, -100%) scale(1);
-  }
-}
-@keyframes tooltipFade { from { opacity: 0; transform: translate(-50%, -100%) scale(0.96); } to { opacity: 1; transform: translate(-50%, -100%) scale(1); } }
