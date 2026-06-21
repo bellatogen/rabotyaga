@@ -26,7 +26,11 @@
       "Bash(open repo-prompt.txt)",
       "Bash(cat)",
       "Bash(echo \"exit: $?\")",
-      "Bash(node -c rabotyaga-bot/src/api/admin.js)"
+      "Bash(node -c rabotyaga-bot/src/api/admin.js)",
+      "Bash(python3 -)",
+      "Bash(git add *)",
+      "Bash(npx eslint *)",
+      "Bash(git checkout *)"
     ]
   }
 }
