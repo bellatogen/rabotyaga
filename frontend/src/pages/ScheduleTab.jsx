@@ -1,5 +1,5 @@
 // Вкладка «График» — календарь, дашборд часов, таблица часов + детальный просмотр дня
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, AlertTriangle, CheckCircle, Send, User, Plus, Clock } from 'lucide-react';
 import { MONTHS_RU, DOW_FULL, REPEAT_OPTS } from '../constants/locale.js';
 import { hourNorm } from '../constants/staff.js';
@@ -35,12 +35,24 @@ function getRevenueColor(pct){
 function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
   const[ym,setYm]=useState("2026-06");
   const[tooltip,setTooltip]=useState(null);
+  // Скролл/ресайз сдвигают ячейки — fixed-тултип иначе залипает не на месте.
+  useEffect(()=>{
+    if(!tooltip)return;
+    const hide=()=>setTooltip(null);
+    window.addEventListener("scroll",hide,true);
+    window.addEventListener("resize",hide);
+    return()=>{window.removeEventListener("scroll",hide,true);window.removeEventListener("resize",hide);};
+  },[tooltip]);
   const showTip=(e,c)=>{
+    // Только мышь: на тач-устройствах (Telegram) hover не работает — там тап открывает день (DayDetail со всей инфой).
+    if(e.pointerType&&e.pointerType!=="mouse")return;
     const r=e.currentTarget.getBoundingClientRect();
     const rev=revenue[c]||{};
     const pct=rev.plan&&rev.fact?(rev.fact/rev.plan)*100:null;
     const below=r.top<180;
-    setTooltip({x:r.left+r.width/2,y:below?r.bottom:r.top,below,date:c,check:staffCheck(c,schedule,events),shifts:schedule[c]||[],event:events[c]||null,rev,pct});
+    const vw=typeof window!=="undefined"?window.innerWidth:360;
+    const cx=Math.max(150,Math.min(vw-150,r.left+r.width/2)); // не даём тултипу уехать за край экрана
+    setTooltip({x:cx,y:below?r.bottom:r.top,below,date:c,check:staffCheck(c,schedule,events),shifts:schedule[c]||[],event:events[c]||null,rev,pct});
   };
   const[y,m]=ym.split("-").map(Number);
   const first=new Date(y,m-1,1);
@@ -49,7 +61,7 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
   const cells=[];
   for(let i=0;i<startDow;i++)cells.push(null);
   for(let d=1;d<=daysInMonth;d++)cells.push(`${ym}-${String(d).padStart(2,"0")}`);
-  const shift=(n)=>{let nm=m+n,ny=y;if(nm<1){nm=12;ny--;}if(nm>12){nm=1;ny++;}setYm(`${ny}-${String(nm).padStart(2,"0")}`);};
+  const shift=(n)=>{setTooltip(null);let nm=m+n,ny=y;if(nm<1){nm=12;ny--;}if(nm>12){nm=1;ny++;}setYm(`${ny}-${String(nm).padStart(2,"0")}`);};
   return(<div className="sec">
     <div className="sec-head">
       <span className="sec-lbl"><CalendarDays size={12}/>Календарь</span>
@@ -87,7 +99,7 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
         const hasRev=rev.plan!=null&&rev.plan!=="";
         const pct=rev.plan&&rev.fact?(rev.fact/rev.plan)*100:null;
         return(<div key={i} className={`cal-cell${c===ds?" today":""}${!check.ok?" short":""}`} onClick={()=>onOpenDay(c)}
-          onMouseEnter={e=>showTip(e,c)} onMouseLeave={()=>setTooltip(null)}
+          onPointerEnter={e=>showTip(e,c)} onPointerLeave={()=>setTooltip(null)}
           style={pct!=null?{background:getRevenueColor(pct)+"22"}:undefined}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span className="cal-num" style={pct!=null?{color:getRevenueColor(pct)}:undefined}>{dnum}</span>
