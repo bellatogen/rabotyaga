@@ -393,7 +393,7 @@ export default function App(){
         onToggle={toggle} onEdit={isManager?t=>setModal(t):null} onViewEmployee={isManager?n=>setViewingEmployee(n):null}
         onHandover={t=>setModal({_handover:true,task:t})}/>}
 
-      {tab==="settings"&&isManager&&<AdminTab auth={auth} members={members} ds={ds}/>}\n      {tab==="settings"&&!isManager&&<PersonalCabinet name={who==="manager"||who==="developer"?who:who} account={who} isOwnCabinet={true} tasks={tasks} history={history}
+      {tab==="settings"&&isManager&&<AdminTab auth={auth} members={members} ds={ds}/>}      {tab==="settings"&&!isManager&&<PersonalCabinet name={who==="manager"||who==="developer"?who:who} account={who} isOwnCabinet={true} tasks={tasks} history={history}
         schedule={schedule} cards={cards} profiles={profiles} ds={ds} now={now} statusOverrides={statusOverrides}
         members={members} eventsLog={eventsLog}
         onIssueCard={isManager?issueCard:null} onUpdateProfile={isManager?p=>setProfiles(prev=>prev.map(x=>x.name===p.name?p:x)):null}
