@@ -12,8 +12,8 @@ build:
 	cd frontend && npm run build
 
 push:
-	git add .
-	git commit -m "auto deploy"
+	@test -z "$$(git status --porcelain)" || { echo "⛔ Незакоммиченные изменения — закоммить вручную"; git status --short; exit 1; }
+	@test "$$(git rev-parse --abbrev-ref HEAD)" = main || { echo "⛔ Не на main"; exit 1; }
 	git push origin main
 
 deploy: build push
