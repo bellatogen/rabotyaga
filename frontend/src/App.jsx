@@ -3,7 +3,7 @@ import { AdminTab } from "./AdminTab.jsx";
 import { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 import { CheckCircle, Plus, X, BarChart2, Clock, User, ArrowRight, Trash2, Pencil,
   Beer, Award, FileText, Users, Lock, Bell, AtSign, Inbox, Key, Shield, Eye, EyeOff, GripVertical, Archive, RotateCcw, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, CalendarDays,
-  AlertTriangle, TrendingUp, TrendingDown, Minus, Send, DollarSign, Activity, Sun, Moon, MonitorSmartphone } from "lucide-react";
+  AlertTriangle, TrendingUp, TrendingDown, Minus, Send, Activity, Sun, Moon, MonitorSmartphone } from "lucide-react";
 import './styles/app.css';
 import { ROLES, ALL_PERMS } from './constants/roles.js';
 import { SHIFT_STATUSES } from './constants/shifts.js';
@@ -646,7 +646,7 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
         return(<div key={i} className={`cal-cell${c===ds?" today":""}${!check.ok?" short":""}`} onClick={()=>onOpenDay(c)}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span className="cal-num">{dnum}</span>
-            {hasRev&&<DollarSign size={9} color="var(--am)"/>}
+            {hasRev&&<span style={{fontSize:11,color:"var(--am)",fontWeight:700}}>₽</span>}
           </div>
           <span className="cal-staff" style={{color:check.ok?"var(--mt)":"#e07a60"}}>{check.actual}/{check.norm.count}</span>
           {events[c]&&<span className="cal-ev">{events[c]}</span>}
@@ -679,7 +679,7 @@ function DayDetail({date,schedule,events,tasks,history,revenue,handovers,isManag
     {check.ok&&check.msg&&<div className="alert warn"><AlertTriangle size={16} style={{flexShrink:0,marginTop:1}}/><span>{check.msg}</span></div>}
     {check.ok&&!check.msg&&<div className="alert ok"><CheckCircle size={16} style={{flexShrink:0,marginTop:1}}/><span>Штат укомплектован по норме ({check.actual}/{check.norm.count})</span></div>}
 
-    <div className="sec-lbl" style={{margin:"14px 0 8px"}}><DollarSign size={12} style={{display:"inline"}}/> План выручки</div>
+    <div className="sec-lbl" style={{margin:"14px 0 8px"}}><span style={{fontSize:14,fontWeight:700,color:"var(--am)"}}>₽</span> План выручки</div>
     {!isManager&&<RevenueCard date={date} revenue={revenue}/>}
     {isManager&&<div className="rev-card">
       <div className="r2">
