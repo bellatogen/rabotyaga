@@ -1,56 +1,28 @@
-import { isDone, todayStr } from '../utils/taskUtils.js';
+// Карточка задачи — богатая версия с drag handle, @mention, pills, isReport-звёздочкой
+import { CheckCircle, Clock, AtSign, User, Send, Pencil } from 'lucide-react';
+import { REPEAT_OPTS } from '../constants/locale.js';
 
-export function TaskCard({ task, history = {}, onToggle, ds = todayStr() }) {
-  const done = isDone(history[`${task.id}::${ds}`]);
-  
-  const pillColors = {
-    'opening': 'p-t',
-    'closing': 'p-w',
-    'daily': 'p-rep',
-  };
-  
-  return (
-    <div style={{
-      background: 'var(--sf)', borderRadius: '10px', padding: '12px 14px',
-      marginBottom: '8px', opacity: done ? 0.5 : 1
-    }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-        <div
-          onClick={() => onToggle && onToggle(task.id, !done)}
-          style={{
-            flexShrink: 0, width: '25px', height: '25px', borderRadius: '50%',
-            border: '2px solid var(--cu)', display: 'flex', alignItems: 'center',
-            justifyContent: 'center', cursor: 'pointer', background: done ? 'var(--hp)' : 'transparent',
-            borderColor: done ? 'var(--hp)' : 'var(--cu)'
-          }}
-        >
-          {done && <span style={{ color: '#fff', fontSize: '14px' }}>✓</span>}
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={{
-            fontSize: '15px', fontWeight: 500, lineHeight: '1.3',
-            textDecoration: done ? 'line-through' : 'none',
-            color: done ? 'var(--mt)' : 'var(--pp)'
-          }}>
-            {task.title}
-          </div>
-          {task.description && (
-            <div style={{ fontSize: '13px', color: 'var(--mt)', marginTop: '6px' }}>
-              {task.description}
-            </div>
-          )}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '7px' }}>
-            {task.repeat && (
-              <span className={`pill ${pillColors[task.repeat] || 'p-r'}`}>
-                {task.repeat === 'opening' ? '🔓' : task.repeat === 'closing' ? '🔒' : '📅'} {task.repeat}
-              </span>
-            )}
-            {task.priority && (
-              <span className="pill p-r">🔴 Приоритет</span>
-            )}
-          </div>
-        </div>
-      </div>
+export function TaskCard({task,done,onToggle,onEdit,onHandover,highlight,dragHandle,dragging}){
+  const rl=REPEAT_OPTS.find(r=>r.id===task.repeat)?.label;
+  return(<div className={`task${done?" done":""}${dragging?" dragging":""}`} style={highlight&&!done?{borderColor:"rgba(232,160,48,.45)",borderLeftWidth:3}:undefined}>
+    <div className="task-top">
+      {dragHandle}
+      <button className={`chk${done?" done":""}`} onClick={onToggle}>{done&&<CheckCircle size={14} color="#fff"/>}</button>
+      <span className={`t-title${done?" done":""}`}>{task.title}{task.isReport&&<span style={{color:"var(--am)",fontSize:12}}> ★</span>}</span>
     </div>
-  );
+    <div className="t-meta">
+      {task.time&&<span className="pill p-t"><Clock size={10}/>{task.time}</span>}
+      {task.assignedTo&&<span className="pill" style={{background:"rgba(232,160,48,.18)",color:"var(--am)"}}><AtSign size={10}/>{task.assignedTo}</span>}
+      {task.assignee&&task.assignee!=="смена"&&<span className="pill p-w"><User size={10}/>{task.assignee}</span>}
+      {task.assignee==="смена"&&!task.assignedTo&&<span className="pill p-w">вся смена</span>}
+      {rl&&<span className="pill p-r">{rl}</span>}
+    </div>
+    {task.notes&&<div style={{fontSize:12,color:"var(--mt)",paddingLeft:35,marginTop:5,lineHeight:1.5}}>{task.notes}</div>}
+    {(onEdit||onHandover)&&<div className="acts">
+      {onHandover&&<button className="mini-btn" onClick={onHandover}><Send size={11}/>передать смене</button>}
+      {onEdit&&<button className="mini-btn" onClick={onEdit}><Pencil size={11}/>изменить</button>}
+    </div>}
+  </div>);
 }
+
+export default TaskCard;
