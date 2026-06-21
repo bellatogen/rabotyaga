@@ -1,6 +1,15 @@
 #!/bin/bash
 set -e
 
+# Защита: пушим в main только если реально на main, иначе deploy.sh запушит
+# HEAD текущей (например, рабочей) ветки в main и затрёт историю.
+branch=$(git rev-parse --abbrev-ref HEAD)
+if [ "$branch" != "main" ]; then
+  echo "⛔ Сейчас ветка '$branch', не main. Деплой отменён, чтобы не запушить её в main."
+  echo "   Переключись: git checkout main"
+  exit 1
+fi
+
 echo "🔨 Сборка фронтенда..."
 cd frontend && npm run build && cd ..
 

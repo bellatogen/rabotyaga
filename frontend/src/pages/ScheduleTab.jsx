@@ -78,7 +78,8 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
         const rev=revenue[c]||{};
         const hasRev=rev.plan!=null&&rev.plan!=="";
         const pct=rev.plan&&rev.fact?(rev.fact/rev.plan)*100:null;
-        return(<div key={i} className={`cal-cell${c===ds?" today":""}${!check.ok?" short":""}`} onClick={()=>onOpenDay(c)}>
+        return(<div key={i} className={`cal-cell${c===ds?" today":""}${!check.ok?" short":""}`} onClick={()=>onOpenDay(c)}
+          style={pct!=null?{background:getRevenueColor(pct)+"22"}:undefined}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span className="cal-num" style={pct!=null?{color:getRevenueColor(pct)}:undefined}>{dnum}</span>
             {hasRev&&<span style={{fontSize:11,color:"var(--am)",fontWeight:700}}>₽</span>}
