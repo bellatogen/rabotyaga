@@ -629,7 +629,7 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
         <button onClick={()=>shift(1)} style={{background:"transparent",border:"none",color:"var(--mt)",cursor:"pointer"}}><ChevronRight size={18}/></button>
       </div>
     </div>
-    <div className="info-box" style={{fontSize:12}}>Нормы: пн/вт/чт/вс — 2 чел., ср/пт/сб — 3 (третий с 18:00). Вс со «Стерео 55» и праздники — тоже 3 с 18:00. Цвета: 🔴<90% 🟡90-100% 🟢100-110% 🔵>110%. Нажми день, чтобы открыть.</div>
+    <div className="info-box" style={{fontSize:12}}>Нормы: пн/вт/чт/вс — 2 чел., ср/пт/сб — 3 (третий с 18:00). Вс со «Стерео 55» и праздники — тоже 3 с 18:00. Цвета: 🔴&lt;90% 🟡90-100% 🟢100-110% 🔵&gt;110%. Нажми день, чтобы открыть.</div>
     <div className="cal-grid" style={{marginBottom:5}}>{["пн","вт","ср","чт","пт","сб","вс"].map(d=><div className="cal-dow" key={d}>{d}</div>)}</div>
     <div className="cal-grid">
       {cells.map((c,i)=>{
