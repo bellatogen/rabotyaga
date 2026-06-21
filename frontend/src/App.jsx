@@ -637,7 +637,24 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
         <button onClick={()=>shift(1)} style={{background:"transparent",border:"none",color:"var(--mt)",cursor:"pointer"}}><ChevronRight size={18}/></button>
       </div>
     </div>
-    <div className="info-box" style={{fontSize:12}}>Нормы: пн/вт/чт/вс — 2 чел., ср/пт/сб — 3 (третий с 18:00). Вс со «Стерео 55» и праздники — тоже 3 с 18:00. Цвета: 🔴&lt;90% 🟡90-100% 🟢100-110% 🔵&gt;110%. Нажми день, чтобы открыть.</div>
+    <details style={{marginBottom:10,border:"1px solid var(--bd)",borderRadius:8,background:"var(--sf)",overflow:"hidden"}}>
+      <summary style={{padding:"8px 12px",cursor:"pointer",fontSize:12,fontWeight:600,color:"var(--mt)",listStyle:"none",display:"flex",alignItems:"center",gap:6,userSelect:"none"}}>
+        <span style={{fontSize:14}}>❓</span>
+        <span>Как читать календарь</span>
+        <span style={{marginLeft:"auto",fontSize:10,opacity:.6}}>▼</span>
+      </summary>
+      <div style={{padding:"10px 12px",fontSize:12,lineHeight:1.6,color:"var(--tx)",borderTop:"1px solid var(--bd)"}}>
+        <div style={{marginBottom:6}}><strong>Нормы штата:</strong> пн/вт/чт/вс — 2 чел., ср/пт/сб — 3 (третий с 18:00). Вс со «Стерео 55» и праздники — тоже 3 с 18:00.</div>
+        <div style={{marginBottom:6}}><strong>Цвета фона</strong> (по выручке):</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,fontSize:11}}>
+          <div>🔴 &lt;90% плана</div>
+          <div>🟡 90-100% плана</div>
+          <div>🟢 100-110% плана</div>
+          <div>🔵 &gt;110% плана</div>
+        </div>
+        <div style={{marginTop:8,opacity:.7}}>Нажми на день, чтобы открыть детали.</div>
+      </div>
+    </details>
     <div className="cal-grid" style={{marginBottom:5}}>{["пн","вт","ср","чт","пт","сб","вс"].map(d=><div className="cal-dow" key={d}>{d}</div>)}</div>
     <div className="cal-grid">
       {cells.map((c,i)=>{
