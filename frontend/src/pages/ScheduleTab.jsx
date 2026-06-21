@@ -33,6 +33,7 @@ function getRevenueColor(pct){
 }
 
 function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
+  const [tooltip, setTooltip] = useState({ show: false, x: 0, y: 0, data: null });
   const[ym,setYm]=useState("2026-06");
   const[y,m]=ym.split("-").map(Number);
   const first=new Date(y,m-1,1);
