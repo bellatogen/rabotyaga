@@ -629,7 +629,7 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
         <button onClick={()=>shift(1)} style={{background:"transparent",border:"none",color:"var(--mt)",cursor:"pointer"}}><ChevronRight size={18}/></button>
       </div>
     </div>
-    <div className="info-box" style={{fontSize:12}}>Нормы: пн/вт/чт/вс — 2 чел., ср/пт/сб — 3 (третий с 18:00). Вс со «Стерео 55» и праздники — тоже 3 с 18:00. Красный фон = недобор. Нажми день, чтобы открыть.</div>
+    <div className="info-box" style={{fontSize:12}}>Нормы: пн/вт/чт/вс — 2 чел., ср/пт/сб — 3 (третий с 18:00). Вс со «Стерео 55» и праздники — тоже 3 с 18:00. Цвета: 🔴<90% 🟡90-100% 🟢100-110% 🔵>110%. Нажми день, чтобы открыть.</div>
     <div className="cal-grid" style={{marginBottom:5}}>{["пн","вт","ср","чт","пт","сб","вс"].map(d=><div className="cal-dow" key={d}>{d}</div>)}</div>
     <div className="cal-grid">
       {cells.map((c,i)=>{
@@ -637,12 +637,16 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
         const check=staffCheck(c,schedule,events);
         const dnum=Number(c.slice(-2));
         const hasRev=revenue[c]&&revenue[c].plan!=null&&revenue[c].plan!=="";
-        return(<div key={i} className={`cal-cell${c===ds?" today":""}${!check.ok?" short":""}`} onClick={()=>onOpenDay(c)}>
+        const rev = revenue[c] || {};
+          const pct = rev.plan && rev.fact ? (rev.fact / rev.plan) * 100 : null;
+          const bgColor = pct ? getRevenueColor(pct) : (!check.ok ? 'rgba(224,122,96,.15)' : 'transparent');
+          return(<div key={i} className={`cal-cell${c===ds?" today":""}`} style={{background: bgColor}} onClick={()=>onOpenDay(c)}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span className="cal-num">{dnum}</span>
             {hasRev&&<span style={{fontSize:11,color:"var(--am)",fontWeight:700}}>₽</span>}
           </div>
           <span className="cal-staff" style={{color:check.ok?"var(--mt)":"#e07a60"}}>{check.actual}/{check.norm.count}</span>
+          {pct!=null&&<span style={{fontSize:10,fontWeight:600,color:getRevenueColor(pct)}}>{Math.round(pct)}%</span>}
           {events[c]&&<span className="cal-ev">{events[c]}</span>}
         </div>);
       })}
