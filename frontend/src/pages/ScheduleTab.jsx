@@ -112,7 +112,7 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
       })}
     </div>
     
-    {tooltip && (
+    {tooltip && tooltip.data && (
       <div style={{
         position: 'fixed',
         left: tooltip.x,
@@ -128,29 +128,30 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
         minWidth: 250,
         fontSize: 13,
         pointerEvents: 'none',
-        border: '1px solid #334155'
+        border: '1px solid #334155',
+        animation: 'tooltipFade 0.15s ease-out'
       }}>
         <div style={{display:'flex',justifyContent:'space-between',borderBottom:'1px solid #334155',paddingBottom:8,marginBottom:8}}>
           <span style={{fontWeight:600}}>{new Date(tooltip.data.date).toLocaleDateString('ru-RU',{day:'numeric',month:'long',year:'numeric'})}</span>
           <span style={{fontSize:11,color:'#94a3b8'}}>{new Date(tooltip.data.date).toLocaleDateString('ru-RU',{weekday:'short'})}</span>
         </div>
-        {tooltip.data.revenue.plan && (
+        {tooltip.data.revenue && tooltip.data.revenue.plan && (
           <div style={{fontSize:14,fontWeight:500,marginBottom:10,color:tooltip.data.pct>=110?'#5b8b9b':tooltip.data.pct>=100?'#8bc47a':tooltip.data.pct>=90?'#e8a030':'#e85535'}}>
             {tooltip.data.pct>=110?'🔥 Отличный день!':tooltip.data.pct>=100?'👍 Хороший день':tooltip.data.pct>=90?'📊 Средний день':'📉 Тихий день'}
           </div>
         )}
-        {tooltip.data.shifts.length>0 && (
+        {tooltip.data.shifts && tooltip.data.shifts.length>0 && (
           <div style={{marginBottom:8}}>
             <div style={{fontSize:11,color:'#94a3b8',marginBottom:4}}>👥 Смены ({tooltip.data.shifts.length})</div>
             {tooltip.data.shifts.map((s,idx)=>(
               <div key={idx} style={{fontSize:12,display:'flex',justifyContent:'space-between',padding:'2px 0'}}>
-                <span>{s.name}</span>
-                <span style={{color:'#94a3b8'}}>{s.start}{s.end?` - ${s.end}`:''}</span>
+                <span>{s.name || 'Смена ' + (idx+1)}</span>
+                <span style={{color:'#94a3b8'}}>{s.start || ''}{s.end?` - ${s.end}`:''}</span>
               </div>
             ))}
           </div>
         )}
-        {tooltip.data.revenue.plan && (
+        {tooltip.data.revenue && tooltip.data.revenue.plan && (
           <div style={{borderTop:'1px solid #334155',paddingTop:8,marginTop:4,fontSize:12}}>
             <div style={{display:'flex',justifyContent:'space-between'}}>
               <span style={{color:'#94a3b8'}}>💰 План:</span>

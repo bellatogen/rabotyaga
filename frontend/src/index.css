@@ -29,3 +29,15 @@ html, body {
   min-height: 100dvh;
 }
 img, svg { max-width: 100%; }
+
+/* Tooltip animation */
+@keyframes tooltipFade {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -100%) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -100%) scale(1);
+  }
+}
