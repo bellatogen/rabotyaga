@@ -1,0 +1,14 @@
+# Контекст сборки — корень репо. Не тащим лишнее в образ.
+**/node_modules
+**/dist
+.git
+.github
+.claude
+prompt-exports
+docs
+*.log
+rabotyaga-bot/data.json
+rabotyaga-bot/push-log.json
+rabotyaga-bot/.env
+**/*.bak
+**/*.backup

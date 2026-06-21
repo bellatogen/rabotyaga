@@ -1,7 +1,20 @@
-FROM node:18-alpine
+# Самодостаточный образ: фронт собирается внутри, без томов и хост-сборки.
+# Контекст сборки — КОРЕНЬ репозитория (см. docker-compose.yml: context: ..).
+
+# ── этап 1: сборка фронтенда (Vite) ──
+FROM node:22-alpine AS frontend
+WORKDIR /fe
+COPY frontend/package*.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
+# ── этап 2: бэкенд (Express + Telegraf) с вшитым фронтом ──
+FROM node:22-alpine
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production
-COPY . .
+COPY rabotyaga-bot/package*.json ./
+RUN npm ci --omit=dev
+COPY rabotyaga-bot/ ./
+COPY --from=frontend /fe/dist ./frontend/dist
 EXPOSE 3001
 CMD ["node", "server.js"]

@@ -17,13 +17,13 @@ if [ -n "$(git status --porcelain)" ]; then
   exit 1
 fi
 
-echo "🔨 Сборка фронтенда (локальная проверка)..."
+echo "🔨 Локальная проверка сборки фронтенда..."
 cd frontend && npm run build && cd ..
 
 echo "📤 Пуш уже зафиксированного main..."
 git push origin main
 
-echo "🚀 Деплой на сервер (сервер сам пересоберёт фронт)..."
-ssh root@147.45.255.158 "cd /root/rabotyaga && git pull origin main && cd frontend && npm run build && cd ../rabotyaga-bot && docker compose restart rabotyaga-bot && echo '✅ Деплой завершён!'"
+echo "🚀 Деплой на сервер (образ пересобирается сам, фронт вшит внутрь)..."
+ssh root@147.45.255.158 "cd /root/rabotyaga && git pull origin main && cd rabotyaga-bot && docker compose up -d --build && docker compose logs rabotyaga-bot --tail=5 && echo '✅ Деплой завершён!'"
 
 echo "✅ Готово! Открой https://rabotyaga55.ru"

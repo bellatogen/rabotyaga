@@ -17,9 +17,8 @@ push:
 	git push origin main
 
 deploy: build push
-	@echo "🚀 Деплой на сервер..."
-	@echo "⚠️  Убедись что подключен к серверу через SSH!"
-	ssh root@147.45.255.158 "cd /root/rabotyaga && git pull origin main && cd frontend && npm run build && cd ../rabotyaga-bot && docker compose restart rabotyaga-bot && docker compose logs rabotyaga-bot --tail=5"
+	@echo "🚀 Деплой на сервер (self-contained образ, фронт вшит)..."
+	ssh root@147.45.255.158 "cd /root/rabotyaga && git pull origin main && cd rabotyaga-bot && docker compose up -d --build && docker compose logs rabotyaga-bot --tail=5"
 
 status:
 	ssh root@147.45.255.158 "cd /root/rabotyaga && git log --oneline -3 && cd rabotyaga-bot && docker compose ps"

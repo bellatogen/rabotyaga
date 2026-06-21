@@ -1,15 +1,16 @@
-version: '3.8'
-
+# Фронт вшит в образ (multi-stage Dockerfile) — том frontend/dist больше не нужен.
 services:
   rabotyaga-bot:
-    build: .
+    build:
+      context: ..                      # корень репо, чтобы видеть и frontend/, и rabotyaga-bot/
+      dockerfile: rabotyaga-bot/Dockerfile
     container_name: rabotyaga-bot
     restart: unless-stopped
     ports:
-      - "3001:3001"
+      - "${PORT:-3001}:3001"
     volumes:
-      - ./data.json:/app/data.json
+      - ./data.json:/app/data.json     # данные переживают пересборку образа
       - ./.env:/app/.env
-      - /root/rabotyaga/frontend/dist:/app/frontend/dist
     environment:
       - NODE_ENV=production
+      - PORT=3001

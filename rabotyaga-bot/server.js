@@ -10,10 +10,15 @@ const pushSender = require('./src/push/sender');
 const pushScheduler = require('./src/push/scheduler');
 const adminApi = require('./src/api/admin');
 
+// ── Конфиг из окружения (без хардкодов) ──
+const PORT = process.env.PORT || 3001;
+const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'data.json');
+const FRONTEND_DIST = process.env.FRONTEND_DIST || path.join(__dirname, 'frontend', 'dist');
+
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'frontend', 'dist')));
+app.use(express.static(FRONTEND_DIST));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 app.use('/api/push', pushApi);
 app.use('/api/admin', adminApi);
@@ -27,7 +32,6 @@ if (!TOKEN) {
 }
 
 const bot = new Telegraf(TOKEN);
-const DATA_FILE = path.join(__dirname, 'data.json');
 
 let data = { kv: {}, bindings: {}, pushSettings: {}, adminUsers: [] };
 if (fs.existsSync(DATA_FILE)) {
@@ -248,6 +252,15 @@ app.get("/api/push/test/:name", async (req, res) => {
   res.json(ok ? { success: true, msg: "Пуш отправлен" } : { success: false, msg: "Пуши отключены" });
 });
 
+// SPA-fallback: любой не-API GET отдаёт index.html (Mini App без роутера —
+// но это страхует прямые ссылки). Express 5: финальный middleware, не '*'.
+app.use((req, res, next) => {
+  if (req.method !== 'GET' || req.path.startsWith('/api') || req.path === '/admin') return next();
+  const indexFile = path.join(FRONTEND_DIST, 'index.html');
+  if (fs.existsSync(indexFile)) return res.sendFile(indexFile);
+  next();
+});
+
 // === ЗАПУСК ===
 bot.launch().catch(err => {
   console.error('Ошибка запуска бота:', err);
@@ -255,8 +268,10 @@ bot.launch().catch(err => {
 });
 pushScheduler.startScheduler(bot);
 
-const httpServer = app.listen(3001, () => {
-  console.log('🚀 Сервер Работяги запущен на порту 3001');
+const httpServer = app.listen(PORT, () => {
+  console.log(`🚀 Сервер Работяги запущен на порту ${PORT}`);
+  console.log(`📁 Данные: ${DATA_FILE}`);
+  console.log(`🖥  Фронтенд: ${FRONTEND_DIST}`);
   console.log(`🌐 Web App URL: ${WEBAPP_URL}`);
 });
 
