@@ -617,12 +617,6 @@ function getRevenueColor(pct) {
   return '#e85535';
 }
 
-function getRevenueColor(pct) {
-  if (pct >= 110) return '#5b8b9b';
-  if (pct >= 100) return '#8bc47a';
-  if (pct >= 90) return '#e8a030';
-  return '#e85535';
-}
 
 function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
   const[ym,setYm]=useState("2026-06");
