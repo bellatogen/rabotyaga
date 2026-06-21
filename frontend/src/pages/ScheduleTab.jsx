@@ -1,6 +1,6 @@
 // Вкладка «График» — календарь, дашборд часов, таблица часов + детальный просмотр дня
 import { useState } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, DollarSign, AlertTriangle, CheckCircle, Send, User, Plus, Clock } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, AlertTriangle, CheckCircle, Send, User, Plus, Clock } from 'lucide-react';
 import { MONTHS_RU, DOW_FULL, REPEAT_OPTS } from '../constants/locale.js';
 import { hourNorm } from '../constants/staff.js';
 import { staffCheck } from '../utils/staffUtils.js';
@@ -24,6 +24,14 @@ export function ScheduleTab({schedule,events,revenue,ds,members,onOpenDay}){
   </>);
 }
 
+// Светофор по выручке: синий >110%, зелёный 100-110%, жёлтый 90-100%, красный <90%
+function getRevenueColor(pct){
+  if(pct>=110)return '#5b8b9b';
+  if(pct>=100)return '#8bc47a';
+  if(pct>=90)return '#e8a030';
+  return '#e85535';
+}
+
 function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
   const[ym,setYm]=useState("2026-06");
   const[y,m]=ym.split("-").map(Number);
@@ -43,20 +51,40 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
         <button onClick={()=>shift(1)} style={{background:"transparent",border:"none",color:"var(--mt)",cursor:"pointer"}}><ChevronRight size={18}/></button>
       </div>
     </div>
-    <div className="info-box" style={{fontSize:12}}>Нормы: пн/вт/чт/вс — 2 чел., ср/пт/сб — 3 (третий с 18:00). Вс со «Стерео 55» и праздники — тоже 3 с 18:00. Красный фон = недобор. Нажми день, чтобы открыть.</div>
+    <details style={{marginBottom:10,border:"1px solid var(--bd)",borderRadius:8,background:"var(--sf)",overflow:"hidden"}}>
+      <summary style={{padding:"8px 12px",cursor:"pointer",fontSize:12,fontWeight:600,color:"var(--mt)",listStyle:"none",display:"flex",alignItems:"center",gap:6,userSelect:"none"}}>
+        <span style={{fontSize:14}}>❓</span>
+        <span>Как читать календарь</span>
+        <span style={{marginLeft:"auto",fontSize:10,opacity:.6}}>▼</span>
+      </summary>
+      <div style={{padding:"10px 12px",fontSize:12,lineHeight:1.6,color:"var(--tx)",borderTop:"1px solid var(--bd)"}}>
+        <div style={{marginBottom:6}}><strong>Нормы штата:</strong> пн/вт/чт/вс — 2 чел., ср/пт/сб — 3 (третий с 18:00). Вс со «Стерео 55» и праздники — тоже 3 с 18:00. Недобор подсвечен рамкой.</div>
+        <div style={{marginBottom:6}}><strong>Цвет числа</strong> (% выполнения плана выручки):</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,fontSize:11}}>
+          <div>🔴 &lt;90% плана</div>
+          <div>🟡 90-100% плана</div>
+          <div>🟢 100-110% плана</div>
+          <div>🔵 &gt;110% плана</div>
+        </div>
+        <div style={{marginTop:8,opacity:.7}}>Нажми на день, чтобы открыть детали.</div>
+      </div>
+    </details>
     <div className="cal-grid" style={{marginBottom:5}}>{["пн","вт","ср","чт","пт","сб","вс"].map(d=><div className="cal-dow" key={d}>{d}</div>)}</div>
     <div className="cal-grid">
       {cells.map((c,i)=>{
         if(!c)return (<div key={i}/>);
         const check=staffCheck(c,schedule,events);
         const dnum=Number(c.slice(-2));
-        const hasRev=revenue[c]&&revenue[c].plan!=null&&revenue[c].plan!=="";
+        const rev=revenue[c]||{};
+        const hasRev=rev.plan!=null&&rev.plan!=="";
+        const pct=rev.plan&&rev.fact?(rev.fact/rev.plan)*100:null;
         return(<div key={i} className={`cal-cell${c===ds?" today":""}${!check.ok?" short":""}`} onClick={()=>onOpenDay(c)}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span className="cal-num">{dnum}</span>
-            {hasRev&&<DollarSign size={9} color="var(--am)"/>}
+            <span className="cal-num" style={pct!=null?{color:getRevenueColor(pct)}:undefined}>{dnum}</span>
+            {hasRev&&<span style={{fontSize:11,color:"var(--am)",fontWeight:700}}>₽</span>}
           </div>
           <span className="cal-staff" style={{color:check.ok?"var(--mt)":"#e07a60"}}>{check.actual}/{check.norm.count}</span>
+          {pct!=null&&<span style={{fontSize:10,fontWeight:600,color:getRevenueColor(pct)}}>{Math.round(pct)}%</span>}
           {events[c]&&<span className="cal-ev">{events[c]}</span>}
         </div>);
       })}
@@ -87,7 +115,7 @@ export function DayDetail({date,schedule,events,tasks,history,revenue,handovers,
     {check.ok&&check.msg&&<div className="alert warn"><AlertTriangle size={16} style={{flexShrink:0,marginTop:1}}/><span>{check.msg}</span></div>}
     {check.ok&&!check.msg&&<div className="alert ok"><CheckCircle size={16} style={{flexShrink:0,marginTop:1}}/><span>Штат укомплектован по норме ({check.actual}/{check.norm.count})</span></div>}
 
-    <div className="sec-lbl" style={{margin:"14px 0 8px"}}><DollarSign size={12} style={{display:"inline"}}/> План выручки</div>
+    <div className="sec-lbl" style={{margin:"14px 0 8px"}}><span style={{fontSize:14,fontWeight:700,color:"var(--am)"}}>₽</span> План выручки</div>
     {!isManager&&<RevenueCard date={date} revenue={revenue}/>}
     {isManager&&<div className="rev-card">
       <div className="r2">
