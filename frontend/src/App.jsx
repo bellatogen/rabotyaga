@@ -619,6 +619,7 @@ function getRevenueColor(pct) {
 
 
 function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
+  const [tooltip, setTooltip] = useState({ show: false, x: 0, y: 0, data: null });
   const[ym,setYm]=useState("2026-06");
   const[y,m]=ym.split("-").map(Number);
   const first=new Date(y,m-1,1);
@@ -666,6 +667,11 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
           const pct = rev.plan && rev.fact ? (rev.fact / rev.plan) * 100 : null;
           const bgColor = pct ? getRevenueColor(pct) : (!check.ok ? 'rgba(224,122,96,.15)' : 'transparent');
           return(<div key={i} className={`cal-cell${c===ds?" today":""}`}
+          onMouseEnter={(e)=>{
+            const rect = e.currentTarget.getBoundingClientRect();
+            setTooltip({ show: true, x: rect.left + rect.width/2, y: rect.top - 10, data: { date: c, shifts: schedule[c]||[], event: events[c], revenue: revenue[c] } });
+          }}
+          onMouseLeave={()=>setTooltip({ show: false, x: 0, y: 0, data: null })}
           onMouseEnter={(e)=>{
             const rect = e.currentTarget.getBoundingClientRect();
             setTooltip({ show: true, x: rect.left + rect.width/2, y: rect.top - 10, data: { date: c, shifts: schedule[c]||[], event: events[c], revenue: revenue[c] } });
