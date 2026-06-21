@@ -23,8 +23,8 @@ body{background:var(--bg);color:var(--pp);transition:background .2s ease,color .
 .nav-who{font-size:12px;color:var(--cu);font-weight:600;cursor:pointer;background:rgba(201,125,60,.1);border:1px solid rgba(201,125,60,.25);padding:4px 10px;border-radius:20px;display:flex;align-items:center;gap:4px;}
 .nav-date{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--mt);margin-bottom:9px;}
 .tabs{display:flex;gap:4px;overflow-x:auto;padding-bottom:10px;}
-.tab{flex-shrink:0;padding:6px 11px;font-size:12px;font-weight:500;color:var(--mt);background:transparent;border:1px solid var(--bd);border-radius:7px;cursor:pointer;white-space:nowrap;}
-.tab.on{background:var(--cu);color:var(--bg);border-color:var(--cu);font-weight:600;}
+.tab{flex-shrink:0;padding:8px 14px;font-size:14px;font-weight:600;color:var(--mt);background:transparent;border:none;border-radius:8px;cursor:pointer;white-space:nowrap;transition:all .2s ease;}
+.tab.on{background:var(--cu);color:var(--bg);font-weight:600;box-shadow:0 2px 8px rgba(91,139,155,.25);}
 .sb{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:4px 10px;border-radius:12px;text-transform:uppercase;letter-spacing:.04em;}
 .prog-bg{height:7px;border-radius:4px;background:var(--sf);}
 .prog-fill{height:7px;border-radius:4px;background:linear-gradient(90deg,var(--cu2),var(--am));transition:width .4s;}
@@ -142,8 +142,8 @@ body{background:var(--bg);color:var(--pp);transition:background .2s ease,color .
 @media(hover:hover) and (pointer:fine){
   .tab,.mini-btn,.btn,.chip,.chk,.acc-head,.fab,.nav-who,.cal-cell,.swipe-actions button,
   .theme-btn,.grip,.login-btn{transition:filter .15s ease,background-color .15s ease,border-color .15s ease,color .15s ease,opacity .15s ease,transform .1s ease;}
-  .tab:hover{border-color:var(--cu);color:var(--pp);}
-  .tab.on:hover{filter:brightness(1.08);}
+  .tab:hover{background:rgba(91,139,155,.12);color:var(--pp);transform:translateY(-2px);}
+  .tab.on:hover{filter:brightness(1.15);transform:translateY(-2px);box-shadow:0 6px 16px rgba(91,139,155,.35);}
   .mini-btn:hover{background:var(--bd);color:var(--pp);}
   .btn:hover{filter:brightness(1.1);}
   .btn-g:hover{background:var(--bd);color:var(--pp);}
