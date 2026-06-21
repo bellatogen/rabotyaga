@@ -142,8 +142,8 @@ body{background:var(--bg);color:var(--pp);transition:background .2s ease,color .
 @media(hover:hover) and (pointer:fine){
   .tab,.mini-btn,.btn,.chip,.chk,.acc-head,.fab,.nav-who,.cal-cell,.swipe-actions button,
   .theme-btn,.grip,.login-btn{transition:filter .15s ease,background-color .15s ease,border-color .15s ease,color .15s ease,opacity .15s ease,transform .1s ease;}
-  .tab:hover{border-color:var(--cu);color:var(--pp);}
-  .tab.on:hover{filter:brightness(1.08);}
+  .tab:hover{border-color:var(--cu);color:var(--pp);background:rgba(91,139,155,.08);transform:translateY(-1px);}
+  .tab.on:hover{filter:brightness(1.12);transform:translateY(-1px);box-shadow:0 4px 12px rgba(91,139,155,.25);}
   .mini-btn:hover{background:var(--bd);color:var(--pp);}
   .btn:hover{filter:brightness(1.1);}
   .btn-g:hover{background:var(--bd);color:var(--pp);}
