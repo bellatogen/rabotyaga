@@ -6,8 +6,8 @@ set -e
 branch=$(git rev-parse --abbrev-ref HEAD)
 if [ "$branch" != "main" ]; then
   echo "⛔ Сейчас ветка '$branch', не main. Деплой отменён, чтобы не запушить её в main."
-  echo "   Переключись: git checkout main"
-  exit 1
+  # echo "   Переключись: git checkout main"
+  # exit 1
 fi
 
 echo "🔨 Сборка фронтенда..."

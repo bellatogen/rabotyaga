@@ -22,7 +22,7 @@ deploy: build push
 	ssh root@147.45.255.158 "cd /root/rabotyaga && git pull origin main && cd frontend && npm run build && cd ../rabotyaga-bot && docker compose restart rabotyaga-bot && docker compose logs rabotyaga-bot --tail=5"
 
 status:
-	ssh root@147.45.255.158 "cd /root/rabotyaga && git log --oneline -3 && docker compose ps"
+	ssh root@147.45.255.158 "cd /root/rabotyaga && git log --oneline -3 && cd rabotyaga-bot && docker compose ps"
 
 logs:
-	ssh root@147.45.255.158 "docker compose logs rabotyaga-bot --tail=30"
+	ssh root@147.45.255.158 "cd rabotyaga-bot && docker compose logs rabotyaga-bot --tail=30"
