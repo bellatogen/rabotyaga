@@ -665,7 +665,12 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
         const rev = revenue[c] || {};
           const pct = rev.plan && rev.fact ? (rev.fact / rev.plan) * 100 : null;
           const bgColor = pct ? getRevenueColor(pct) : (!check.ok ? 'rgba(224,122,96,.15)' : 'transparent');
-          return(<div key={i} className={`cal-cell${c===ds?" today":""}`} style={{background: bgColor}} onClick={()=>onOpenDay(c)}>
+          return(<div key={i} className={`cal-cell${c===ds?" today":""}`}
+          onMouseEnter={(e)=>{
+            const rect = e.currentTarget.getBoundingClientRect();
+            setTooltip({ show: true, x: rect.left + rect.width/2, y: rect.top - 10, data: { date: c, shifts: schedule[c]||[], event: events[c], revenue: revenue[c] } });
+          }}
+          onMouseLeave={()=>setTooltip({ show: false, x: 0, y: 0, data: null })} style={{background: bgColor}} onClick={()=>onOpenDay(c)}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span className="cal-num">{dnum}</span>
             {hasRev&&<span style={{fontSize:11,color:"var(--am)",fontWeight:700}}>₽</span>}
