@@ -1,3 +1,15 @@
+
+/* Tooltip animation */
+@keyframes tooltipFade {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -100%) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -100%) scale(1);
+  }
+}
 /* Минимальный сброс. Всю раскладку держит CSS внутри App.jsx. */
 * { box-sizing: border-box; }
 html, body, #root {
