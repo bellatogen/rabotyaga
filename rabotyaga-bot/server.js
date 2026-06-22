@@ -263,8 +263,9 @@ app.use((req, res, next) => {
 
 // === ЗАПУСК ===
 bot.launch().catch(err => {
-  console.error('Ошибка запуска бота:', err);
-  process.exit(1);
+  // Бот упал (напр. 409 Conflict от Telegram) — логируем, но НЕ убиваем сервер.
+  // HTTP-сервер, API и фронтенд продолжают работать независимо от бота.
+  console.error('⚠️  Ошибка запуска бота (сервер продолжает работу):', err.message);
 });
 pushScheduler.startScheduler(bot);
 
