@@ -8,7 +8,7 @@ const path = require('path');
 const pushApi = require('./src/api/push');
 const pushSender = require('./src/push/sender');
 const pushScheduler = require('./src/push/scheduler');
-const adminApi = require('./src/api/admin');
+const makeAdminApi = require('./src/api/admin');
 
 // ── Конфиг из окружения (без хардкодов) ──
 const PORT = process.env.PORT || 3001;
@@ -21,7 +21,8 @@ app.use(express.json());
 app.use(express.static(FRONTEND_DIST));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 app.use('/api/push', pushApi);
-app.use('/api/admin', adminApi);
+// adminApi монтируется после инициализации data — передаём ссылку и saveData
+// чтобы роутер работал с тем же in-memory объектом (устраняет race condition)
 
 const TOKEN = process.env.TELEGRAM_TOKEN;
 const WEBAPP_URL = process.env.WEBAPP_URL || 'https://rabotyaga.ru';
@@ -58,6 +59,9 @@ function saveData() {
     }
   }, 300);
 }
+
+// Монтируем admin-роутер здесь, после инициализации data и saveData
+app.use('/api/admin', makeAdminApi(data, saveData));
 
 function nameByTelegramId(id) {
   return Object.keys(data.bindings).find(name => data.bindings[name] === id) || null;
