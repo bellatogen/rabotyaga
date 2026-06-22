@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { Plus, User, Lock, Shield, Inbox, ChevronLeft, Sun, Moon, MonitorSmartphone } from "lucide-react";
+import { Plus, User, Lock, Shield, Settings, Inbox, ChevronLeft, Sun, Moon, MonitorSmartphone } from "lucide-react";
 import { AdminTab } from "./AdminTab.jsx";
 import './styles/app.css';
 import { ROLES } from './constants/roles.js';
@@ -334,7 +334,7 @@ export default function App(){
     ...(hasPerm(who,profiles,"view_all_tasks")||hasPerm(who,profiles,"view_own_tasks")?[{id:"tasks",label:"Задачи"}]:[]),
     ...(hasPerm(who,profiles,"view_schedule")?[{id:"schedule",label:"График"}]:[]),
     ...(canTeam||canStats?[{id:"team",label:"Команда"}]:[]),
-    {id:"settings",label:"️ Управление"},
+    {id:"admin",label:"Админка",hidden:true},
   ];
 
   return (
@@ -347,6 +347,8 @@ export default function App(){
               <Inbox size={19}/>{inboxUnread>0&&<span style={{position:"absolute",top:-5,right:-7,background:"var(--rs)",color:"#fff",fontSize:9,fontWeight:700,borderRadius:8,minWidth:15,height:15,display:"flex",alignItems:"center",justifyContent:"center",padding:"0 3px"}}>{inboxUnread}</span>}
             </button>}
             {myStatus&&<span className="sb" style={{background:SHIFT_STATUSES[myStatus]?.bg,color:SHIFT_STATUSES[myStatus]?.color}}>{SHIFT_STATUSES[myStatus]?.label}</span>}
+            {isManager&&<button onClick={()=>setTab("settings")} style={{background:"transparent",border:"none",cursor:"pointer",color:"var(--mt)",display:"flex",alignItems:"center",gap:4,fontSize:13,fontWeight:600,padding:"6px 10px",borderRadius:6,transition:"all .2s ease"}} onMouseEnter={(e)=>{e.currentTarget.style.background="var(--sf)";e.currentTarget.style.color="var(--pp)";}} onMouseLeave={(e)=>{e.currentTarget.style.background="transparent";e.currentTarget.style.color="var(--mt)";}}><Settings size={14}/>Управление</button>}
+            {isManager&&<button onClick={()=>setTab("admin")} style={{background:"transparent",border:"none",cursor:"pointer",color:"var(--mt)",display:"flex",alignItems:"center",gap:4,fontSize:13,fontWeight:600,padding:"6px 10px",borderRadius:6,transition:"all .2s ease"}} onMouseEnter={(e)=>{e.currentTarget.style.background="var(--sf)";e.currentTarget.style.color="var(--pp)";}} onMouseLeave={(e)=>{e.currentTarget.style.background="transparent";e.currentTarget.style.color="var(--mt)";}}><Shield size={14}/>Админка</button>}
             <button className="theme-btn" onClick={cycleTheme}
               title={themePref==="auto"?"Тема: авто (по устройству)":themePref==="light"?"Тема: светлая":"Тема: тёмная"}>
               {themePref==="auto"?<MonitorSmartphone size={14}/>:themePref==="light"?<Sun size={14}/>:<Moon size={14}/>}
@@ -358,7 +360,7 @@ export default function App(){
           </div>
         </div>
         <div className="nav-date">{dateLabel}{events[ds]&&<span style={{color:"var(--cu)",marginLeft:8}}>· {events[ds]}</span>}</div>
-        <div className="tabs">{tabs.map(t=><button key={t.id} className={`tab${tab===t.id?" on":""}`} onClick={()=>setTab(t.id)}>{t.label}</button>)}</div>
+        <div className="tabs">{tabs.filter(t=>!t.hidden).map(t=><button key={t.id} className={`tab${tab===t.id?" on":""}`} onClick={()=>setTab(t.id)}>{t.label}</button>)}</div>
       </div>
       {toast&&<div onClick={()=>setToast(null)} style={{position:"sticky",top:0,zIndex:45,margin:"10px 16px 0",background:"rgba(78,112,64,.18)",border:"1px solid rgba(78,112,64,.5)",color:"#a8d894",borderRadius:10,padding:"12px 14px",fontSize:13.5,lineHeight:1.5,cursor:"pointer"}}>{toast}</div>}
 
@@ -372,7 +374,7 @@ export default function App(){
         onToggle={toggle} onEdit={isManager?t=>setModal(t):null} onViewEmployee={isManager?n=>setViewingEmployee(n):null}
         onHandover={t=>setModal({_handover:true,task:t})}/>}
 
-      {tab==="settings"&&isManager&&<AdminTab auth={auth} members={members} ds={ds}/>}
+      {tab==="admin"&&isManager&&<AdminTab auth={auth} members={members} ds={ds}/>}
       {tab==="settings"&&!isManager&&<PersonalCabinet name={who==="manager"||who==="developer"?who:who} account={who} isOwnCabinet={true} tasks={tasks} history={history}
         schedule={schedule} cards={cards} profiles={profiles} ds={ds} now={now} statusOverrides={statusOverrides}
         members={members} eventsLog={eventsLog}
