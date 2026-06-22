@@ -1,5 +1,5 @@
 // Вкладка «График» — календарь, дашборд часов, таблица часов + детальный просмотр дня
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, AlertTriangle, CheckCircle, Send, User, Plus, Clock } from 'lucide-react';
 import { MONTHS_RU, DOW_FULL, REPEAT_OPTS } from '../constants/locale.js';
 import { hourNorm } from '../constants/staff.js';
@@ -43,17 +43,28 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
     window.addEventListener("resize",hide);
     return()=>{window.removeEventListener("scroll",hide,true);window.removeEventListener("resize",hide);};
   },[tooltip]);
-  const showTip=(e,c)=>{
-    // Только мышь: на тач-устройствах (Telegram) hover не работает — там тап открывает день (DayDetail со всей инфой).
-    if(e.pointerType&&e.pointerType!=="mouse")return;
-    const r=e.currentTarget.getBoundingClientRect();
+  // Тултип: мышь — hover; тач (Telegram) — long-press (зажатие). Тап остаётся открытием дня.
+  const press=useRef({timer:null,hide:null,long:false});
+  const clearPress=()=>{clearTimeout(press.current.timer);press.current.timer=null;};
+  const openTip=(el,c,touch)=>{
+    const r=el.getBoundingClientRect();
     const rev=revenue[c]||{};
     const pct=rev.plan&&rev.fact?(rev.fact/rev.plan)*100:null;
     const below=r.top<180;
     const vw=typeof window!=="undefined"?window.innerWidth:360;
     const cx=Math.max(150,Math.min(vw-150,r.left+r.width/2)); // не даём тултипу уехать за край экрана
     setTooltip({x:cx,y:below?r.bottom:r.top,below,date:c,check:staffCheck(c,schedule,events),shifts:schedule[c]||[],event:events[c]||null,rev,pct});
+    clearTimeout(press.current.hide);
+    if(touch)press.current.hide=setTimeout(()=>setTooltip(null),3500); // на таче нет pointerleave — авто-скрытие
   };
+  const onCellEnter=(e,c)=>{if(e.pointerType==="mouse")openTip(e.currentTarget,c,false);};
+  const onCellLeave=(e)=>{if(e.pointerType==="mouse")setTooltip(null);clearPress();};
+  const onCellDown=(e,c)=>{
+    if(e.pointerType==="mouse")return;
+    const el=e.currentTarget;clearPress();press.current.long=false;
+    press.current.timer=setTimeout(()=>{press.current.long=true;openTip(el,c,true);},350);
+  };
+  const onCellClick=(c)=>{if(press.current.long){press.current.long=false;return;}onOpenDay(c);};
   const[y,m]=ym.split("-").map(Number);
   const first=new Date(y,m-1,1);
   const startDow=(first.getDay()+6)%7; // пн=0
@@ -98,9 +109,10 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
         const rev=revenue[c]||{};
         const hasRev=rev.plan!=null&&rev.plan!=="";
         const pct=rev.plan&&rev.fact?(rev.fact/rev.plan)*100:null;
-        return(<div key={i} className={`cal-cell${c===ds?" today":""}${!check.ok?" short":""}`} onClick={()=>onOpenDay(c)}
-          onPointerEnter={e=>showTip(e,c)} onPointerLeave={()=>setTooltip(null)}
-          style={pct!=null?{background:getRevenueColor(pct)+"22"}:undefined}>
+        return(<div key={i} className={`cal-cell${c===ds?" today":""}${!check.ok?" short":""}`} onClick={()=>onCellClick(c)}
+          onPointerEnter={e=>onCellEnter(e,c)} onPointerLeave={onCellLeave}
+          onPointerDown={e=>onCellDown(e,c)} onPointerMove={clearPress} onPointerUp={clearPress} onPointerCancel={clearPress}
+          style={{touchAction:"manipulation",...(pct!=null?{background:getRevenueColor(pct)+"22"}:null)}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span className="cal-num" style={pct!=null?{color:getRevenueColor(pct)}:undefined}>{dnum}</span>
             {hasRev&&<span style={{fontSize:11,color:"var(--am)",fontWeight:700}}>₽</span>}
