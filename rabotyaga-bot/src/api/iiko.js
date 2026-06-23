@@ -85,13 +85,13 @@ async function getDayRevenue(date, data, saveData) {
 
   const json = await res.json();
   console.log('[iiko] DEBUG:', JSON.stringify(json).slice(0, 600));
+  // В этой версии iiko summary — массив массивов, данные реально в json.data
   let fact = 0;
-  // В этой версии iiko DishDiscountSumInt = чистая выручка (итоговая сумма по чекам)
-  if (json.summary) {
-    fact = Math.round(Number(json.summary.DishDiscountSumInt ?? 0));
-  } else if (Array.isArray(json.data)) {
+  if (Array.isArray(json.data)) {
     for (const row of json.data) fact += Number(row.DishDiscountSumInt ?? 0);
     fact = Math.round(fact);
+  } else if (json.summary && !Array.isArray(json.summary)) {
+    fact = Math.round(Number(json.summary.DishDiscountSumInt ?? 0));
   }
   console.log(`[iiko] выручка за ${date}: ${fact} ₽`);
 
