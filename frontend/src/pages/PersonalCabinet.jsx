@@ -15,7 +15,7 @@ import { LogsTab } from './LogsTab.jsx';
 
 export function PersonalCabinet({name,isOwnCabinet,tasks,history,schedule,cards,profiles,ds,now,statusOverrides,members,eventsLog,onIssueCard,onUpdateProfile,onAddOverride,setCardModal,onToggle,onChangePassword,onLogout,adminPanel,leaveRequests=[],onLeaveRequest,onLeaveDecide}){
   const isSpecialAccount=name==="manager"||name==="developer";
-  const[subtab,setSubtab]=useState(isSpecialAccount?"settings":"overview");
+  const[subtab,setSubtab]=useState(isSpecialAccount?"settings":"profile");
 
   const pendingLeaves=(leaveRequests||[]).filter(r=>r.status==="pending");
 
@@ -71,10 +71,10 @@ export function PersonalCabinet({name,isOwnCabinet,tasks,history,schedule,cards,
         {activeCards.length>0&&<div style={{marginTop:10,display:"flex",gap:6}}>{activeCards.map(c=><span key={c.id} style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:10,background:c.type==="yellow"?"rgba(232,160,48,.2)":c.type==="orange"?"rgba(201,125,60,.2)":"rgba(158,63,43,.2)",color:c.type==="yellow"?"var(--am)":c.type==="orange"?"var(--cu)":"#e07a60"}}>{c.type==="yellow"?"🟡":c.type==="orange"?"🟠":"🔴"} Карточка</span>)}</div>}
       </div>
       <div style={{display:"flex",gap:4,marginBottom:4}}>
-        {["overview","tasks","stats","recs","cards",...(isOwnCabinet?["log","leave"]:[])].map(s=>{
+        {["profile","overview","tasks","stats","cards",...(isOwnCabinet?["leave"]:[])].map(s=>{
           const myPendingLeaves=isOwnCabinet&&s==="leave"?(leaveRequests||[]).filter(r=>r.name===name&&r.status==="pending").length:0;
           return(<button key={s} className={`tab${subtab===s?" on":""}`} onClick={()=>setSubtab(s)} style={{flex:1,textAlign:"center",position:"relative"}}>
-            {s==="overview"?"Обзор":s==="tasks"?"Задачи":s==="stats"?"Цифры":s==="recs"?"Советы":s==="cards"?"Карты":s==="log"?"Журнал":"Отпуск"}
+            {s==="profile"?"Профиль":s==="overview"?"Обзор":s==="tasks"?"Задачи":s==="stats"?"Цифры":s==="cards"?"Карты":"Отпуск"}
             {myPendingLeaves>0&&<span style={{position:"absolute",top:2,right:4,background:"var(--am)",color:"#fff",fontSize:9,fontWeight:700,borderRadius:8,minWidth:14,height:14,display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"0 3px"}}>{myPendingLeaves}</span>}
           </button>);})}
       </div>
@@ -104,17 +104,37 @@ export function PersonalCabinet({name,isOwnCabinet,tasks,history,schedule,cards,
         {personal.length===0&&<div className="empty">Персональных задач нет</div>}
       </div>);
     })()}
-    {subtab==="stats"&&<div className="sec">
-      <div className="grid2">
-        <div className="stat-c"><div className="stat-n">{Math.round(monthHours)}ч</div><div className="stat-l">Часов за июнь</div><div className="stat-s">норма {hourNorm(name).min}–{hourNorm(name).max}ч</div></div>
-        <div className="stat-c"><div className="stat-n">{Math.round(weekHours)}ч</div><div className="stat-l">За неделю</div></div>
-        <div className="stat-c"><div className="stat-n">{r30.rate!==null?`${Math.round(r30.rate*100)}%`:"—"}</div><div className="stat-l">Задачи 30 дней</div><div className="stat-s">{r30.d}/{r30.t}</div></div>
-        <div className="stat-c"><div className="stat-n">{r14.rate!==null?`${Math.round(r14.rate*100)}%`:"—"}</div><div className="stat-l">Задачи 14 дней</div></div>
-      </div>
-      {tr&&<div className="pr"><div className="pr-nm"><span>Динамика (15 vs 15 дней)</span><span style={{display:"flex",alignItems:"center",gap:4,color:tr.delta>=0?"#8bc47a":"#e07a60"}}>{tr.delta>0?<TrendingUp size={15}/>:tr.delta<0?<TrendingDown size={15}/>:<Minus size={15}/>}<span className="mono" style={{fontSize:13}}>{tr.delta>=0?"+":""}{Math.round(tr.delta*100)}пп</span></span></div>
-        <div className="mono" style={{fontSize:12,color:"var(--mt)"}}>Прошлые 15 дн.: {Math.round(tr.prev*100)}% → Последние 15 дн.: {Math.round(tr.recent*100)}%</div></div>}
-      {susp.length>0&&<><div className="sec-lbl" style={{margin:"10px 0 8px"}}>Проверка закрытия задач</div>{susp.slice(0,6).map((f,i)=><div className="alert warn" key={i} style={{marginBottom:6}}><AlertTriangle size={14} style={{flexShrink:0,marginTop:1}}/><span>{f.text}</span></div>)}</>}
-    </div>}
+    {subtab==="stats"&&(()=>{
+      const norm=hourNorm(name);
+      const monthPct=norm.max>0?Math.min(100,Math.round(monthHours/norm.max*100)):0;
+      const shiftsInMonth=Object.keys(schedule).filter(d=>d>=(ds.slice(0,7)+"-01")&&d<=ds&&(schedule[d]||[]).some(s=>s.name===name)).length;
+      const workdaysInMonth=Object.keys(schedule).filter(d=>d>=(ds.slice(0,7)+"-01")&&d<=ds).length;
+      const attendancePct=workdaysInMonth>0?Math.round(shiftsInMonth/workdaysInMonth*100):null;
+      return(<div className="sec">
+        <StatBar label="Задачи (14 дней)" value={r14.rate} fmt={v=>`${Math.round(v*100)}%`} pct={r14.rate} sub={`${r14.d} из ${r14.t} выполнено`}/>
+        <StatBar label="Задачи (30 дней)" value={r30.rate} fmt={v=>`${Math.round(v*100)}%`} pct={r30.rate} sub={`${r30.d} из ${r30.t} выполнено`}/>
+        <StatBar label="Часов за месяц" value={Math.round(monthHours)} fmt={v=>`${v}ч`} pct={monthPct/100} sub={`норма ${norm.min}–${norm.max}ч`}/>
+        {attendancePct!==null&&<StatBar label="Явка в этом месяце" value={attendancePct} fmt={v=>`${v}%`} pct={attendancePct/100} sub={`${shiftsInMonth} из ${workdaysInMonth} рабочих дней`}/>}
+        {tr&&<div style={{background:"var(--sf)",border:"1px solid var(--bd)",borderRadius:10,padding:"12px 14px",marginBottom:10}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+            <span style={{fontSize:12,fontWeight:600,color:"var(--mt)",textTransform:"uppercase",letterSpacing:".05em"}}>Динамика</span>
+            <span style={{display:"flex",alignItems:"center",gap:4,fontWeight:700,fontSize:14,color:tr.delta>=0?"#8bc47a":"#e07a60"}}>
+              {tr.delta>0?<TrendingUp size={15}/>:tr.delta<0?<TrendingDown size={15}/>:<Minus size={15}/>}
+              {tr.delta>=0?"+":""}{Math.round(tr.delta*100)}пп
+            </span>
+          </div>
+          <div style={{display:"flex",gap:0,height:6,borderRadius:4,overflow:"hidden",background:"var(--bd)"}}>
+            <div style={{width:`${Math.round(tr.prev*100)}%`,background:"var(--mt)",transition:"width .4s"}}/>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--mt)",marginTop:4}}>
+            <span>пред. 15 дн.: {Math.round(tr.prev*100)}%</span>
+            <span style={{color:tr.delta>=0?"#8bc47a":"#e07a60"}}>посл. 15 дн.: {Math.round(tr.recent*100)}%</span>
+          </div>
+        </div>}
+        {susp.length>0&&<><div className="sec-lbl" style={{margin:"4px 0 8px"}}>⚠ Проверка закрытия</div>
+          {susp.slice(0,4).map((f,i)=><div className="alert warn" key={i} style={{marginBottom:6}}><AlertTriangle size={14} style={{flexShrink:0}}/><span>{f.text}</span></div>)}</>}
+      </div>);
+    })()}
     {subtab==="recs"&&<div className="sec">{recs.map((r,i)=><div key={i} className={`rec ${r.type}`}><span className="rec-icon">{r.icon}</span><span className="rec-text">{r.text}</span></div>)}</div>}
     {subtab==="cards"&&<div className="sec">
       {!isOwnCabinet&&onIssueCard&&<button className="btn btn-p" style={{marginBottom:12}} onClick={()=>setCardModal&&setCardModal({_card:true,targetName:name})}><Plus size={15}/>Выдать карточку</button>}
@@ -123,6 +143,7 @@ export function PersonalCabinet({name,isOwnCabinet,tasks,history,schedule,cards,
         <div className="dc-head"><span className="dc-type">{c.type==="yellow"?"🟡 Жёлтая":c.type==="orange"?"🟠 Оранжевая":"🔴 Красная"} {c.active?"(активна)":"(снята)"}</span><span className="dc-date">{fmtDate(c.date)}</span></div>
         {c.comment&&<div className="dc-comment">{c.comment}</div>}{c.isPrivate&&<div style={{fontSize:11,color:"var(--mt)",marginTop:4,display:"flex",alignItems:"center",gap:3}}><Lock size={11}/>Конфиденциально</div>}</div>)}
     </div>}
+    {subtab==="profile"&&<ProfileSection profile={profile} name={name} isOwnCabinet={isOwnCabinet} onUpdateProfile={onUpdateProfile} ds={ds}/>}
     {subtab==="log"&&<LogsTab tasks={tasks} history={history} members={members||[name]} who={name} isManager={false} ds={ds} eventsLog={eventsLog||[]}/>}
     {subtab==="leave"&&<LeaveSection name={name} isOwnCabinet={isOwnCabinet} requests={(leaveRequests||[]).filter(r=>r.name===name)} onRequest={onLeaveRequest} ds={ds}/>}
   </>);
@@ -148,6 +169,97 @@ function PasswordChanger({onChange}){
     <div className="field" style={{marginBottom:8}}><input type="password" value={v2} onChange={e=>{setV2(e.target.value);setMsg("");}} placeholder="Повторите пароль"/></div>
     {msg&&<div style={{fontSize:12,color:msg.includes("✓")?"#8bc47a":"#e07a60",marginBottom:8}}>{msg}</div>}
     <button className="btn btn-p" onClick={submit} disabled={loading}><Key size={15}/>{loading?"Сохранение…":"Обновить пароль"}</button>
+  </div>);
+}
+
+// --- Красивая строка статистики с прогрессбаром ---
+function StatBar({label,value,fmt,pct,sub}){
+  const p=pct!=null?Math.min(1,Math.max(0,pct)):null;
+  const color=p===null?"var(--cu)":p>=.8?"#8bc47a":p>=.5?"var(--am)":"#e07a60";
+  return(<div style={{background:"var(--sf)",border:"1px solid var(--bd)",borderRadius:10,padding:"11px 14px",marginBottom:10}}>
+    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6}}>
+      <span style={{fontSize:12,fontWeight:600,color:"var(--mt)",textTransform:"uppercase",letterSpacing:".05em"}}>{label}</span>
+      <span style={{fontSize:20,fontWeight:700,color:"var(--pp)",fontFamily:"\"Fraunces\",serif"}}>{value!=null?fmt(value):"—"}</span>
+    </div>
+    {p!==null&&<><div className="prog-bg"><div className="prog-fill" style={{width:`${Math.round(p*100)}%`,background:color}}/></div>
+    {sub&&<div style={{fontSize:11,color:"var(--mt)",marginTop:4}}>{sub}</div>}</>}
+  </div>);
+}
+
+// --- Профиль сотрудника: контакты, медкнижка ---
+function ProfileSection({profile,name,isOwnCabinet,onUpdateProfile,ds}){
+  const[editing,setEditing]=useState(false);
+  const init={
+    phone:profile.phone||"",telegram:profile.telegram||"",
+    emergency:profile.emergency||"",note:profile.note||"",
+    medbook:{number:profile.medbook?.number||"",issued:profile.medbook?.issued||"",
+      expires:profile.medbook?.expires||"",lastCheck:profile.medbook?.lastCheck||""},
+  };
+  const[f,setF]=useState(init);
+  const setMed=(k,v)=>setF(p=>({...p,medbook:{...p.medbook,[k]:v}}));
+
+  // Предупреждение о медкнижке
+  const exp=profile.medbook?.expires;
+  const daysLeft=exp?Math.ceil((new Date(exp+"T00:00:00")-new Date(ds+"T00:00:00"))/86400000):null;
+  const medbookOk=daysLeft===null?null:daysLeft>0;
+  const medbookWarn=daysLeft!==null&&daysLeft<=90&&daysLeft>0;
+  const medbookExp=daysLeft!==null&&daysLeft<=0;
+
+  const save=()=>{onUpdateProfile&&onUpdateProfile({...profile,...f});setEditing(false);};
+  const cancel=()=>{setF(init);setEditing(false);};
+
+  const Field=({label,value,onChange,type="text",placeholder=""})=>(
+    <div style={{marginBottom:10}}>
+      <div className="sec-lbl" style={{marginBottom:4}}>{label}</div>
+      {editing?(
+        <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}
+          style={{width:"100%",padding:"7px 10px",borderRadius:8,border:"1px solid var(--bd)",
+            background:"var(--bg)",color:"var(--pp)",fontFamily:"inherit",fontSize:13,boxSizing:"border-box"}}/>
+      ):(
+        <div style={{fontSize:13,color:value?"var(--pp)":"var(--mt)",padding:"2px 0"}}>
+          {value||<span style={{opacity:.5}}>—</span>}
+        </div>
+      )}
+    </div>
+  );
+
+  return(<div className="sec">
+    {(medbookExp||medbookWarn)&&(
+      <div className={`alert ${medbookExp?"danger":"warn"}`} style={{marginBottom:12}}>
+        <AlertTriangle size={15} style={{flexShrink:0}}/>
+        <span>{medbookExp?"Медкнижка просрочена!":
+          `Медкнижка истекает через ${daysLeft} дн. (${exp})`}</span>
+      </div>
+    )}
+
+    <div style={{background:"var(--sf)",border:"1px solid var(--bd)",borderRadius:12,padding:14,marginBottom:12}}>
+      <div className="sec-lbl" style={{marginBottom:10}}>📞 Контакты</div>
+      <Field label="Телефон" value={editing?f.phone:profile.phone||""} onChange={v=>setF(p=>({...p,phone:v}))} placeholder="+7 900 000-00-00"/>
+      <Field label="Telegram" value={editing?f.telegram:profile.telegram||""} onChange={v=>setF(p=>({...p,telegram:v}))} placeholder="@username"/>
+      <Field label="Экстренный контакт" value={editing?f.emergency:profile.emergency||""} onChange={v=>setF(p=>({...p,emergency:v}))} placeholder="Имя: +7 900 …"/>
+    </div>
+
+    <div style={{background:"var(--sf)",border:`1px solid ${medbookExp?"rgba(158,63,43,.4)":medbookWarn?"rgba(232,160,48,.4)":"var(--bd)"}`,borderRadius:12,padding:14,marginBottom:12}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+        <div className="sec-lbl">📋 Медкнижка</div>
+        {medbookOk===true&&!medbookWarn&&<span style={{fontSize:11,color:"#8bc47a",fontWeight:700}}>✓ действительна</span>}
+      </div>
+      <Field label="Номер" value={editing?f.medbook.number:profile.medbook?.number||""} onChange={v=>setMed("number",v)} placeholder="123456"/>
+      <Field label="Выдана" value={editing?f.medbook.issued:profile.medbook?.issued||""} onChange={v=>setMed("issued",v)} type="date"/>
+      <Field label="Действительна до" value={editing?f.medbook.expires:profile.medbook?.expires||""} onChange={v=>setMed("expires",v)} type="date"/>
+      <Field label="Последнее обследование" value={editing?f.medbook.lastCheck:profile.medbook?.lastCheck||""} onChange={v=>setMed("lastCheck",v)} type="date"/>
+    </div>
+
+    {(isOwnCabinet||!isOwnCabinet)&&onUpdateProfile&&!editing&&(
+      <button className="btn btn-g" onClick={()=>setEditing(true)}><Plus size={14}/>Редактировать</button>
+    )}
+    {editing&&(
+      <div style={{display:"flex",gap:8}}>
+        <button className="btn btn-p" onClick={save} style={{flex:2}}>Сохранить</button>
+        <button className="btn btn-g" onClick={cancel} style={{flex:1}}>Отмена</button>
+      </div>
+    )}
+    {!onUpdateProfile&&<div style={{fontSize:12,color:"var(--mt)",marginTop:8,textAlign:"center"}}>Редактирование недоступно</div>}
   </div>);
 }
 

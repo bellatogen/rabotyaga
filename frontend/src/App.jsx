@@ -377,6 +377,7 @@ export default function App(){
     ...(hasPerm(who,profiles,"view_schedule")?[{id:"schedule",label:"График"}]:[]),
     ...(canTeam||canStats?[{id:"team",label:"Команда"}]:[]),
     {id:"events",label:"События"},
+    ...(!isManager?[{id:"settings",label:"Кабинет"}]:[]),
   ];
   const visibleTabs=tabs.filter(t=>!t.hidden);
   const orderedTabs=navTabOrder.length
@@ -433,7 +434,8 @@ export default function App(){
         adminPanel={isManager?<AdminTab auth={auth} members={members} ds={ds}/>:null}
         leaveRequests={leaveRequests}
         onLeaveRequest={isManager?null:onLeaveRequest}
-        onLeaveDecide={isManager?onLeaveDecide:null}/>}
+        onLeaveDecide={isManager?onLeaveDecide:null}
+        onUpdateProfile={p=>setProfiles(prev=>prev.map(x=>x.name===p.name?p:x))}/>}
 
       {tab==="tasks"&&<TasksTab tasks={tasks} doneMap={doneToday} onToggle={toggle} onEdit={isManager?t=>setModal(t):null} onArchive={canAddTasks?archiveTask:null}/>}
         {tab==="schedule"&&<ScheduleTab schedule={schedule} events={events} revenue={revenue} ds={ds} members={members} onOpenDay={d=>setViewingDay(d)}/>}
