@@ -56,14 +56,21 @@ export async function pingServer() {
 
 /** Войти. Возвращает { ok, account, firstLogin? } или бросает Error с message. */
 export async function authLogin(account, password) {
-  const r = await fetch(`${API_BASE}/auth/login`, {
-    ...FETCH_OPTS,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ account, password }),
-  });
-  const data = await r.json();
-  if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  let r;
+  try {
+    r = await fetch(`${API_BASE}/auth/login`, {
+      ...FETCH_OPTS,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account, password }),
+    });
+  } catch {
+    throw new Error('Нет связи с сервером');
+  }
+  if (r.status === 405) throw new Error('Сервер не принимает запрос (405) — открой rabotyaga55.ru');
+  let data = {};
+  try { data = await r.json(); } catch { /* пустой ответ */ }
+  if (!r.ok) throw new Error(data.error || `Ошибка сервера (${r.status})`);
   return data;
 }
 
