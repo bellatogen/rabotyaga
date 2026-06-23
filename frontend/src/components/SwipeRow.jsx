@@ -26,7 +26,11 @@ export function SwipeRow({children,onArchive,onDelete}){
   return(<div className="swipe">
     <div className="swipe-actions">
       {onArchive&&<button className="sw-arch" onClick={()=>{set(0,true);setX(0);onArchive();}}><Archive size={16}/>Архив</button>}
-      {onDelete&&<button className="sw-del" onClick={()=>{set(0,true);setX(0);onDelete();}}><Trash2 size={16}/>Удалить</button>}
+      {onDelete&&<button className="sw-del" onClick={()=>{
+        // UI-5: Подтверждение перед удалением — свайп может быть случайным
+        if(!window.confirm('Удалить задачу? Это действие нельзя отменить.'))return;
+        set(0,true);setX(0);onDelete();
+      }}><Trash2 size={16}/>Удалить</button>}
     </div>
     <div className="swipe-fg" ref={fg} onPointerDown={down} onPointerMove={moveH} onPointerUp={up} onPointerCancel={up}>
       {children}

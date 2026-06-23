@@ -3,12 +3,15 @@
 const jwt = require('jsonwebtoken');
 
 // Секрет берём из окружения. Если не задан — предупреждение, дефолт только для dev.
+// SEC-1: В продакшене без JWT_SECRET запуск невозможен — иначе все токены подписаны
+// публичным дефолтным ключом и любой желающий может войти под любым аккаунтом.
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+  console.error('[auth] КРИТИЧНО: JWT_SECRET не задан в .env! Задайте случайную строку 32+ символа.');
+  console.error('[auth] Генерация: node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"');
+  process.exit(1);
+}
 const JWT_SECRET = process.env.JWT_SECRET || (() => {
-  if (process.env.NODE_ENV === 'production') {
-    console.error('[auth] КРИТИЧНО: JWT_SECRET не задан в .env! Задайте случайную строку 32+ символа.');
-  } else {
-    console.warn('[auth] JWT_SECRET не задан — используется dev-ключ. В проде обязательно задайте!');
-  }
+  console.warn('[auth] JWT_SECRET не задан — используется dev-ключ. В проде обязательно задайте!');
   return 'dev-secret-CHANGE-IN-PROD-rabotyaga-2026-x7k2m9p';
 })();
 

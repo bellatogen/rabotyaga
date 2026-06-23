@@ -1,8 +1,17 @@
 /* Стили приложения «Работяга» — вынесены из App.jsx (const CSS = `...`)
    CSS-переменные доступны глобально через :root и data-theme атрибут */
 
-:root{--bg:#0d1411;--sf:#131d19;--bd:#1e3028;--mt:#7a9286;--pp:#e4ede7;
-  --cu:#4caf82;--cu2:#2d8460;--hp:#5fba8f;--am:#d4a43a;--rs:#b04a3a;}
+:root{
+  /* Цветовая схема (тёмная по умолчанию) */
+  --bg:#0d1411;--sf:#131d19;--bd:#1e3028;--mt:#7a9286;--pp:#e4ede7;
+  --cu:#4caf82;--cu2:#2d8460;--hp:#5fba8f;--am:#d4a43a;--rs:#b04a3a;
+
+  /* UI-6: Токены пространства — используй вместо магических px */
+  --sp-xs:4px; --sp-sm:8px; --sp-md:12px; --sp-lg:16px; --sp-xl:24px;
+
+  /* UI-6: Токены типографики */
+  --fs-xs:10px; --fs-sm:12px; --fs-base:14px; --fs-md:15px; --fs-lg:18px; --fs-xl:24px;
+}
 @media(prefers-color-scheme:light){
   :root{--bg:#f0f5f2;--sf:#ffffff;--bd:#cce0d5;--mt:#698077;--pp:#1a2d24;
     --cu:#2b8a52;--cu2:#1f6b3e;--hp:#38a06a;--am:#9e7715;--rs:#a83020;}
@@ -173,3 +182,26 @@ body{background:var(--bg);color:var(--pp);transition:background .2s ease,color .
   button:not(:disabled):hover{opacity:.8;}
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* UI-2: Отключаем анимации для пользователей с "Уменьшить движение"
+   (iOS: Настройки → Универсальный доступ → Движение) */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* UI-3: Видимый фокус для Tab-навигации, скринридеров, Bluetooth-клавиатур на iPad.
+   Используем :focus-visible (только при навигации клавиатурой, не при клике мышью). */
+:focus-visible {
+  outline: 2px solid var(--cu);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+/* Снимаем стандартный outline — заменяем нашим выше */
+:focus:not(:focus-visible) {
+  outline: none;
+}

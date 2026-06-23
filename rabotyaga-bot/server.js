@@ -28,6 +28,12 @@ const BCRYPT_ROUNDS = 10;
 const KV_BLACKLIST = new Set(['auth:v1']);
 // ── KV-ключи, опасные для prototype pollution (даже за auth) ──
 const KV_FORBIDDEN = new Set(['__proto__', 'constructor', 'prototype']);
+// ── SEC-4: KV-ключи, которые может записывать только менеджер/developer ──
+// Барман не должен перезаписывать задачи, расписание, карточки нарушений и т.д.
+const MANAGER_ONLY_KV = new Set([
+  'tasks:v4', 'schedule:v1', 'cards:v1',
+  'members:v1', 'events:v1', 'acl:v1', 'seeds:v1',
+]);
 
 const app = express();
 
@@ -35,8 +41,23 @@ const app = express();
   app.set('trust proxy', 1);
 
   // ── Security headers ──
+  // SEC-3: CSP включён. unsafe-inline оставлен для совместимости с Vite-бандлом
+  // и Telegram WebApp (они используют inline-стили). Ключевые защиты:
+  // object-src 'none' — блокирует Flash/Java; base-uri 'self' — блокирует <base>-инъекцию;
+  // frame-ancestors — только Telegram может встраивать приложение (защита от clickjacking).
   app.use(helmet({
-  contentSecurityPolicy: false, // CSP настраивается отдельно под Mini App
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc:      ["'self'"],
+      scriptSrc:       ["'self'", "'unsafe-inline'", "https://telegram.org"],
+      styleSrc:        ["'self'", "'unsafe-inline'"],
+      imgSrc:          ["'self'", "data:", "https:"],
+      connectSrc:      ["'self'", "wss:", "https:"],
+      objectSrc:       ["'none'"],
+      baseUri:         ["'self'"],
+      frameAncestors:  ["https://web.telegram.org", "https://t.me"],
+    },
+  },
   crossOriginEmbedderPolicy: false,
 }));
 
@@ -199,6 +220,10 @@ app.put('/api/kv/:key', requireAuth, (req, res) => {
   const key = req.params.key;
   if (KV_BLACKLIST.has(key) || KV_FORBIDDEN.has(key)) {
     return res.status(403).json({ error: 'Запись в этот ключ запрещена' });
+  }
+  // SEC-4: Чувствительные ключи — только менеджер/developer
+  if (MANAGER_ONLY_KV.has(key) && req.account !== 'manager' && req.account !== 'developer') {
+    return res.status(403).json({ error: 'Нет прав — только менеджер может изменять этот ключ' });
   }
   data.kv[key] = req.body.value;
   saveData();

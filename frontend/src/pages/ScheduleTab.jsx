@@ -423,7 +423,7 @@ function DashboardTab({schedule,members,ds}){
 
     {view==="rings"&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(110px,1fr))",gap:12,justifyItems:"center"}}>
       {stats.map(m=>{const pct=m.hours/m.nrm.max;return(<div key={m.name} style={{textAlign:"center"}}>
-        <Ring pct={pct} color={col(m)} top={`${m.hours}`} bottom={`/${m.nrm.max}ч`}/>
+        <Ring pct={pct} color={col(m)} top={`${m.hours}`} bottom={`/${m.nrm.max}ч`} label={`${m.name}: ${m.hours} из ${m.nrm.max} часов`}/>
         <div style={{fontSize:13,fontWeight:600,marginTop:4}}>{m.name}</div>
         <div style={{fontSize:10,color:"var(--mt)"}}>{m.shifts} смен</div>
       </div>);})}

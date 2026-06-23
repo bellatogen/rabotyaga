@@ -7,12 +7,13 @@ const { setAuthCookie, clearAuthCookie, requireAuth, requireManager } = require(
 
 const BCRYPT_ROUNDS = 10;
 
-// Не более 5 попыток входа в минуту с одного IP
+// SEC-2: Не более 10 попыток входа за 15 минут с одного IP.
+// Было: 5/мин = ~7200 попыток/сутки. Стало: 10/15мин = ~960/сутки.
 const loginLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 5,
+  windowMs: 15 * 60 * 1000,
+  max: 10,
   skipSuccessfulRequests: true,
-  message: { error: 'Слишком много попыток. Подождите минуту.' },
+  message: { error: 'Слишком много попыток входа. Подождите 15 минут.' },
   standardHeaders: true,
   legacyHeaders: false,
 });
