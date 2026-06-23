@@ -86,8 +86,6 @@ async function getDayRevenue(date, data, saveData) {
   const json = await res.json();
   console.log('[iiko] DEBUG:', JSON.stringify(json).slice(0, 600));
   let fact = 0;
-  // Суммируем DishAmountInt − DishDiscountSumInt по сводной строке или по всем строкам
-  let fact = 0;
   // В этой версии iiko DishDiscountSumInt = чистая выручка (итоговая сумма по чекам)
   if (json.summary) {
     fact = Math.round(Number(json.summary.DishDiscountSumInt ?? 0));
