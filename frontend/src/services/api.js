@@ -1,4 +1,4 @@
-const API_BASE = '/api';
+const API_BASE = import.meta.env.VITE_API_URL ?? '/api';
 
 // ── Внутренний слой localStorage (ключи с префиксом «rab:») ──
 const _lsk = k => 'rab:' + k;
