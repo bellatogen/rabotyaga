@@ -41,7 +41,7 @@ export function AuthModal({account,hasPassword,onCancel,onSubmit}){
           ? <div className="info-box" style={{fontSize:12,lineHeight:1.6}}>
               <b>Первый вход.</b> Придумай любой пароль — минимум 3 символа, без ограничений по символам.<br/>
               Запомни его: сбросить может только управляющий.<br/>
-              <span style={{opacity:.7}}>Если iOS предлагает свой пароль — можно проигнорировать и ввести свой.</span>
+              <span style={{opacity:.7}}>Цифры, буквы, символы — всё подходит.</span>
             </div>
           : <div className="info-box" style={{fontSize:12,lineHeight:1.6}}>
               Введи свой пароль.<br/>
@@ -54,7 +54,7 @@ export function AuthModal({account,hasPassword,onCancel,onSubmit}){
           <input
             type="password"
             autoFocus
-            autoComplete={hasPassword ? "current-password" : "new-password"}
+            autoComplete="off"
             value={pwd}
             disabled={loading}
             onChange={e=>{setPwd(e.target.value);setErr("");}}
@@ -68,7 +68,7 @@ export function AuthModal({account,hasPassword,onCancel,onSubmit}){
             <label>Повторите пароль</label>
             <input
               type="password"
-              autoComplete="new-password"
+              autoComplete="off"
               value={pwd2}
               disabled={loading}
               onChange={e=>{setPwd2(e.target.value);setErr("");}}
