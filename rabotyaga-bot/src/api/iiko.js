@@ -58,13 +58,13 @@ async function getDayRevenue(date) {
         periodType: 'CUSTOM',
         from: date,
         to: date,
-        includeLower: true,
-        includeUpper: true,
+        includeLow: true,
+        includeHigh: true,
       },
     },
   };
 
-  const url = `${IIKO_URL}/resto/api/v2/reports/olap?access_token=${token}`;
+  const url = `${IIKO_URL}/resto/api/v2/reports/olap?key=${token}`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -95,8 +95,9 @@ async function getDayRevenue(date) {
     }
   }
 
-  // iiko хранит денежные поля в копейках (целое число)
-  const fact = Math.round((amount - discount) / 100);
+  // DishDiscountSumInt = выручка в рублях (уже итоговая сумма)
+  // DishAmountInt = количество порций (не деньги)
+  const fact = Math.round(discount);
   console.log(`[iiko] выручка за ${date}: ${fact} ₽ (amount=${amount}, discount=${discount})`);
   return { fact };
 }
