@@ -16,7 +16,7 @@ const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'data.json');
 const FRONTEND_DIST = process.env.FRONTEND_DIST || path.join(__dirname, 'frontend', 'dist');
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: ['https://rabotyaga55.ru', 'http://localhost:5173', /timeweb.cloud$/], credentials: true }));
 app.use(express.json());
 app.use(express.static(FRONTEND_DIST));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
