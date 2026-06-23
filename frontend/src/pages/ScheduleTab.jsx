@@ -150,10 +150,22 @@ export function DayDetail({date,schedule,events,tasks,history,revenue,handovers,
   const r=revenue[date]||{};
   const[plan,setPlan]=useState(r.plan??"");
   const[fact,setFact]=useState(r.fact??"");
+  const[iikoLoading,setIikoLoading]=useState(false);
+  const[iikoErr,setIikoErr]=useState(null);
   const[adding,setAdding]=useState(false);
   const[an,setAn]=useState("");const[acustom,setAcustom]=useState("");const[ast,setAst]=useState("13:00");const[ah,setAh]=useState(10);const[asub,setAsub]=useState(true);
   const ho=handovers[date]||[];
   const submitAdd=()=>{const name=(acustom.trim()||an);if(!name)return;onAddShift(date,{name,start:ast,end:String(ah),report:false,sub:asub});setAdding(false);setAn("");setAcustom("");};
+  const loadIikoFact=async()=>{
+    setIikoLoading(true);setIikoErr(null);
+    try{
+      const res=await fetch(`/api/iiko/revenue/${date}`);
+      const json=await res.json();
+      if(!res.ok)throw new Error(json.error||`HTTP ${res.status}`);
+      setFact(String(json.fact));
+    }catch(e){setIikoErr(e.message);}
+    finally{setIikoLoading(false);}
+  };
   return(<div className="sec">
     <div className="cab-hero">
       <div className="cab-name">{dObj.getDate()} {MONTHS_RU[dObj.getMonth()]}</div>
@@ -170,10 +182,17 @@ export function DayDetail({date,schedule,events,tasks,history,revenue,handovers,
     {isManager&&<div className="rev-card">
       <div className="r2">
         <div className="field" style={{marginBottom:0}}><label>План ₽</label><input type="number" value={plan} onChange={e=>setPlan(e.target.value)} placeholder="нет данных"/></div>
-        <div className="field" style={{marginBottom:0}}><label>Факт ₽</label><input type="number" value={fact} onChange={e=>setFact(e.target.value)} placeholder="—"/></div>
+        <div className="field" style={{marginBottom:0}}><label>Факт ₽</label>
+          <div style={{display:"flex",gap:6,alignItems:"center"}}>
+            <input type="number" value={fact} onChange={e=>setFact(e.target.value)} placeholder="—" style={{flex:1}}/>
+            <button className="mini-btn" onClick={loadIikoFact} disabled={iikoLoading} title="Загрузить факт из iiko" style={{whiteSpace:"nowrap",flexShrink:0}}>
+              {iikoLoading?"⏳":"⬇ iiko"}
+            </button>
+          </div>
+        </div>
       </div>
+      {iikoErr&&<div className="alert danger" style={{marginTop:8,fontSize:12}}><AlertTriangle size={13} style={{flexShrink:0}}/><span>iiko: {iikoErr}</span></div>}
       <button className="btn btn-g" style={{marginTop:10}} onClick={()=>onSetRevenue(plan,fact)}>Сохранить выручку</button>
-      <div style={{fontSize:11,color:"var(--mt)",marginTop:8,lineHeight:1.5}}>SERVER: эти поля будет автозаполнять Google Sheets API (план из таблицы, факт из iiko/mozg.rest).</div>
     </div>}
 
     {ho.length>0&&<><div className="sec-lbl" style={{margin:"14px 0 8px"}}><Send size={12} style={{display:"inline"}}/> Передано на этот день</div>

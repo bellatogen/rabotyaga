@@ -9,6 +9,7 @@ const pushApi = require('./src/api/push');
 const pushSender = require('./src/push/sender');
 const pushScheduler = require('./src/push/scheduler');
 const makeAdminApi = require('./src/api/admin');
+const iiko = require('./src/api/iiko');
 
 // ── Конфиг из окружения (без хардкодов) ──
 const PORT = process.env.PORT || 3001;
@@ -62,6 +63,22 @@ function saveData() {
 
 // Монтируем admin-роутер здесь, после инициализации data и saveData
 app.use('/api/admin', makeAdminApi(data, saveData));
+
+// ── iiko: факт выручки за день ──
+// GET /api/iiko/revenue/:date  →  { fact: number }
+// Требует IIKO_URL, IIKO_LOGIN, IIKO_PASSWORD в .env
+app.get('/api/iiko/revenue/:date', async (req, res) => {
+  const { date } = req.params;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Неверный формат даты (ожидается YYYY-MM-DD)' });
+  try {
+    const result = await iiko.getDayRevenue(date);
+    res.json(result);
+  } catch (err) {
+    const status = err.status || 500;
+    console.error('[iiko] ошибка:', err.message);
+    res.status(status).json({ error: err.message });
+  }
+});
 
 function nameByTelegramId(id) {
   return Object.keys(data.bindings).find(name => data.bindings[name] === id) || null;
