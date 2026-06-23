@@ -10,6 +10,7 @@ const pushSender = require('./src/push/sender');
 const pushScheduler = require('./src/push/scheduler');
 const makeAdminApi = require('./src/api/admin');
 const iiko = require('./src/api/iiko');
+const { syncSchedule } = require('./src/sync/scheduleSync');
 
 // ── Конфиг из окружения (без хардкодов) ──
 const PORT = process.env.PORT || 3001;
@@ -63,6 +64,37 @@ function saveData() {
 
 // Монтируем admin-роутер здесь, после инициализации data и saveData
 app.use('/api/admin', makeAdminApi(data, saveData));
+
+// ── Синхронизация расписания из Google Sheets ──
+// POST /api/sync/schedule — ручной запуск (админка)
+// GET  /api/sync/schedule/status — статус последней синхронизации
+app.get('/api/sync/schedule/status', (req, res) => {
+  try {
+    const status = JSON.parse(data.kv['sync:schedule:status'] || 'null');
+    res.json(status || { lastRun: null, daysUpdated: 0, error: null });
+  } catch { res.json({ lastRun: null, daysUpdated: 0, error: null }); }
+});
+
+app.post('/api/sync/schedule', async (req, res) => {
+  try {
+    const result = await syncSchedule(data, saveData);
+    res.json(result);
+  } catch (err) {
+    console.error('[sync/schedule]', err.message);
+    const errStatus = { lastRun: new Date().toISOString(), daysUpdated: 0, error: err.message };
+    data.kv['sync:schedule:status'] = JSON.stringify(errStatus);
+    saveData();
+    res.status(500).json(errStatus);
+  }
+});
+
+// Авто-синхронизация раз в 12 часов
+setTimeout(() => {
+  syncSchedule(data, saveData).catch(e => console.error('[scheduleSync] startup error:', e.message));
+  setInterval(() => {
+    syncSchedule(data, saveData).catch(e => console.error('[scheduleSync] interval error:', e.message));
+  }, 12 * 60 * 60 * 1000);
+}, 10000); // 10 сек после старта
 
 // ── iiko: факт выручки за день ──
 // GET /api/iiko/revenue/:date  →  { fact: number }

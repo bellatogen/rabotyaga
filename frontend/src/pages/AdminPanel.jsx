@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Modal, Alert, Button } from '../components/Common.jsx';
 import { getPushLog, getPushSchedule, setPushSchedule, getBindings } from '../services/api.js';
+import { RefreshCw, CheckCircle, AlertTriangle } from 'lucide-react';
 
 export function AdminPanel({ token }) {
   const [tab, setTab] = useState('push-log');
@@ -11,10 +12,26 @@ export function AdminPanel({ token }) {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
   const [editModal, setEditModal] = useState(false);
   const [newScheduleItem, setNewScheduleItem] = useState({ time: '', recipient: '', text: '' });
+  const [syncStatus, setSyncStatus] = useState(null);
+  const [syncLoading, setSyncLoading] = useState(false);
 
   useEffect(() => {
     loadAdminData();
+    fetch('/api/sync/schedule/status').then(r=>r.json()).then(setSyncStatus).catch(()=>{});
   }, [token, selectedDate]);
+
+  const runSync = async () => {
+    setSyncLoading(true);
+    try {
+      const res = await fetch('/api/sync/schedule', { method: 'POST' });
+      const j = await res.json();
+      setSyncStatus(j);
+    } catch(e) {
+      setSyncStatus({ lastRun: new Date().toISOString(), daysUpdated: 0, error: e.message });
+    } finally {
+      setSyncLoading(false);
+    }
+  };
 
   const loadAdminData = async () => {
     try {
@@ -71,7 +88,8 @@ export function AdminPanel({ token }) {
         {[
           { id: 'push-log', label: '📬 Логи пушей' },
           { id: 'push-schedule', label: '📅 График пушей' },
-          { id: 'bindings', label: '👥 Привязки' }
+          { id: 'bindings', label: '👥 Привязки' },
+          { id: 'sync', label: '🔄 Синхронизация' }
         ].map(t => (
           <button
             key={t.id}
@@ -193,6 +211,49 @@ export function AdminPanel({ token }) {
               </div>
             </div>
           </Modal>
+        </div>
+      )}
+
+      {/* Синхронизация расписания */}
+      {tab === 'sync' && (
+        <div>
+          <h2 style={{fontSize:'16px',fontWeight:600,marginBottom:4}}>🔄 Расписание из Google Sheets</h2>
+          <div style={{fontSize:12,color:'var(--mt)',marginBottom:16,lineHeight:1.6}}>
+            Автоматически обновляет будущие смены барменов из таблицы. Запускается при старте и каждые 12 часов.<br/>
+            Прошлые даты не затрагиваются.
+          </div>
+
+          {syncStatus && (
+            <div style={{background:'var(--sf)',borderRadius:10,padding:'14px 16px',marginBottom:16}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+                {syncStatus.error
+                  ? <AlertTriangle size={15} color="#e07a60"/>
+                  : <CheckCircle size={15} color="#8bc47a"/>}
+                <span style={{fontWeight:600,fontSize:14}}>
+                  {syncStatus.error ? 'Ошибка' : `Обновлено ${syncStatus.daysUpdated} дней`}
+                </span>
+              </div>
+              {syncStatus.lastRun && (
+                <div style={{fontSize:12,color:'var(--mt)'}}>
+                  Последний запуск: {new Date(syncStatus.lastRun).toLocaleString('ru-RU')}
+                </div>
+              )}
+              {syncStatus.error && (
+                <div style={{fontSize:12,color:'#e07a60',marginTop:6,fontFamily:'monospace'}}>{syncStatus.error}</div>
+              )}
+            </div>
+          )}
+
+          <button
+            onClick={runSync}
+            disabled={syncLoading}
+            style={{display:'flex',alignItems:'center',gap:8,padding:'10px 20px',borderRadius:8,
+              background:'var(--pp)',color:'#fff',border:'none',fontWeight:600,fontSize:14,
+              cursor:syncLoading?'not-allowed':'pointer',opacity:syncLoading?0.7:1}}
+          >
+            <RefreshCw size={15} style={{animation:syncLoading?'spin 1s linear infinite':undefined}}/>
+            {syncLoading ? 'Синхронизация...' : 'Синхронизировать сейчас'}
+          </button>
         </div>
       )}
 
