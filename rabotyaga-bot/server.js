@@ -26,6 +26,8 @@ const BCRYPT_ROUNDS = 10;
 
 // ── KV-ключи, которые НИКОГДА не должны уходить на клиент ──
 const KV_BLACKLIST = new Set(['auth:v1']);
+// ── KV-ключи, опасные для prototype pollution (даже за auth) ──
+const KV_FORBIDDEN = new Set(['__proto__', 'constructor', 'prototype']);
 
 const app = express();
 
@@ -174,7 +176,7 @@ app.get('/api/iiko/revenue/:date', requireAuth, async (req, res) => {
 // ── KV: GET — защита чёрного списка ──
 app.get('/api/kv/:key', requireAuth, (req, res) => {
   const key = req.params.key;
-  if (KV_BLACKLIST.has(key)) {
+  if (KV_BLACKLIST.has(key) || KV_FORBIDDEN.has(key)) {
     return res.status(403).json({ error: 'Этот ключ защищён' });
   }
   res.json({ value: data.kv[key] ?? null });
@@ -183,7 +185,7 @@ app.get('/api/kv/:key', requireAuth, (req, res) => {
 // ── KV: PUT — защита чёрного списка + только авторизованные ──
 app.put('/api/kv/:key', requireAuth, (req, res) => {
   const key = req.params.key;
-  if (KV_BLACKLIST.has(key)) {
+  if (KV_BLACKLIST.has(key) || KV_FORBIDDEN.has(key)) {
     return res.status(403).json({ error: 'Запись в этот ключ запрещена' });
   }
   data.kv[key] = req.body.value;

@@ -1,8 +1,10 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const router = express.Router();
 const fs = require('fs');
 const path = require('path');
 const pushSender = require('../push/sender');
+const { requireAuth, requireManager } = require('../middleware/auth');
 
 const LOG_FILE = path.join(__dirname, '../../push-log.json');
 
@@ -15,25 +17,25 @@ function loadLog() {
   }
 }
 
-router.get('/settings', (req, res) => {
+router.get('/settings', requireAuth, (req, res) => {
   const { userId } = req.query;
   if (!userId) return res.status(400).json({ error: 'userId required' });
   res.json({ success: true, settings: pushSender.getPushSettings(userId) });
 });
 
-router.post('/settings', (req, res) => {
+router.post('/settings', requireAuth, (req, res) => {
   const { userId, enabled, notifications, templates } = req.body;
   if (!userId) return res.status(400).json({ error: 'userId required' });
   pushSender.updatePushSettings(userId, { enabled, notifications, templates });
   res.json({ success: true });
 });
 
-router.get('/all', (req, res) => {
+router.get('/all', requireManager, (req, res) => {
   res.json({ success: true, settings: pushSender.getAllPushSettings() });
 });
 
 // Статистика отправок: общие счётчики + разбивка по пользователям
-router.get('/stats', (req, res) => {
+router.get('/stats', requireManager, (req, res) => {
   const log = loadLog();
   const byUser = {};
   let sent = 0, failed = 0, skipped = 0;

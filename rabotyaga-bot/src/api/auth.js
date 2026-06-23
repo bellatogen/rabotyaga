@@ -138,8 +138,15 @@ module.exports = function makeAuthRouter(data, saveData) {
   });
 
   // GET /api/auth/has-password/:account — есть ли пароль (для UI «первый вход»)
-  // Не раскрывает пароль, только boolean
-  router.get('/has-password/:account', (req, res) => {
+  // Открытый, но rate-limited — чтобы нельзя было перебирать аккаунты
+  const hasPwdLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 20,
+    message: { error: 'Слишком много запросов' },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  router.get('/has-password/:account', hasPwdLimiter, (req, res) => {
     const auth = getAuth();
     res.json({ hasPassword: !!auth[req.params.account] });
   });
