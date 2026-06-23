@@ -31,8 +31,11 @@ const KV_FORBIDDEN = new Set(['__proto__', 'constructor', 'prototype']);
 
 const app = express();
 
-// ── Security headers ──
-app.use(helmet({
+  // ── За nginx-прокси: доверяем X-Forwarded-For (нужно для rate-limit) ──
+  app.set('trust proxy', 1);
+
+  // ── Security headers ──
+  app.use(helmet({
   contentSecurityPolicy: false, // CSP настраивается отдельно под Mini App
   crossOriginEmbedderPolicy: false,
 }));
