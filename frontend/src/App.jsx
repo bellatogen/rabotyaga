@@ -61,6 +61,9 @@ export default function App(){
   const[viewingDay,setViewingDay]=useState(null);
   const[loading,setLoading]=useState(true);
   const[themePref,setThemePref]=useState(()=>{try{return localStorage.getItem(THEME_KEY)||"auto";}catch{return "auto";}});
+  // Порядок вкладок (drag-and-drop), хранится в localStorage
+  const[navTabOrder,setNavTabOrder]=useState(()=>{try{return JSON.parse(localStorage.getItem('rab:nav_tab_order')||'[]');}catch{return [];}});
+  const[dragTab,setDragTab]=useState(null);
 
   const ds=todayStr(), now=new Date(), dateObj=new Date(ds);
   const dateLabel=`${DOW_FULL[dateObj.getDay()]}, ${dateObj.getDate()} ${MONTHS_RU[dateObj.getMonth()]}`;
@@ -336,9 +339,6 @@ export default function App(){
     ...(canTeam||canStats?[{id:"team",label:"Команда"}]:[]),
     {id:"admin",label:"Админка",hidden:true},
   ];
-  // Порядок вкладок — хранится в localStorage, drag-and-drop
-  const [navTabOrder,setNavTabOrder]=useState(()=>{try{return JSON.parse(localStorage.getItem('rab:nav_tab_order')||'[]')}catch{return []}});
-  const [dragTab,setDragTab]=useState(null);
   useEffect(()=>{localStorage.setItem('rab:nav_tab_order',JSON.stringify(navTabOrder));},[navTabOrder]);
   const visibleTabs=tabs.filter(t=>!t.hidden);
   const orderedTabs=navTabOrder.length
