@@ -25,8 +25,8 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
     <div style={{padding:"12px 16px 0"}}>
       <div className="prog-bg"><div className="prog-fill" style={{width:`${pct}%`}}/></div>
       <div style={{display:"flex",justifyContent:"space-between",marginTop:6}}>
-        <span className="mono" style={{fontSize:11,color:"var(--mt)",textTransform:"uppercase"}}>{doneTodayCount} из {todayTasks.length}</span>
-        <span className="mono" style={{fontSize:20,fontWeight:600,color:"var(--am)"}}>{pct}%</span>
+        <span className="mono" style={{fontSize:12,color:"var(--mt)"}}>{doneTodayCount} из {todayTasks.length}</span>
+        <span className="mono" style={{fontSize:15,fontWeight:600,color:"var(--am)"}}>{pct}%</span>
       </div>
     </div>
 
@@ -50,55 +50,51 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
       {todayHandovers.map(h=><div className="handover" key={h.id}>{h.text}<div className="handover-by">— {h.by}, {fmtDate(h.ts.slice(0,10))}</div></div>)}
     </div>}
 
-    <div className="sec" style={{paddingBottom:shiftOpen?undefined:4}}>
-      {/* Шапка блока — клик сворачивает/разворачивает */}
-      <div onClick={()=>setShiftOpen(o=>!o)}
-        style={{display:'flex',alignItems:'center',justifyContent:'space-between',
-          cursor:'pointer',marginBottom:shiftOpen?10:0,userSelect:'none'}}>
-        <div style={{display:'flex',alignItems:'center',gap:8}}>
-          {/* Превью аватаров когда свёрнуто */}
-          {!shiftOpen&&todayShifts.filter(s=>!s.guest).slice(0,4).map((s,i)=>(
-            <Avatar key={i} name={s.name} size={24} style={{marginLeft:i>0?-8:0,
-              boxShadow:'0 0 0 2px var(--bg)',zIndex:4-i}}/>
-          ))}
-          {!shiftOpen&&<span style={{fontSize:12,color:'var(--mt)',marginLeft:4}}>
-            {todayShifts.filter(s=>!s.guest).map(s=>s.name.split(' ')[0]).join(', ')}
-          </span>}
-        </div>
-        {shiftOpen
-          ? <ChevronUp size={15} style={{color:'var(--mt)',flexShrink:0}}/>
-          : <ChevronDown size={15} style={{color:'var(--mt)',flexShrink:0}}/>}
-      </div>
-
-      {shiftOpen&&<>
-        {!check.ok&&<div className="alert danger" style={{marginBottom:8}}><AlertTriangle size={16} style={{flexShrink:0}}/><span>{check.msg}</span></div>}
-        {check.ok&&check.msg&&<div className="alert warn" style={{marginBottom:8}}><AlertTriangle size={16} style={{flexShrink:0}}/><span>{check.msg}</span></div>}
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-          {todayShifts.filter(s=>!s.guest).map((s,i)=>{
-            const ss=SHIFT_STATUSES[getShiftStatus(s.name,ds,schedule,statusOverrides,now)];
-            return(
-              <div key={i} onClick={()=>onViewEmployee&&onViewEmployee(s.name)}
-                style={{background:'var(--sf)',border:`1px solid ${ss?.bg||'var(--bd)'}`,borderRadius:12,
-                  padding:'11px',cursor:onViewEmployee?'pointer':'default',display:'flex',flexDirection:'column',gap:8}}>
-                <div style={{display:'flex',alignItems:'center',gap:8}}>
-                  <Avatar name={s.name} size={36}/>
-                  <div style={{minWidth:0,flex:1}}>
-                    <div style={{fontWeight:600,fontSize:13,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.name}</div>
-                    <span style={{fontSize:9,fontWeight:700,padding:'2px 6px',borderRadius:6,
-                      background:ss?.bg,color:ss?.color,display:'inline-block',marginTop:2,letterSpacing:'.04em'}}>{ss?.label}</span>
+    <div className="sec">
+      <div style={{border:'1px solid var(--bd)',borderRadius:10,overflow:'hidden',background:'var(--sf)'}}>
+        {/* Шапка-кнопка — всегда показывает аватары + имена */}
+        <button onClick={()=>setShiftOpen(o=>!o)} className="acc-head">
+          <div style={{display:'flex',alignItems:'center',gap:6}}>
+            {todayShifts.filter(s=>!s.guest).slice(0,4).map((s,i)=>(
+              <Avatar key={i} name={s.name} size={22} style={{marginLeft:i>0?-6:0,
+                boxShadow:'0 0 0 2px var(--sf)',zIndex:4-i,flexShrink:0}}/>
+            ))}
+            <span style={{marginLeft:2}}>
+              {todayShifts.filter(s=>!s.guest).map(s=>s.name.split(' ')[0]).join(', ') || 'Никто'}
+            </span>
+          </div>
+          {shiftOpen ? <ChevronUp size={15}/> : <ChevronDown size={15}/>}
+        </button>
+        {shiftOpen&&<div style={{padding:'0 12px 12px'}}>
+          {!check.ok&&<div className="alert danger" style={{marginBottom:8,marginTop:4}}><AlertTriangle size={16} style={{flexShrink:0}}/><span>{check.msg}</span></div>}
+          {check.ok&&check.msg&&<div className="alert warn" style={{marginBottom:8,marginTop:4}}><AlertTriangle size={16} style={{flexShrink:0}}/><span>{check.msg}</span></div>}
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+            {todayShifts.filter(s=>!s.guest).map((s,i)=>{
+              const ss=SHIFT_STATUSES[getShiftStatus(s.name,ds,schedule,statusOverrides,now)];
+              return(
+                <div key={i} onClick={()=>onViewEmployee&&onViewEmployee(s.name)}
+                  style={{background:'var(--bg)',border:`1px solid ${ss?.bg||'var(--bd)'}`,borderRadius:9,
+                    padding:'10px',cursor:onViewEmployee?'pointer':'default',display:'flex',flexDirection:'column',gap:7}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8}}>
+                    <Avatar name={s.name} size={34}/>
+                    <div style={{minWidth:0,flex:1}}>
+                      <div style={{fontWeight:600,fontSize:13,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.name}</div>
+                      <span style={{fontSize:9,fontWeight:700,padding:'2px 6px',borderRadius:6,
+                        background:ss?.bg,color:ss?.color,display:'inline-block',marginTop:2,letterSpacing:'.04em'}}>{ss?.label}</span>
+                    </div>
                   </div>
+                  {s.start&&<div className="mono" style={{fontSize:11,color:'var(--mt)',display:'flex',alignItems:'center',gap:4}}>
+                    {s.start}{s.end?` · ${s.end}ч`:''}
+                    {s.report&&<span style={{color:'var(--am)',fontWeight:700}}>★</span>}
+                  </div>}
                 </div>
-                {s.start&&<div className="mono" style={{fontSize:11,color:'var(--mt)',display:'flex',alignItems:'center',gap:4}}>
-                  {s.start}{s.end?` · ${s.end}ч`:''}
-                  {s.report&&<span style={{color:'var(--am)',fontWeight:700}}>★</span>}
-                </div>}
-              </div>
-            );
-          })}
-        </div>
-        {todayShifts.filter(s=>!s.guest).length===0&&<div className="empty">Никто не запланирован на смену</div>}
-        {!isManager&&myStatus==='day_off'&&<div className="empty" style={{padding:'4px 0'}}>Выходной 🍺</div>}
-      </>}
+              );
+            })}
+          </div>
+          {todayShifts.filter(s=>!s.guest).length===0&&<div className="empty" style={{padding:'16px 0'}}>Никто не запланирован на смену</div>}
+          {!isManager&&myStatus==='day_off'&&<div className="empty" style={{padding:'4px 0'}}>Выходной 🍺</div>}
+        </div>}
+      </div>
     </div>
 
     <div className="sec">
