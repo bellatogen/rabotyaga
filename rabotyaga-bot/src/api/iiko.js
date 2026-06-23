@@ -33,12 +33,15 @@ async function getToken() {
 
 function invalidateToken() { _token = null; _tokenExpiry = 0; }
 
-// Внутренний запрос OLAP за один день. Возвращает сумму в рублях.
+// Внутренний запрос OLAP за один день.
+// Возвращает { fact, guests } — выручка + кол-во гостей.
+// guests может быть 0 если iiko не вернул поле GuestNum.
 async function fetchOlapForDate(date, token) {
   const body = {
     reportType: 'SALES', buildSummary: 'false',
     groupByRowFields: ['OpenDate.Typed'],
-    aggregateFields: ['DishDiscountSumInt'],
+    // GuestNum — кол-во персон в заказе; может отсутствовать в старых версиях iiko
+    aggregateFields: ['DishDiscountSumInt', 'GuestNum'],
     filters: {
       'OpenDate.Typed': {
         filterType: 'DateRange', periodType: 'CUSTOM',
@@ -54,12 +57,39 @@ async function fetchOlapForDate(date, token) {
     signal: AbortSignal.timeout(15000),
   });
   if (res.status === 401) { invalidateToken(); throw Object.assign(new Error('iiko: сессия истекла'), { status: 401 }); }
-  if (!res.ok) { const t = await res.text().catch(()=>''); throw new Error(`iiko OLAP HTTP ${res.status}: ${t.slice(0,200)}`); }
+  if (!res.ok) {
+    const t = await res.text().catch(()=>'');
+    // Если GuestNum неизвестен — повторяем без него
+    if (t.includes('GuestNum') || t.includes('Unknown')) {
+      console.warn('[iiko] GuestNum не поддерживается, запрашиваем только выручку');
+      return fetchOlapRevenueOnly(date, token);
+    }
+    throw new Error(`iiko OLAP HTTP ${res.status}: ${t.slice(0,200)}`);
+  }
   const json = await res.json();
-  // В этой версии iiko DishDiscountSumInt = итоговая сумма по чекам
-  let sum = 0;
-  for (const row of (json.data || [])) sum += Number(row.DishDiscountSumInt || 0);
-  return Math.round(sum);
+  let fact = 0, guests = 0;
+  for (const row of (json.data || [])) {
+    fact   += Number(row.DishDiscountSumInt || 0);
+    guests += Number(row.GuestNum           || 0);
+  }
+  return { fact: Math.round(fact), guests };
+}
+
+// Запрос только выручки (fallback если GuestNum не поддерживается)
+async function fetchOlapRevenueOnly(date, token) {
+  const body = {
+    reportType: 'SALES', buildSummary: 'false',
+    groupByRowFields: ['OpenDate.Typed'],
+    aggregateFields: ['DishDiscountSumInt'],
+    filters: { 'OpenDate.Typed': { filterType:'DateRange', periodType:'CUSTOM', from:date, to:date, includeLow:true, includeHigh:true } },
+  };
+  const url = `${IIKO_URL}/resto/api/v2/reports/olap?key=${token}`;
+  const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body), signal:AbortSignal.timeout(15000) });
+  if (!res.ok) { const t = await res.text(); throw new Error(`iiko OLAP ${res.status}: ${t.slice(0,200)}`); }
+  const json = await res.json();
+  let fact = 0;
+  for (const row of (json.data || [])) fact += Number(row.DishDiscountSumInt || 0);
+  return { fact: Math.round(fact), guests: 0 };
 }
 
 // Получить выручку за один день. Если переданы data+saveData — сохраняет в revenue:v1,
@@ -70,22 +100,25 @@ async function getDayRevenue(date, data, saveData) {
   }
 
   const token = await getToken();
-  const fact  = await fetchOlapForDate(date, token);
-  console.log(`[iiko] выручка за ${date}: ${fact} ₽`);
+  const { fact, guests } = await fetchOlapForDate(date, token);
+  console.log(`[iiko] выручка за ${date}: ${fact} ₽, гостей: ${guests}`);
 
   let lastYear = null;
 
   if (data && saveData) {
     const revenue = JSON.parse(data.kv?.['revenue:v1'] || '{}');
     if (!revenue[date]) revenue[date] = {};
-    if (fact > 0) revenue[date].fact = fact;
+    if (fact > 0)   revenue[date].fact   = fact;
+    if (guests > 0) revenue[date].guests = guests;
+    // Средний чек
+    if (fact > 0 && guests > 0) revenue[date].avgCheck = Math.round(fact / guests);
 
     // YoY — тот же день, прошлый год
     try {
       const lyDate = new Date(date + 'T00:00:00');
       lyDate.setFullYear(lyDate.getFullYear() - 1);
       const lyStr = lyDate.toISOString().slice(0, 10);
-      const lyFact = await fetchOlapForDate(lyStr, token);
+      const { fact: lyFact } = await fetchOlapForDate(lyStr, token);
       if (lyFact > 0) {
         revenue[date].lastYear = lyFact;
         lastYear = lyFact;
@@ -99,7 +132,7 @@ async function getDayRevenue(date, data, saveData) {
     saveData();
   }
 
-  return { fact, lastYear };
+  return { fact, lastYear, guests };
 }
 
 // Синхронизация выручки за текущий месяц — для кнопки в админке
@@ -116,7 +149,7 @@ async function syncRevenue(data, saveData) {
   const body = {
     reportType: 'SALES', buildSummary: 'false',
     groupByRowFields: ['OpenDate.Typed'],
-    aggregateFields: ['DishDiscountSumInt'],
+    aggregateFields: ['DishDiscountSumInt', 'GuestNum'],
     filters: { 'OpenDate.Typed': { filterType:'DateRange', periodType:'CUSTOM', from, to, includeLow:true, includeHigh:true } },
   };
 
@@ -133,12 +166,17 @@ async function syncRevenue(data, saveData) {
   let updated = 0;
 
   for (const row of (json.data || [])) {
-    const iso  = String(row['OpenDate.Typed'] || '').slice(0, 10);
+    const iso    = String(row['OpenDate.Typed'] || '').slice(0, 10);
     if (!iso) continue;
-    const fact = Math.round(Number(row.DishDiscountSumInt || 0));
+    const fact   = Math.round(Number(row.DishDiscountSumInt || 0));
+    const guests = Math.round(Number(row.GuestNum           || 0));
     if (fact > 0) {
       if (!revenue[iso]) revenue[iso] = {};
       revenue[iso].fact = fact;
+      if (guests > 0) {
+        revenue[iso].guests   = guests;
+        revenue[iso].avgCheck = Math.round(fact / guests);
+      }
       updated++;
     }
   }
