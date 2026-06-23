@@ -10,7 +10,7 @@ import { TaskCard } from '../components/TaskCard.jsx';
 import { DraggableTaskList } from '../components/DraggableTaskList.jsx';
 import { DoneAccordion } from '../components/DoneAccordion.jsx';
 
-export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,todayShifts,myStatus,myAssigned,schedule,events,statusOverrides,now,revenue,handovers,dayClosed,dayRegularCount,irregular,irregularDoneMap,pushGateOk,onSummary,taskOrder,onReorder,onDelete,onArchive,goList,onGoAdd,onGoToggle,onGoRemove,onToggle,onEdit,onViewEmployee,onHandover}){
+export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,todayShifts,myStatus,myAssigned,schedule,events,statusOverrides,now,revenue,handovers,dayClosed,dayRegularCount,irregular,irregularDoneMap,pushGateOk,onSummary,taskOrder,onReorder,onDelete,onArchive,goList,onGoAdd,onGoToggle,onGoRemove,onToggle,onEdit,onViewEmployee,onHandover,onIikoLoad}){
   const check=staffCheck(ds,schedule,events);
   const todayHandovers=handovers[ds]||[];
   const regularTasks=todayTasks.filter(t=>t.kind!=="irregular");
@@ -34,7 +34,7 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
         :`Все ${dayRegularCount} регулярных задач выполнены ✅ Пуш о закрытии уйдёт после 23:30.`}
     </span></div></div>}
 
-    <div className="sec"><RevenueCard date={ds} revenue={revenue}/></div>
+    <div className="sec"><RevenueCard date={ds} revenue={revenue} onIikoLoad={onIikoLoad}/></div>
 
     {goList&&<div className="sec"><GoListBlock items={goList} onAdd={onGoAdd} onToggle={onGoToggle} onRemove={onGoRemove}/></div>}
 

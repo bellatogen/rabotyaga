@@ -208,6 +208,7 @@ function ProfileField({label,editing,value,onChange,type="text",placeholder=""})
 function ProfileSection({profile,name,isOwnCabinet,onUpdateProfile,ds}){
   const[editing,setEditing]=useState(false);
   const init={
+    displayName:profile.displayName||"",avatarUrl:profile.avatarUrl||"",
     phone:profile.phone||"",telegram:profile.telegram||"",
     emergency:profile.emergency||"",note:profile.note||"",
     medbook:{number:profile.medbook?.number||"",issued:profile.medbook?.issued||"",
@@ -234,6 +235,11 @@ function ProfileSection({profile,name,isOwnCabinet,onUpdateProfile,ds}){
       </div>
     )}
 
+    <div style={{background:"var(--sf)",border:"1px solid var(--bd)",borderRadius:12,padding:14,marginBottom:12}}>
+      <div className="sec-lbl" style={{marginBottom:10}}>👤 Профиль</div>
+      <ProfileField label="Отображаемое имя" editing={editing} value={editing?f.displayName:profile.displayName||""} onChange={v=>setF(p=>({...p,displayName:v}))} placeholder={name}/>
+      <ProfileField label="Фото (URL)" editing={editing} value={editing?f.avatarUrl:profile.avatarUrl||""} onChange={v=>setF(p=>({...p,avatarUrl:v}))} placeholder="https://…"/>
+    </div>
     <div style={{background:"var(--sf)",border:"1px solid var(--bd)",borderRadius:12,padding:14,marginBottom:12}}>
       <div className="sec-lbl" style={{marginBottom:10}}>📞 Контакты</div>
       <ProfileField label="Телефон" editing={editing} value={editing?f.phone:profile.phone||""} onChange={v=>setF(p=>({...p,phone:v}))} placeholder="+7 900 000-00-00"/>

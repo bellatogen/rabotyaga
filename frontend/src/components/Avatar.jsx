@@ -1,10 +1,15 @@
-// Аватар сотрудника — круг с инициалами, цвет детерминирован по имени
+// Аватар сотрудника — фото (avatarUrl) или круг с инициалами
 const COLORS=['#5b8b9b','#7a9b5b','#c97d3c','#9b5b7a','#5b7a9b','#8b7a5b','#6b9b7a'];
 
-export function Avatar({name,size=36,style={}}){
+export function Avatar({name, size=36, style={}, avatarUrl}){
   const hash=[...(name||"?")].reduce((a,c)=>a+c.charCodeAt(0),0);
   const bg=COLORS[hash%COLORS.length];
   const initials=(name||"?").trim().split(/\s+/).map(w=>w[0]||"").join("").slice(0,2).toUpperCase()||"?";
+  if(avatarUrl) return(
+    <img src={avatarUrl} alt={name}
+      style={{width:size,height:size,borderRadius:"50%",objectFit:"cover",flexShrink:0,...style}}
+      onError={e=>{e.target.style.display="none";}}/>
+  );
   return(
     <div style={{width:size,height:size,borderRadius:"50%",background:bg,
       display:"flex",alignItems:"center",justifyContent:"center",

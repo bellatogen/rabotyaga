@@ -427,7 +427,8 @@ export default function App(){
         canManage={canAddTasks} onDelete={canAddTasks?delTask:null} onArchive={canAddTasks?archiveTask:null}
         goList={goList} onGoAdd={goAdd} onGoToggle={goToggle} onGoRemove={goRemove}
         onToggle={toggle} onEdit={isManager?t=>setModal(t):null} onViewEmployee={isManager?n=>setViewingEmployee(n):null}
-        onHandover={t=>setModal({_handover:true,task:t})}/>}
+        onHandover={t=>setModal({_handover:true,task:t})}
+        onIikoLoad={(date,json)=>setRevenue(prev=>({...prev,[date]:{...(prev[date]||{}),...(json.fact>0?{fact:json.fact}:{}),...(json.lastYear>0?{lastYear:json.lastYear}:{})}}))}/>}
 
       {tab==="admin"&&isManager&&<AdminTab auth={auth} members={members} ds={ds}/>}
       {tab==="settings"&&<PersonalCabinet name={who} account={who} isOwnCabinet={true} tasks={tasks} history={history}
