@@ -48,7 +48,8 @@ function CalEventBadge({ eventStr }) {
 function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
   const[ym,setYm]=useState("2026-06");
   const[tooltip,setTooltip]=useState(null);   // только desktop hover
-  const[daySheet,setDaySheet]=useState(null); // mobile bottom sheet
+  const[daySheet,setDaySheet]=useState(null);
+  const[helpOpen,setHelpOpen]=useState(false); // mobile bottom sheet
   const sheetSwipeY=useRef(null);
 
   // Скролл/ресайз — скрываем тултип
@@ -117,14 +118,15 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
         <span className="mono" style={{fontSize:13,color:"var(--pp)",minWidth:90,textAlign:"center"}}>{MONTHS_RU[m-1]} {y}</span>
         <button onClick={()=>shift(1)} style={{background:"transparent",border:"none",color:"var(--mt)",cursor:"pointer"}}><ChevronRight size={18}/></button>
       </div>
+      <button className="cal-help-btn" onClick={()=>setHelpOpen(v=>!v)} aria-label="Как читать календарь">?</button>
     </div>
-    <details style={{marginBottom:10,border:"1px solid var(--bd)",borderRadius:8,background:"var(--sf)",overflow:"hidden"}}>
-      <summary style={{padding:"8px 12px",cursor:"pointer",fontSize:12,fontWeight:600,color:"var(--mt)",listStyle:"none",display:"flex",alignItems:"center",gap:6,userSelect:"none"}}>
-        <span style={{fontSize:14}}>❓</span>
-        <span>Как читать календарь</span>
-        <span style={{marginLeft:"auto",fontSize:10,opacity:.6}}>▼</span>
-      </summary>
-      <div style={{padding:"10px 12px",fontSize:12,lineHeight:1.6,color:"var(--tx)",borderTop:"1px solid var(--bd)"}}>
+    {helpOpen&&<>
+      <div onClick={()=>setHelpOpen(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",zIndex:200}}/>
+      <div className="cal-help-pop">
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+          <strong style={{fontSize:13}}>Как читать календарь</strong>
+          <button onClick={()=>setHelpOpen(false)} style={{background:"transparent",border:"none",color:"var(--mt)",cursor:"pointer",fontSize:18,lineHeight:1,padding:0}}>×</button>
+        </div>
         <div style={{marginBottom:6}}><strong>Нормы штата:</strong> пн/вт/чт/вс — 2 чел., ср/пт/сб — 3 (третий с 18:00). Вс со «Стерео 55» и праздники — тоже 3 с 18:00. Недобор подсвечен рамкой.</div>
         <div style={{marginBottom:6}}><strong>Цвет числа</strong> (% выполнения плана выручки):</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,fontSize:11}}>
@@ -135,7 +137,7 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
         </div>
         <div style={{marginTop:8,opacity:.7}}>Нажми на день, чтобы открыть детали.</div>
       </div>
-    </details>
+    </>}
     <div className="cal-grid" style={{marginBottom:5}}>{["пн","вт","ср","чт","пт","сб","вс"].map(d=><div className="cal-dow" key={d}>{d}</div>)}</div>
     <div className="cal-grid">
       {cells.map((c,i)=>{
@@ -143,19 +145,14 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
         const check=staffCheck(c,schedule,events);
         const dnum=Number(c.slice(-2));
         const rev=revenue[c]||{};
-        const hasRev=rev.plan!=null&&rev.plan!=="";
         const pct=rev.plan&&rev.fact?(rev.fact/rev.plan)*100:null;
         const evType=classifyEvent(events[c]||null);
         return(<div key={i} className={`cal-cell${c===ds?" today":""}${!check.ok?" short":""}`} onClick={()=>onCellClick(c)}
           onPointerEnter={e=>onCellEnter(e,c)} onPointerLeave={onCellLeave}
           onPointerDown={e=>onCellDown(e,c)} onPointerMove={clearPress} onPointerUp={clearPress} onPointerCancel={clearPress}
           style={{touchAction:"manipulation",...(pct!=null?{background:getRevenueColor(pct)+"22"}:evType?{background:evType.bg}:null)}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-            <span className="cal-num" style={pct!=null?{color:getRevenueColor(pct)}:undefined}>{dnum}</span>
-            {hasRev&&<span style={{fontSize:11,color:"var(--am)",fontWeight:700}}>₽</span>}
-          </div>
-          <span className="cal-staff" style={{color:check.ok?"var(--mt)":"#e07a60"}}>{check.actual}/{check.norm.count}</span>
-          {pct!=null&&<span style={{fontSize:10,fontWeight:600,color:getRevenueColor(pct)}}>{Math.round(pct)}%</span>}
+          <span className="cal-num" style={pct!=null?{color:getRevenueColor(pct)}:undefined}>{dnum}</span>
+          {pct!=null&&<span style={{fontSize:13,fontWeight:700,color:getRevenueColor(pct)}}>{Math.round(pct)}%</span>}
           <CalEventBadge eventStr={events[c]||null}/>
         </div>);
       })}
@@ -334,7 +331,13 @@ export function DayDetail({date,schedule,events,tasks,history,revenue,handovers,
       </div>
       {canTeam&&<div style={{display:"flex",gap:8,alignItems:"center",marginTop:8,flexWrap:"wrap"}}>
         <label style={{fontSize:11,color:"var(--mt)"}}>с</label>
-        <input type="time" value={s.start||""} onChange={e=>onUpdateShift(date,i,{start:e.target.value})} style={{width:92,background:"var(--bg)",border:"1px solid var(--bd)",borderRadius:7,padding:"5px 8px",color:"var(--pp)",fontSize:13}}/>
+        <input type="time" value={s.start||""
+        } onChange={e=>{
+          const st=e.target.value;
+          const update={start:st};
+          if(st){const[h,m]=st.split(':').map(Number);const hrs=Math.round((23*60-(h*60+m))/60);if(hrs>0&&hrs<=16)update.end=String(hrs);}
+          onUpdateShift(date,i,update);
+        }} style={{width:92,background:"var(--bg)",border:"1px solid var(--bd)",borderRadius:7,padding:"5px 8px",color:"var(--pp)",fontSize:13}}/>
         <label style={{fontSize:11,color:"var(--mt)"}}>часов</label>
         <input type="number" min="1" max="16" value={parseInt(s.end)||""} onChange={e=>onUpdateShift(date,i,{end:String(e.target.value)})} style={{width:64,background:"var(--bg)",border:"1px solid var(--bd)",borderRadius:7,padding:"5px 8px",color:"var(--pp)",fontSize:13}}/>
         <button onClick={()=>onUpdateShift(date,i,{report:!s.report})} className={`chip${s.report?" on":""}`} style={{padding:"4px 9px"}}>★ отчёт</button>

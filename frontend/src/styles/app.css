@@ -134,7 +134,8 @@ body{background:var(--bg);color:var(--pp);transition:background .2s ease,color .
 .cal-cell.today{border-color:var(--cu);border-width:2px;}
 .cal-cell.short{background:rgba(176,74,54,.1);border-color:rgba(176,74,54,.4);}
 .cal-num{font-size:12px;font-weight:700;}
-.cal-staff{font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--mt);}
+  .cal-help-btn{width:22px;height:22px;border-radius:50%;border:1px solid var(--bd);background:transparent;color:var(--mt);font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .cal-help-pop{position:fixed;z-index:201;left:50%;top:50%;transform:translate(-50%,-50%);width:min(340px,90vw);background:var(--sf);border:1px solid var(--bd);border-radius:14px;padding:14px 16px;box-shadow:0 12px 40px rgba(0,0,0,.35);font-size:12px;line-height:1.6;color:var(--tx);}
 .cal-ev{font-size:8px;color:var(--cu);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .log-ev{display:flex;gap:8px;padding:9px 0;border-bottom:1px dashed var(--bd);font-size:13px;align-items:flex-start;}
 .log-ev-ts{font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--mt);flex-shrink:0;width:62px;}
@@ -155,7 +156,8 @@ body{background:var(--bg);color:var(--pp);transition:background .2s ease,color .
   .acc-head:hover{color:var(--cu);}
   .fab:hover{filter:brightness(1.08);transform:translateY(-1px);}
   .nav-who:hover{background:rgba(76,175,130,.18);}
-  .cal-cell:hover{border-color:var(--cu);}
+    .cal-cell:hover{border-color:var(--cu);}
+    .cal-help-btn:hover{border-color:var(--cu);color:var(--cu);}
 }
 /* Тултип календаря — тематичный (var-цвета), позиция задаётся инлайн */
 .cal-tooltip{position:fixed;z-index:9999;min-width:210px;max-width:300px;background:var(--sf);color:var(--pp);border:1px solid var(--bd);border-radius:12px;padding:11px 13px;box-shadow:0 12px 40px rgba(0,0,0,.35);font-size:13px;line-height:1.5;pointer-events:none;animation:tooltipFade .15s ease-out;}
