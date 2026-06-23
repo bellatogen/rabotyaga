@@ -218,6 +218,7 @@ function ProfileSection({profile,name,isOwnCabinet,onUpdateProfile,ds}){
 
   const exp=profile.medbook?.expires;
   const daysLeft=exp?Math.ceil((new Date(exp+"T00:00:00")-new Date(ds+"T00:00:00"))/86400000):null;
+  const medbookOk=daysLeft!==null&&daysLeft>0;
   const medbookWarn=daysLeft!==null&&daysLeft<=90&&daysLeft>0;
   const medbookExp=daysLeft!==null&&daysLeft<=0;
 
