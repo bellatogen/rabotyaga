@@ -1,5 +1,6 @@
 // RevenueCard — спидометр выручки (план/факт/дельта/YoY) + кнопка ⬇ iiko
 import { useState } from 'react';
+import { Calendar, TrendingUp, TrendingDown } from 'lucide-react';
 import { fmtDate } from '../utils/dateUtils.js';
 
 // ─── SVG-спидометр ──────────────────────────────────────────────────────────
@@ -90,9 +91,10 @@ export function RevenueCard({ date, revenue, onIikoLoad }) {
   const delta   = fact != null && plan ? fact - plan : null;
   const yoyDiff = fact != null && ly   ? fact - ly   : null;
 
-  const fmt  = n => Number(n).toLocaleString('ru-RU');
-  const sign = n => n >= 0 ? `+${fmt(n)}` : fmt(n);
+  const fmt      = n => Number(n).toLocaleString('ru-RU');
+  const sign     = n => n >= 0 ? `+${fmt(n)}` : fmt(n);
   const pctColor = p => p >= 100 ? '#72cc54' : p >= 80 ? '#e0a41e' : '#e8593c';
+  const prevYear = new Date(date + 'T00:00:00').getFullYear() - 1;
 
   const loadIiko = async () => {
     setLoading(true); setErr(null);
@@ -147,7 +149,12 @@ export function RevenueCard({ date, revenue, onIikoLoad }) {
       {delta != null && (
         <div className="mono" style={{display:'flex',alignItems:'center',gap:6,
           fontSize:12,marginTop:10,color:delta>=0?'#72cc54':'#e8593c'}}>
-          <span style={{opacity:.55}}>{delta>=0?'▲':'▼'} дельта</span>
+          <span style={{opacity:.7,display:'flex',alignItems:'center'}}>
+            {delta>=0
+              ? <TrendingUp size={13}/>
+              : <TrendingDown size={13}/>}
+          </span>
+          <span style={{opacity:.55}}>дельта</span>
           <span style={{fontWeight:600}}>{sign(delta)} ₽</span>
           <span style={{opacity:.45,fontSize:11}}>{delta>=0?'выше плана':'до плана'}</span>
         </div>
@@ -157,7 +164,8 @@ export function RevenueCard({ date, revenue, onIikoLoad }) {
       {ly != null && (
         <div className="mono" style={{display:'flex',alignItems:'center',gap:6,
           fontSize:12,marginTop:5,color:'var(--mt)'}}>
-          <span style={{opacity:.55}}>📅 пр. год</span>
+          <span style={{opacity:.6,display:'flex',alignItems:'center'}}><Calendar size={12}/></span>
+          <span style={{opacity:.55}}>{prevYear}</span>
           <span>{fmt(ly)} ₽</span>
           {yoyDiff != null && (
             <span style={{color:yoyDiff>=0?'#72cc54':'#e8593c',fontWeight:600}}>({sign(yoyDiff)} ₽)</span>
