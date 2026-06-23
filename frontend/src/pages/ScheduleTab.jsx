@@ -14,13 +14,12 @@ export function ScheduleTab({schedule,events,revenue,ds,members,onOpenDay}){
   return(<>
     <div className="sec" style={{paddingBottom:0}}>
       <div style={{display:"flex",gap:4,marginBottom:4}}>
-        {[["calendar","Календарь"],["dashboard","Дашборд"],["hours","Часы"]].map(([id,label])=>
-          <button key={id} className={`tab${sub===id?" on":""}`} onClick={()=>setSub(id)} style={{flex:1,textAlign:"center"}}>{label}</button>)}
+        {[["calendar","Календарь"],["dashboard","Дашборд"]].map(([id,label])=>
+            <button key={id} className={`tab${sub===id?" on":""}`} onClick={()=>setSub(id)} style={{flex:1,textAlign:"center"}}>{label}</button>)}
       </div>
     </div>
     {sub==="calendar"&&<CalendarTab schedule={schedule} events={events} revenue={revenue} ds={ds} onOpenDay={onOpenDay}/>}
     {sub==="dashboard"&&<DashboardTab schedule={schedule} members={members} ds={ds}/>}
-    {sub==="hours"&&<HoursTab schedule={schedule} members={members} ds={ds}/>}
   </>);
 }
 

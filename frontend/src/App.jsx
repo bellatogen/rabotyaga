@@ -336,6 +336,17 @@ export default function App(){
     ...(canTeam||canStats?[{id:"team",label:"Команда"}]:[]),
     {id:"admin",label:"Админка",hidden:true},
   ];
+  // Порядок вкладок — хранится в localStorage, drag-and-drop
+  const [navTabOrder,setNavTabOrder]=useState(()=>{try{return JSON.parse(localStorage.getItem('rab:nav_tab_order')||'[]')}catch{return []}});
+  const [dragTab,setDragTab]=useState(null);
+  useEffect(()=>{localStorage.setItem('rab:nav_tab_order',JSON.stringify(navTabOrder));},[navTabOrder]);
+  const visibleTabs=tabs.filter(t=>!t.hidden);
+  const orderedTabs=navTabOrder.length
+    ?[...visibleTabs].sort((a,b)=>{const ai=navTabOrder.indexOf(a.id),bi=navTabOrder.indexOf(b.id);return(ai<0?99:ai)-(bi<0?99:bi);})
+    :visibleTabs;
+  const onTabDragStart=(e,id)=>{setDragTab(id);e.dataTransfer.effectAllowed='move';};
+  const onTabDragOver=(e,id)=>{e.preventDefault();if(dragTab&&dragTab!==id){const ids=orderedTabs.map(t=>t.id);const fi=ids.indexOf(dragTab),ti=ids.indexOf(id);if(fi<0||ti<0)return;const n=[...ids];n.splice(fi,1);n.splice(ti,0,dragTab);setNavTabOrder(n);}};
+  const onTabDragEnd=()=>setDragTab(null);
 
   return (
     <div className="app">
@@ -360,7 +371,7 @@ export default function App(){
           </div>
         </div>
         <div className="nav-date">{dateLabel}{events[ds]&&<span style={{color:"var(--cu)",marginLeft:8}}>· {events[ds]}</span>}</div>
-        <div className="tabs">{tabs.filter(t=>!t.hidden).map(t=><button key={t.id} className={`tab${tab===t.id?" on":""}`} onClick={()=>setTab(t.id)}>{t.label}</button>)}</div>
+        <div className="tabs">{orderedTabs.map(t=><button key={t.id} className={`tab${tab===t.id?" on":""}`} onClick={()=>setTab(t.id)} draggable onDragStart={e=>onTabDragStart(e,t.id)} onDragOver={e=>onTabDragOver(e,t.id)} onDragEnd={onTabDragEnd} style={{opacity:dragTab===t.id?.4:1,cursor:'grab'}}>{t.label}</button>)}</div>
       </div>
       {toast&&<div onClick={()=>setToast(null)} style={{position:"sticky",top:0,zIndex:45,margin:"10px 16px 0",background:"rgba(78,112,64,.18)",border:"1px solid rgba(78,112,64,.5)",color:"#a8d894",borderRadius:10,padding:"12px 14px",fontSize:13.5,lineHeight:1.5,cursor:"pointer"}}>{toast}</div>}
 

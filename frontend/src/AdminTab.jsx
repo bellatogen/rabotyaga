@@ -30,6 +30,10 @@ export function AdminTab({ auth, members, ds }) {
   const [stats, setStats]           = useState(null);
   const [statsLoading, setStatsLoading] = useState(false);
 
+  // Синхронизация
+  const [syncStatus, setSyncStatus]   = useState(null);
+  const [syncLoading, setSyncLoading] = useState(false);
+
   // ── Загрузка при монтировании ──
   useEffect(() => { loadBase(); }, []);
 
@@ -70,7 +74,37 @@ export function AdminTab({ auth, members, ds }) {
   // ── Статистика грузится отдельно при переключении на вкладку ──
   useEffect(() => {
     if (sub === 'stats' && !stats) loadStats();
+    if (sub === 'sync' && !syncStatus) loadSyncStatus();
   }, [sub]);
+
+  async function loadSyncStatus() {
+    try {
+      const res = await fetch('/api/sync/schedule/status');
+      const j = await res.json();
+      setSyncStatus(j);
+    } catch {}
+  }
+
+  async function runSync() {
+    setSyncLoading(true);
+    try {
+      const [schedRes, revenueRes] = await Promise.all([
+        fetch('/api/sync/schedule', { method: 'POST' }),
+        fetch('/api/iiko/revenue/sync', { method: 'POST' }),
+      ]);
+      const sched   = await schedRes.json();
+      const revenue = await revenueRes.json().catch(() => ({}));
+      setSyncStatus({
+        ...sched,
+        revenueUpdated: revenue.updated ?? null,
+        revenueError:   revenue.error   ?? null,
+      });
+    } catch (e) {
+      setSyncStatus({ lastRun: new Date().toISOString(), daysUpdated: 0, error: e.message });
+    } finally {
+      setSyncLoading(false);
+    }
+  }
 
   async function loadStats() {
     setStatsLoading(true);
@@ -122,6 +156,7 @@ export function AdminTab({ auth, members, ds }) {
           ['templates', '📝 Шаблоны'],
           ['employees', '👥 Сотрудники'],
           ['stats',     '📊 Статистика'],
+          ['sync',      '🔄 Синхронизация'],
         ].map(([id, label]) => (
           <button
             key={id}
@@ -267,6 +302,47 @@ export function AdminTab({ auth, members, ds }) {
             style={{ marginTop: 12 }}
           >
             ↺ Обновить
+          </button>
+        </div>
+      )}
+
+      {/* ── Синхронизация ── */}
+      {sub === 'sync' && (
+        <div>
+          <div className="sec-lbl" style={{ marginBottom: 6 }}>Синхронизация данных</div>
+          <div className="info-box" style={{ marginBottom: 16, fontSize: 12 }}>
+            Подгружает расписание барменов из Google Sheets и актуальную выручку из iiko за текущий месяц.
+            Запускается автоматически каждые 12 часов. Прошлые даты не перезаписываются.
+          </div>
+
+          {syncStatus && (
+            <div style={{ background:'var(--sf)', borderRadius:10, padding:'12px 14px', marginBottom:16 }}>
+              {syncStatus.error ? (
+                <div style={{ color:'#e07a60', fontSize:13, fontWeight:600, marginBottom:4 }}>⚠ Ошибка расписания: {syncStatus.error}</div>
+              ) : (
+                <div style={{ color:'#8bc47a', fontSize:13, fontWeight:600, marginBottom:4 }}>
+                  ✓ Расписание: обновлено {syncStatus.daysUpdated} дней
+                </div>
+              )}
+              {syncStatus.revenueUpdated != null && (
+                syncStatus.revenueError
+                  ? <div style={{ color:'#e07a60', fontSize:12 }}>⚠ iiko выручка: {syncStatus.revenueError}</div>
+                  : <div style={{ color:'#8bc47a', fontSize:12 }}>✓ Выручка iiko: обновлено {syncStatus.revenueUpdated} дней</div>
+              )}
+              {syncStatus.lastRun && (
+                <div style={{ fontSize:11, color:'var(--mt)', marginTop:6 }}>
+                  {new Date(syncStatus.lastRun).toLocaleString('ru-RU')}
+                </div>
+              )}
+            </div>
+          )}
+
+          <button
+            className="btn btn-p"
+            onClick={runSync}
+            disabled={syncLoading}
+          >
+            {syncLoading ? '⏳ Синхронизация...' : '🔄 Синхронизировать сейчас'}
           </button>
         </div>
       )}

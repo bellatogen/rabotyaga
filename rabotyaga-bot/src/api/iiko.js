@@ -102,4 +102,49 @@ async function getDayRevenue(date) {
   return { fact };
 }
 
-module.exports = { getDayRevenue };
+// Синхронизация выручки за текущий месяц — для кнопки в админке
+async function syncRevenue(data, saveData) {
+  if (!IIKO_URL || !IIKO_LOGIN) {
+    throw Object.assign(new Error('iiko не настроен: задайте IIKO_URL и IIKO_LOGIN в .env'), { status: 503 });
+  }
+
+  const now = new Date();
+  const from = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+  const to   = now.toISOString().slice(0, 10);
+
+  const token = await getToken();
+  const body = {
+    reportType: 'SALES', buildSummary: 'false',
+    groupByRowFields: ['OpenDate.Typed'],
+    aggregateFields: ['DishAmountInt', 'DishDiscountSumInt'],
+    filters: { 'OpenDate.Typed': { filterType:'DateRange', periodType:'CUSTOM', from, to, includeLow:true, includeHigh:true } },
+  };
+
+  const url = `${IIKO_URL}/resto/api/v2/reports/olap?key=${token}`;
+  const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body), signal:AbortSignal.timeout(20000) });
+
+  if (res.status === 401) { invalidateToken(); throw Object.assign(new Error('iiko: сессия истекла, повторите'), { status:401 }); }
+  if (!res.ok) { const t = await res.text(); throw new Error(`iiko OLAP ${res.status}: ${t.slice(0,200)}`); }
+
+  const json = await res.json();
+  const revenue = JSON.parse(data.kv['revenue:v1'] || '{}');
+  let updated = 0;
+
+  for (const row of (json.data || [])) {
+    const iso = String(row['OpenDate.Typed'] || '').slice(0, 10);
+    if (!iso) continue;
+    const fact = Math.round(Number(row.DishDiscountSumInt || 0));
+    if (fact > 0) {
+      if (!revenue[iso]) revenue[iso] = {};
+      revenue[iso].fact = fact;
+      updated++;
+    }
+  }
+
+  data.kv['revenue:v1'] = JSON.stringify(revenue);
+  saveData();
+  console.log(`[iiko] syncRevenue: обновлено ${updated} дней (${from}–${to})`);
+  return { updated, from, to };
+}
+
+module.exports = { getDayRevenue, syncRevenue };

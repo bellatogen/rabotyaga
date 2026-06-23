@@ -96,6 +96,17 @@ setTimeout(() => {
   }, 12 * 60 * 60 * 1000);
 }, 10000); // 10 сек после старта
 
+// ── iiko: синхронизация выручки за текущий месяц ──
+app.post('/api/iiko/revenue/sync', async (req, res) => {
+  try {
+    const result = await iiko.syncRevenue(data, saveData);
+    res.json(result);
+  } catch (err) {
+    console.error('[iiko/revenue/sync]', err.message);
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
 // ── iiko: факт выручки за день ──
 // GET /api/iiko/revenue/:date  →  { fact: number }
 // Требует IIKO_URL, IIKO_LOGIN, IIKO_PASSWORD в .env
