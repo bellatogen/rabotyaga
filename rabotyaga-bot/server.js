@@ -195,6 +195,19 @@ app.post('/api/iiko/revenue/sync', requireAuth, async (req, res) => {
   }
 });
 
+// Анализ корзины: пары блюд (кэш 20 ч)
+app.get('/api/iiko/basket', requireAuth, async (req, res) => {
+  // force=1 — сбросить кэш и пересчитать
+  if (req.query.force === '1') delete data.kv['basket:pairs:v1'];
+  try {
+    const result = await iiko.getBasketPairs(data, saveData);
+    res.json(result);
+  } catch (err) {
+    console.error('[iiko/basket]', err.message);
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
 app.get('/api/iiko/revenue/:date', requireAuth, async (req, res) => {
   const { date } = req.params;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Неверный формат даты (YYYY-MM-DD)' });

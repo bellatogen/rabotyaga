@@ -187,4 +187,109 @@ async function syncRevenue(data, saveData) {
   return { updated, from, to };
 }
 
-module.exports = { getDayRevenue, syncRevenue };
+// Анализ корзины (маркет баскет) — пары блюд, которые часто берут вместе.
+// Результат кэшируется в KV (обновляется раз в 20 часов).
+async function getBasketPairs(data, saveData) {
+  // Проверяем кэш
+  const CACHE_KEY = 'basket:pairs:v1';
+  const cached = data.kv?.[CACHE_KEY];
+  if (cached) {
+    const parsed = JSON.parse(cached);
+    const ageH = (Date.now() - new Date(parsed.ts).getTime()) / 3_600_000;
+    if (ageH < 20) return parsed;
+  }
+
+  if (!IIKO_URL || !IIKO_LOGIN) {
+    throw Object.assign(new Error('iiko не настроен'), { status: 503 });
+  }
+
+  const token = await getToken();
+
+  const to   = new Date().toISOString().slice(0, 10);
+  const from = new Date(Date.now() - 14 * 86_400_000).toISOString().slice(0, 10);
+
+  // Запрашиваем: каждый заказ (чек) с перечнем блюд
+  const body = {
+    reportType: 'SALES', buildSummary: 'false',
+    groupByRowFields: ['UniqOrderId', 'DishName'],
+    aggregateFields: ['DishAmountInt'],
+    filters: { 'OpenDate.Typed': { filterType:'DateRange', periodType:'CUSTOM', from, to, includeLow:true, includeHigh:true } },
+  };
+
+  const url = `${IIKO_URL}/resto/api/v2/reports/olap?key=${token}`;
+  const res = await fetch(url, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body), signal: AbortSignal.timeout(30_000),
+  });
+  if (res.status === 401) { invalidateToken(); throw Object.assign(new Error('iiko: сессия истекла'), { status: 401 }); }
+  if (!res.ok) { const t = await res.text(); throw new Error(`iiko basket OLAP ${res.status}: ${t.slice(0,200)}`); }
+
+  const json = await res.json();
+  const rows = json.data || [];
+  console.log(`[iiko/basket] строк из iiko: ${rows.length}, период: ${from}–${to}`);
+
+  // Строим map: orderId → Set<dishes>
+  const orderItems = {};
+  const dishRevEstimate = {}; // для последующей маржинальности
+  for (const row of rows) {
+    const orderId = row['UniqOrderId'] || row['OrderId'] || row['Id'];
+    const dish    = (row['DishName']   || '').trim();
+    if (!orderId || !dish || dish.length > 80) continue;
+    if (!orderItems[orderId]) orderItems[orderId] = new Set();
+    orderItems[orderId].add(dish);
+    dishRevEstimate[dish] = (dishRevEstimate[dish] || 0) + Number(row['DishAmountInt'] || 1);
+  }
+
+  const orders = Object.values(orderItems).map(s => [...s]).filter(arr => arr.length >= 2);
+  const totalOrders  = orders.length;
+  const totalChecks  = Object.keys(orderItems).length;
+  console.log(`[iiko/basket] чеков: ${totalChecks}, чеков с 2+ блюдами: ${totalOrders}`);
+
+  if (totalOrders < 10) {
+    return { pairs: [], totalOrders: totalChecks, from, to, ts: new Date().toISOString() };
+  }
+
+  // Ко-оккуррентность
+  const itemCount   = {};
+  const coOccur     = {};
+
+  for (const items of orders) {
+    for (const item of items) itemCount[item] = (itemCount[item] || 0) + 1;
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const key = [items[i], items[j]].sort().join('\x00');
+        coOccur[key] = (coOccur[key] || 0) + 1;
+      }
+    }
+  }
+
+  // Ассоциативные правила: support, confidence, lift
+  const pairs = Object.entries(coOccur)
+    .filter(([, cnt]) => cnt >= 3)
+    .map(([key, count]) => {
+      const [a, b] = key.split('\x00');
+      const support = count / totalOrders;
+      const confAB  = count / (itemCount[a] || 1);
+      const confBA  = count / (itemCount[b] || 1);
+      const lift    = confAB / ((itemCount[b] || 1) / totalOrders);
+      const score   = lift * support * Math.sqrt(count);
+      return {
+        a, b, count,
+        support:  Math.round(support * 100),
+        confAB:   Math.round(confAB  * 100),
+        confBA:   Math.round(confBA  * 100),
+        lift:     Math.round(lift    * 100) / 100,
+        score,
+      };
+    })
+    .filter(p => p.lift > 1.05 && p.confAB >= 10)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 30);
+
+  const result = { pairs, totalOrders: totalChecks, from, to, ts: new Date().toISOString() };
+  if (data && saveData) { data.kv[CACHE_KEY] = JSON.stringify(result); saveData(); }
+  console.log(`[iiko/basket] пар найдено: ${pairs.length}`);
+  return result;
+}
+
+module.exports = { getDayRevenue, syncRevenue, getBasketPairs };

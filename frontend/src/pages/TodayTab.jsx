@@ -8,6 +8,7 @@ import { staffCheck, getShiftStatus } from '../utils/staffUtils.js';
 import { fmtDate } from '../utils/dateUtils.js';
 import { RevenueCard } from '../components/RevenueCard.jsx';
 import { GoListBlock } from '../components/GoList.jsx';
+import { BundleRecommendations } from '../components/BundleRecommendations.jsx';
 import { TaskCard } from '../components/TaskCard.jsx';
 import { DraggableTaskList } from '../components/DraggableTaskList.jsx';
 import { DoneAccordion } from '../components/DoneAccordion.jsx';
@@ -42,6 +43,8 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
     <div className="sec"><RevenueCard date={ds} revenue={revenue} onIikoLoad={onIikoLoad}/></div>
 
     {goList&&<div className="sec"><GoListBlock items={goList} onAdd={onGoAdd} onToggle={onGoToggle} onRemove={onGoRemove} defaultOpen={sectionsOpen}/></div>}
+
+    <div className="sec"><BundleRecommendations onGoAdd={onGoAdd} defaultOpen={sectionsOpen}/></div>
 
     {myAssigned&&myAssigned.length>0&&<div className="sec">
       <div className="sec-head"><span className="sec-lbl" style={{color:"var(--am)"}}><Bell size={12}/>Назначено вам</span><span className="sec-cnt">{myAssigned.filter(t=>doneMap[t.id]).length}/{myAssigned.length}</span></div>
