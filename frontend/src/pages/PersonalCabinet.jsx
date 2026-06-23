@@ -13,13 +13,37 @@ import { hmm, rangeDays, fmtDate } from '../utils/dateUtils.js';
 import { DueRow } from '../components/DueRow.jsx';
 import { LogsTab } from './LogsTab.jsx';
 
-export function PersonalCabinet({name,isOwnCabinet,tasks,history,schedule,cards,profiles,ds,now,statusOverrides,members,eventsLog,onIssueCard,onUpdateProfile,onAddOverride,setCardModal,onToggle,onChangePassword}){
-  const[subtab,setSubtab]=useState("overview");
-  if(name==="manager"||name==="developer")return (
-    <div className="sec">
-      <div className="info-box">Кабинет {accountLabel(name)} — используй вкладки выше для управления командой.</div>
-      {isOwnCabinet&&onChangePassword&&<PasswordChanger onChange={onChangePassword}/>}
-    </div>);
+export function PersonalCabinet({name,isOwnCabinet,tasks,history,schedule,cards,profiles,ds,now,statusOverrides,members,eventsLog,onIssueCard,onUpdateProfile,onAddOverride,setCardModal,onToggle,onChangePassword,onLogout,adminPanel}){
+  const isSpecialAccount=name==="manager"||name==="developer";
+  const[subtab,setSubtab]=useState(isSpecialAccount?"settings":"overview");
+
+  if(isSpecialAccount)return(
+    <>
+      <div className="sec">
+        <div className="cab-hero">
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <div>
+              <div className="cab-name">{name==="developer"?"Разработчик":"Управляющий"}</div>
+              <div className="cab-role">{name==="developer"?"developer":"manager"}</div>
+            </div>
+            {onLogout&&<button className="btn btn-d" onClick={onLogout} style={{width:"auto",padding:"7px 16px",fontSize:13}}>Выйти</button>}
+          </div>
+        </div>
+        <div style={{display:"flex",gap:4,marginBottom:4}}>
+          {["settings",...(adminPanel?["admin"]:[])].map(s=>(
+            <button key={s} className={`tab${subtab===s?" on":""}`} onClick={()=>setSubtab(s)} style={{flex:1,textAlign:"center"}}>
+              {s==="settings"?"Настройки":"Администрирование"}
+            </button>
+          ))}
+        </div>
+      </div>
+      {subtab==="settings"&&<div className="sec">
+        {(!onChangePassword)&&<div className="info-box" style={{marginBottom:12}}>Управление аккаунтом</div>}
+        {isOwnCabinet&&onChangePassword&&<PasswordChanger onChange={onChangePassword}/>}
+      </div>}
+      {subtab==="admin"&&adminPanel}
+    </>
+  );
   const profile=profiles.find(p=>p.name===name)||{name,role:"barman",perms:ROLES.barman.perms};
   const ss=SHIFT_STATUSES[getShiftStatus(name,ds,schedule,statusOverrides,now)];
   const activeCards=getActiveCards(cards,name);
@@ -57,6 +81,7 @@ export function PersonalCabinet({name,isOwnCabinet,tasks,history,schedule,cards,
       {!isOwnCabinet&&onUpdateProfile&&<><div className="sec-lbl" style={{margin:"10px 0 8px"}}>Роль</div><div className="chip-row">{Object.entries(ROLES).map(([id,{label}])=><button key={id} className={`chip${profile.role===id?" on":""}`} onClick={()=>onUpdateProfile({...profile,role:id,perms:ROLES[id].perms})}>{label}</button>)}</div></>}
       {!isOwnCabinet&&onAddOverride&&<><div className="sec-lbl" style={{margin:"12px 0 8px"}}>Статус</div><div className="chip-row">{["sick","vacation","business_trip"].map(s=><button key={s} className="chip" onClick={()=>onAddOverride({name,status:s,from:ds,until:""})}>{SHIFT_STATUSES[s]?.label}</button>)}</div></>}
       {isOwnCabinet&&onChangePassword&&<PasswordChanger onChange={onChangePassword}/>}
+      {isOwnCabinet&&onLogout&&<button className="btn btn-d" onClick={onLogout} style={{marginTop:12}}>Выйти из аккаунта</button>}
     </div>}
     {subtab==="tasks"&&(()=>{
       const personal=tasks.filter(t=>t.assignedTo===name||t.assignee===name).sort((a,b)=>dueLabel(a,ds).dueDate.localeCompare(dueLabel(b,ds).dueDate));

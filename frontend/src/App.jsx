@@ -365,7 +365,6 @@ export default function App(){
     ...(hasPerm(who,profiles,"view_all_tasks")||hasPerm(who,profiles,"view_own_tasks")?[{id:"tasks",label:"Задачи"}]:[]),
     ...(hasPerm(who,profiles,"view_schedule")?[{id:"schedule",label:"График"}]:[]),
     ...(canTeam||canStats?[{id:"team",label:"Команда"}]:[]),
-    ...(isManager?[{id:"settings",label:"Управление"},{id:"admin",label:"Админка"}]:[]),
   ];
   const visibleTabs=tabs.filter(t=>!t.hidden);
   const orderedTabs=navTabOrder.length
@@ -390,7 +389,7 @@ export default function App(){
               title={themePref==="auto"?"Тема: авто (по устройству)":themePref==="light"?"Тема: светлая":"Тема: тёмная"}>
               {themePref==="auto"?<MonitorSmartphone size={14}/>:themePref==="light"?<Sun size={14}/>:<Moon size={14}/>}
             </button>
-            <button className="nav-who" onClick={handleLogout}><User size={12}/>{accountLabel(who)}
+            <button className="nav-who" onClick={()=>setTab("settings")}><User size={12}/>{accountLabel(who)}
               <span title={serverOk===false?"Сервер недоступен — данные только на этом устройстве":serverOk?"Сервер на связи":"проверка связи"}
                 style={{width:7,height:7,borderRadius:"50%",marginLeft:6,display:"inline-block",
                 background:serverOk===false?"var(--rs)":serverOk?"var(--hp)":"var(--mt)"}}/></button>
@@ -412,12 +411,14 @@ export default function App(){
         onHandover={t=>setModal({_handover:true,task:t})}/>}
 
       {tab==="admin"&&isManager&&<AdminTab auth={auth} members={members} ds={ds}/>}
-      {tab==="settings"&&<PersonalCabinet name={who==="manager"||who==="developer"?who:who} account={who} isOwnCabinet={true} tasks={tasks} history={history}
+      {tab==="settings"&&<PersonalCabinet name={who} account={who} isOwnCabinet={true} tasks={tasks} history={history}
         schedule={schedule} cards={cards} profiles={profiles} ds={ds} now={now} statusOverrides={statusOverrides}
         members={members} eventsLog={eventsLog}
         onIssueCard={isManager?issueCard:null} onUpdateProfile={isManager?p=>setProfiles(prev=>prev.map(x=>x.name===p.name?p:x)):null}
         onAddOverride={isManager?o=>setStatusOverrides(prev=>[...prev.filter(x=>x.name!==o.name),o]):null} setCardModal={v=>setModal(v)} onToggle={toggle}
-        onChangePassword={(newPwd,curPwd)=>changePassword(who,newPwd,curPwd)}/>}
+        onChangePassword={(newPwd,curPwd)=>changePassword(who,newPwd,curPwd)}
+        onLogout={handleLogout}
+        adminPanel={isManager?<AdminTab auth={auth} members={members} ds={ds}/>:null}/>}
 
       {tab==="tasks"&&<TasksTab tasks={tasks} doneMap={doneToday} onToggle={toggle} onEdit={isManager?t=>setModal(t):null} onArchive={canAddTasks?archiveTask:null}/>}
       {tab==="schedule"&&<ScheduleTab schedule={schedule} events={events} revenue={revenue} ds={ds} members={members} onOpenDay={d=>setViewingDay(d)}/>}
