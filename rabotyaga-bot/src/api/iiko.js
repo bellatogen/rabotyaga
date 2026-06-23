@@ -51,7 +51,7 @@ async function getDayRevenue(date) {
     reportType: 'SALES',
     buildSummary: 'true',
     groupByRowFields: ['OpenDate.Typed'],
-    aggregateFields: ['DishAmountInt', 'DishDiscountSumInt'],
+    aggregateFields: ['DishAmountInt', 'DishDiscountSumInt', 'GuestsCount'],
     filters: {
       'OpenDate.Typed': {
         filterType: 'DateRange',
@@ -84,22 +84,26 @@ async function getDayRevenue(date) {
   const json = await res.json();
 
   // Суммируем DishAmountInt − DishDiscountSumInt по сводной строке или по всем строкам
-  let amount = 0, discount = 0;
+  let amount = 0, discount = 0, guests = 0;
   if (json.summary) {
-    amount   = Number(json.summary.DishAmountInt   ?? 0);
+    amount   = Number(json.summary.DishAmountInt      ?? 0);
     discount = Number(json.summary.DishDiscountSumInt ?? 0);
+    guests   = Number(json.summary.GuestsCount        ?? 0);
   } else if (Array.isArray(json.data)) {
     for (const row of json.data) {
-      amount   += Number(row.DishAmountInt   ?? 0);
+      amount   += Number(row.DishAmountInt      ?? 0);
       discount += Number(row.DishDiscountSumInt ?? 0);
+      guests   += Number(row.GuestsCount        ?? 0);
     }
   }
 
   // DishDiscountSumInt = выручка в рублях (уже итоговая сумма)
   // DishAmountInt = количество порций (не деньги)
-  const fact = Math.round(discount);
-  console.log(`[iiko] выручка за ${date}: ${fact} ₽ (amount=${amount}, discount=${discount})`);
-  return { fact };
+  const fact     = Math.round(discount);
+  const guestsRnd = Math.round(guests);
+  const avgCheck = guestsRnd > 0 ? Math.round(fact / guestsRnd) : null;
+  console.log(`[iiko] выручка за ${date}: ${fact} ₽, гостей: ${guestsRnd}, ср.чек: ${avgCheck ?? '—'} ₽`);
+  return { fact, guests: guestsRnd, avgCheck };
 }
 
 // Синхронизация выручки за текущий месяц — для кнопки в админке
@@ -116,7 +120,7 @@ async function syncRevenue(data, saveData) {
   const body = {
     reportType: 'SALES', buildSummary: 'false',
     groupByRowFields: ['OpenDate.Typed'],
-    aggregateFields: ['DishAmountInt', 'DishDiscountSumInt'],
+    aggregateFields: ['DishAmountInt', 'DishDiscountSumInt', 'GuestsCount'],
     filters: { 'OpenDate.Typed': { filterType:'DateRange', periodType:'CUSTOM', from, to, includeLow:true, includeHigh:true } },
   };
 
@@ -133,10 +137,15 @@ async function syncRevenue(data, saveData) {
   for (const row of (json.data || [])) {
     const iso = String(row['OpenDate.Typed'] || '').slice(0, 10);
     if (!iso) continue;
-    const fact = Math.round(Number(row.DishDiscountSumInt || 0));
+    const fact     = Math.round(Number(row.DishDiscountSumInt || 0));
+    const guests   = Math.round(Number(row.GuestsCount         || 0));
     if (fact > 0) {
       if (!revenue[iso]) revenue[iso] = {};
       revenue[iso].fact = fact;
+      if (guests > 0) {
+        revenue[iso].guests   = guests;
+        revenue[iso].avgCheck = Math.round(fact / guests);
+      }
       updated++;
     }
   }

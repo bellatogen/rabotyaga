@@ -8,6 +8,8 @@ import { isToday, isDone } from '../utils/taskUtils.js';
 import { hmm, rangeDays } from '../utils/dateUtils.js';
 import { RevenueCard } from '../components/RevenueCard.jsx';
 import { Ring } from '../components/Ring.jsx';
+import { classifyEvent } from '../constants/events.js';
+import { MonthAnalytics } from '../components/analytics/MonthAnalytics.jsx';
 
 export function ScheduleTab({schedule,events,revenue,ds,members,onOpenDay}){
   const[sub,setSub]=useState("calendar");
@@ -29,6 +31,18 @@ function getRevenueColor(pct){
   if(pct>=100)return '#8bc47a';
   if(pct>=90)return '#e8a030';
   return '#e85535';
+}
+
+// Бейдж события в ячейке календаря — использует реестр EVENT_TYPES для цвета/эмодзи
+function CalEventBadge({ eventStr }) {
+  if (!eventStr) return null;
+  const et = classifyEvent(eventStr);
+  if (et) return (
+    <span style={{ fontSize: 9, fontWeight: 700, color: et.color, display: 'block', lineHeight: 1.2, marginTop: 1 }}>
+      {et.emoji} {et.shortName}
+    </span>
+  );
+  return <span className="cal-ev">{eventStr}</span>;
 }
 
 function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
@@ -94,7 +108,8 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
   for(let i=0;i<startDow;i++)cells.push(null);
   for(let d=1;d<=daysInMonth;d++)cells.push(`${ym}-${String(d).padStart(2,"0")}`);
   const shift=(n)=>{setTooltip(null);let nm=m+n,ny=y;if(nm<1){nm=12;ny--;}if(nm>12){nm=1;ny++;}setYm(`${ny}-${String(nm).padStart(2,"0")}`);};
-  return(<div className="sec">
+  return(<>
+  <div className="sec">
     <div className="sec-head">
       <span className="sec-lbl"><CalendarDays size={12}/>Календарь</span>
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
@@ -130,17 +145,18 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
         const rev=revenue[c]||{};
         const hasRev=rev.plan!=null&&rev.plan!=="";
         const pct=rev.plan&&rev.fact?(rev.fact/rev.plan)*100:null;
+        const evType=classifyEvent(events[c]||null);
         return(<div key={i} className={`cal-cell${c===ds?" today":""}${!check.ok?" short":""}`} onClick={()=>onCellClick(c)}
           onPointerEnter={e=>onCellEnter(e,c)} onPointerLeave={onCellLeave}
           onPointerDown={e=>onCellDown(e,c)} onPointerMove={clearPress} onPointerUp={clearPress} onPointerCancel={clearPress}
-          style={{touchAction:"manipulation",...(pct!=null?{background:getRevenueColor(pct)+"22"}:null)}}>
+          style={{touchAction:"manipulation",...(pct!=null?{background:getRevenueColor(pct)+"22"}:evType?{background:evType.bg}:null)}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span className="cal-num" style={pct!=null?{color:getRevenueColor(pct)}:undefined}>{dnum}</span>
             {hasRev&&<span style={{fontSize:11,color:"var(--am)",fontWeight:700}}>₽</span>}
           </div>
           <span className="cal-staff" style={{color:check.ok?"var(--mt)":"#e07a60"}}>{check.actual}/{check.norm.count}</span>
           {pct!=null&&<span style={{fontSize:10,fontWeight:600,color:getRevenueColor(pct)}}>{Math.round(pct)}%</span>}
-          {events[c]&&<span className="cal-ev">{events[c]}</span>}
+          <CalEventBadge eventStr={events[c]||null}/>
         </div>);
       })}
     </div>
@@ -158,7 +174,7 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
         <div className="cal-tt-row"><span className="cal-tt-mt">₽ План</span><span>{Number(tooltip.rev.plan).toLocaleString("ru-RU")} ₽</span></div>
         {tooltip.rev.fact!=null&&tooltip.rev.fact!==""&&<div className="cal-tt-row"><span className="cal-tt-mt">📈 Факт</span><span style={{color:tooltip.pct!=null?getRevenueColor(tooltip.pct):"var(--pp)",fontWeight:600}}>{Number(tooltip.rev.fact).toLocaleString("ru-RU")} ₽{tooltip.pct!=null?` · ${Math.round(tooltip.pct)}%`:""}</span></div>}
       </div>}
-      {tooltip.event&&<div className="cal-tt-mt" style={{marginTop:6,paddingTop:6,borderTop:"1px solid var(--bd)",fontSize:12}}>📌 {tooltip.event}</div>}
+      {tooltip.event&&(()=>{const et=classifyEvent(tooltip.event);return(<div style={{marginTop:6,paddingTop:6,borderTop:"1px solid var(--bd)",fontSize:12,color:et?et.color:"var(--mt)"}}>{et?et.emoji:'📌'} {tooltip.event}</div>);})()}
     </div>}
 
     {/* ── Mobile bottom sheet ── */}
@@ -182,7 +198,7 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
           </div>
           <div style={{fontSize:13,color:"var(--mt)",marginTop:2}}>
             {DOW_FULL[new Date(daySheet.date).getDay()]}
-            {daySheet.event&&<span style={{color:"var(--cu)",marginLeft:8}}>· {daySheet.event}</span>}
+            {daySheet.event&&(()=>{const et=classifyEvent(daySheet.event);return(<span style={{color:et?et.color:"var(--cu)",marginLeft:8,fontWeight:et?600:400}}>· {et?et.emoji+' ':''}{daySheet.event}</span>);})()}
           </div>
         </div>
 
@@ -243,7 +259,10 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
         </div>
       </div>
     </>}
-  </div>);
+  </div>
+  <MonthAnalytics revenue={revenue} events={events} ym={ym}/>
+  </>
+  );
 }
 
 export function DayDetail({date,schedule,events,tasks,history,revenue,handovers,isManager,canTeam,members,onAddTask,onEditTask,onSetRevenue,onAddShift,onRemoveShift,onUpdateShift}){
@@ -263,7 +282,7 @@ export function DayDetail({date,schedule,events,tasks,history,revenue,handovers,
   const loadIikoFact=async()=>{
     setIikoLoading(true);setIikoErr(null);
     try{
-      const res=await fetch(`/api/iiko/revenue/${date}`);
+      const res=await fetch(`/api/iiko/revenue/${date}`,{credentials:'include'});
       const json=await res.json();
       if(!res.ok)throw new Error(json.error||`HTTP ${res.status}`);
       setFact(String(json.fact));
