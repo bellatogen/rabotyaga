@@ -208,10 +208,12 @@ async function getBasketPairs(data, saveData) {
   const to   = new Date().toISOString().slice(0, 10);
   const from = new Date(Date.now() - 14 * 86_400_000).toISOString().slice(0, 10);
 
-  // Запрашиваем: каждый заказ (чек) с перечнем блюд
+  // Запрашиваем: каждый чек (фискальный номер) с перечнем блюд
+  // FiscalChequeNumber — группируемое поле, уникально идентифицирует чек
+  // (UniqOrderId не группируем: Grouping is not allowed)
   const body = {
     reportType: 'SALES', buildSummary: 'false',
-    groupByRowFields: ['UniqOrderId', 'DishName'],
+    groupByRowFields: ['OpenDate.Typed', 'FiscalChequeNumber', 'DishName'],
     aggregateFields: ['DishAmountInt'],
     filters: { 'OpenDate.Typed': { filterType:'DateRange', periodType:'CUSTOM', from, to, includeLow:true, includeHigh:true } },
   };
@@ -232,8 +234,11 @@ async function getBasketPairs(data, saveData) {
   const orderItems = {};
   const dishRevEstimate = {}; // для последующей маржинальности
   for (const row of rows) {
-    const orderId = row['UniqOrderId'] || row['OrderId'] || row['Id'];
-    const dish    = (row['DishName']   || '').trim();
+    // Чек ID = дата + фискальный номер (вместе уникальны)
+    const date    = String(row['OpenDate.Typed']      || '').slice(0, 10);
+    const cheque  = String(row['FiscalChequeNumber']  || '').trim();
+    const orderId = date && cheque ? `${date}:${cheque}` : null;
+    const dish    = (row['DishName'] || '').trim();
     if (!orderId || !dish || dish.length > 80) continue;
     if (!orderItems[orderId]) orderItems[orderId] = new Set();
     orderItems[orderId].add(dish);
