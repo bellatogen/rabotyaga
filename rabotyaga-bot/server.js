@@ -20,7 +20,19 @@ const FRONTEND_DIST = process.env.FRONTEND_DIST || path.join(__dirname, 'fronten
 const app = express();
 app.use(cors({ origin: ['https://rabotyaga55.ru', 'http://localhost:5173', /timeweb.cloud$/], credentials: true }));
 app.use(express.json());
-app.use(express.static(FRONTEND_DIST));
+// index.html — без кеша (браузер всегда запрашивает свежий),
+// ассеты — долгий кеш (Vite добавляет контент-хеш в имя файла)
+app.use(express.static(FRONTEND_DIST, {
+  setHeaders(res, filePath) {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    } else if (/\/assets\//.test(filePath)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  },
+}));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 app.use('/api/push', pushApi);
 // adminApi монтируется после инициализации data — передаём ссылку и saveData
@@ -321,7 +333,10 @@ app.get("/api/push/test/:name", async (req, res) => {
 app.use((req, res, next) => {
   if (req.method !== 'GET' || req.path.startsWith('/api') || req.path === '/admin') return next();
   const indexFile = path.join(FRONTEND_DIST, 'index.html');
-  if (fs.existsSync(indexFile)) return res.sendFile(indexFile);
+  if (fs.existsSync(indexFile)) {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    return res.sendFile(indexFile);
+  }
   next();
 });
 
