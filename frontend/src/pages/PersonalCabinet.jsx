@@ -186,29 +186,9 @@ function StatBar({label,value,fmt,pct,sub}){
   </div>);
 }
 
-// --- Профиль сотрудника: контакты, медкнижка ---
-function ProfileSection({profile,name,isOwnCabinet,onUpdateProfile,ds}){
-  const[editing,setEditing]=useState(false);
-  const init={
-    phone:profile.phone||"",telegram:profile.telegram||"",
-    emergency:profile.emergency||"",note:profile.note||"",
-    medbook:{number:profile.medbook?.number||"",issued:profile.medbook?.issued||"",
-      expires:profile.medbook?.expires||"",lastCheck:profile.medbook?.lastCheck||""},
-  };
-  const[f,setF]=useState(init);
-  const setMed=(k,v)=>setF(p=>({...p,medbook:{...p.medbook,[k]:v}}));
-
-  // Предупреждение о медкнижке
-  const exp=profile.medbook?.expires;
-  const daysLeft=exp?Math.ceil((new Date(exp+"T00:00:00")-new Date(ds+"T00:00:00"))/86400000):null;
-  const medbookOk=daysLeft===null?null:daysLeft>0;
-  const medbookWarn=daysLeft!==null&&daysLeft<=90&&daysLeft>0;
-  const medbookExp=daysLeft!==null&&daysLeft<=0;
-
-  const save=()=>{onUpdateProfile&&onUpdateProfile({...profile,...f});setEditing(false);};
-  const cancel=()=>{setF(init);setEditing(false);};
-
-  const Field=({label,value,onChange,type="text",placeholder=""})=>(
+// --- Профиль: поле (вне компонента — не пересоздаётся на ре-рендере) ---
+function ProfileField({label,editing,value,onChange,type="text",placeholder=""}){
+  return(
     <div style={{marginBottom:10}}>
       <div className="sec-lbl" style={{marginBottom:4}}>{label}</div>
       {editing?(
@@ -222,6 +202,27 @@ function ProfileSection({profile,name,isOwnCabinet,onUpdateProfile,ds}){
       )}
     </div>
   );
+}
+
+// --- Профиль сотрудника: контакты, медкнижка ---
+function ProfileSection({profile,name,isOwnCabinet,onUpdateProfile,ds}){
+  const[editing,setEditing]=useState(false);
+  const init={
+    phone:profile.phone||"",telegram:profile.telegram||"",
+    emergency:profile.emergency||"",note:profile.note||"",
+    medbook:{number:profile.medbook?.number||"",issued:profile.medbook?.issued||"",
+      expires:profile.medbook?.expires||"",lastCheck:profile.medbook?.lastCheck||""},
+  };
+  const[f,setF]=useState(init);
+  const setMed=(k,v)=>setF(p=>({...p,medbook:{...p.medbook,[k]:v}}));
+
+  const exp=profile.medbook?.expires;
+  const daysLeft=exp?Math.ceil((new Date(exp+"T00:00:00")-new Date(ds+"T00:00:00"))/86400000):null;
+  const medbookWarn=daysLeft!==null&&daysLeft<=90&&daysLeft>0;
+  const medbookExp=daysLeft!==null&&daysLeft<=0;
+
+  const save=()=>{onUpdateProfile&&onUpdateProfile({...profile,...f});setEditing(false);};
+  const cancel=()=>{setF(init);setEditing(false);};
 
   return(<div className="sec">
     {(medbookExp||medbookWarn)&&(
@@ -234,9 +235,9 @@ function ProfileSection({profile,name,isOwnCabinet,onUpdateProfile,ds}){
 
     <div style={{background:"var(--sf)",border:"1px solid var(--bd)",borderRadius:12,padding:14,marginBottom:12}}>
       <div className="sec-lbl" style={{marginBottom:10}}>📞 Контакты</div>
-      <Field label="Телефон" value={editing?f.phone:profile.phone||""} onChange={v=>setF(p=>({...p,phone:v}))} placeholder="+7 900 000-00-00"/>
-      <Field label="Telegram" value={editing?f.telegram:profile.telegram||""} onChange={v=>setF(p=>({...p,telegram:v}))} placeholder="@username"/>
-      <Field label="Экстренный контакт" value={editing?f.emergency:profile.emergency||""} onChange={v=>setF(p=>({...p,emergency:v}))} placeholder="Имя: +7 900 …"/>
+      <ProfileField label="Телефон" editing={editing} value={editing?f.phone:profile.phone||""} onChange={v=>setF(p=>({...p,phone:v}))} placeholder="+7 900 000-00-00"/>
+      <ProfileField label="Telegram" editing={editing} value={editing?f.telegram:profile.telegram||""} onChange={v=>setF(p=>({...p,telegram:v}))} placeholder="@username"/>
+      <ProfileField label="Экстренный контакт" editing={editing} value={editing?f.emergency:profile.emergency||""} onChange={v=>setF(p=>({...p,emergency:v}))} placeholder="Имя: +7 900 …"/>
     </div>
 
     <div style={{background:"var(--sf)",border:`1px solid ${medbookExp?"rgba(158,63,43,.4)":medbookWarn?"rgba(232,160,48,.4)":"var(--bd)"}`,borderRadius:12,padding:14,marginBottom:12}}>
@@ -244,10 +245,10 @@ function ProfileSection({profile,name,isOwnCabinet,onUpdateProfile,ds}){
         <div className="sec-lbl">📋 Медкнижка</div>
         {medbookOk===true&&!medbookWarn&&<span style={{fontSize:11,color:"#8bc47a",fontWeight:700}}>✓ действительна</span>}
       </div>
-      <Field label="Номер" value={editing?f.medbook.number:profile.medbook?.number||""} onChange={v=>setMed("number",v)} placeholder="123456"/>
-      <Field label="Выдана" value={editing?f.medbook.issued:profile.medbook?.issued||""} onChange={v=>setMed("issued",v)} type="date"/>
-      <Field label="Действительна до" value={editing?f.medbook.expires:profile.medbook?.expires||""} onChange={v=>setMed("expires",v)} type="date"/>
-      <Field label="Последнее обследование" value={editing?f.medbook.lastCheck:profile.medbook?.lastCheck||""} onChange={v=>setMed("lastCheck",v)} type="date"/>
+      <ProfileField label="Номер" editing={editing} value={editing?f.medbook.number:profile.medbook?.number||""} onChange={v=>setMed("number",v)} placeholder="123456"/>
+      <ProfileField label="Выдана" editing={editing} value={editing?f.medbook.issued:profile.medbook?.issued||""} onChange={v=>setMed("issued",v)} type="date"/>
+      <ProfileField label="Действительна до" editing={editing} value={editing?f.medbook.expires:profile.medbook?.expires||""} onChange={v=>setMed("expires",v)} type="date"/>
+      <ProfileField label="Последнее обследование" editing={editing} value={editing?f.medbook.lastCheck:profile.medbook?.lastCheck||""} onChange={v=>setMed("lastCheck",v)} type="date"/>
     </div>
 
     {(isOwnCabinet||!isOwnCabinet)&&onUpdateProfile&&!editing&&(
