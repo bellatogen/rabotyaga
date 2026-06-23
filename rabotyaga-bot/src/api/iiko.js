@@ -53,7 +53,7 @@ async function getDayRevenue(date, data, saveData) {
     groupByRowFields: ['OpenDate.Typed'],
     // DishSumInt — сумма без скидок, DishDiscountSumInt — размер скидок.
     // Чистая выручка = DishSumInt − DishDiscountSumInt
-    aggregateFields: ['DishSumInt', 'DishDiscountSumInt', 'GuestsCount'],
+    aggregateFields: ['DishSumInt', 'DishDiscountSumInt'],
     filters: {
       'OpenDate.Typed': {
         filterType: 'DateRange',
@@ -86,36 +86,31 @@ async function getDayRevenue(date, data, saveData) {
   const json = await res.json();
 
   // Суммируем DishAmountInt − DishDiscountSumInt по сводной строке или по всем строкам
-  let gross = 0, discounts = 0, guests = 0;
+  let gross = 0, discounts = 0;
   if (json.summary) {
-    gross     = Number(json.summary.DishSumInt          ?? 0);
-    discounts = Number(json.summary.DishDiscountSumInt  ?? 0);
-    guests    = Number(json.summary.GuestsCount         ?? 0);
+    gross     = Number(json.summary.DishSumInt         ?? 0);
+    discounts = Number(json.summary.DishDiscountSumInt ?? 0);
   } else if (Array.isArray(json.data)) {
     for (const row of json.data) {
       gross     += Number(row.DishSumInt         ?? 0);
       discounts += Number(row.DishDiscountSumInt ?? 0);
-      guests    += Number(row.GuestsCount        ?? 0);
     }
   }
 
   // Чистая выручка = брутто минус скидки
-  const fact      = Math.round(gross - discounts);
-  const guestsRnd = Math.round(guests);
-  const avgCheck  = guestsRnd > 0 ? Math.round(fact / guestsRnd) : null;
-  console.log(`[iiko] выручка за ${date}: ${fact} ₽ (DishSumInt=${gross}, discount=${discounts}), гостей: ${guestsRnd}, ср.чек: ${avgCheck ?? '—'} ₽`);
+  const fact = Math.round(gross - discounts);
+  console.log(`[iiko] выручка за ${date}: ${fact} ₽ (gross=${gross}, discount=${discounts})`);
 
   // Сохраняем в KV если переданы data/saveData (чтобы фронтенд увидел при следующей загрузке)
   if (data && saveData && fact > 0) {
     const revenue = JSON.parse(data.kv?.['revenue:v1'] || '{}');
     if (!revenue[date]) revenue[date] = {};
     revenue[date].fact = fact;
-    if (guestsRnd > 0) { revenue[date].guests = guestsRnd; revenue[date].avgCheck = avgCheck; }
     data.kv['revenue:v1'] = JSON.stringify(revenue);
     saveData();
   }
 
-  return { fact, guests: guestsRnd, avgCheck };
+  return { fact };
 }
 
 // Синхронизация выручки за текущий месяц — для кнопки в админке
@@ -132,7 +127,7 @@ async function syncRevenue(data, saveData) {
   const body = {
     reportType: 'SALES', buildSummary: 'false',
     groupByRowFields: ['OpenDate.Typed'],
-    aggregateFields: ['DishAmountInt', 'DishDiscountSumInt', 'GuestsCount'],
+    aggregateFields: ['DishSumInt', 'DishDiscountSumInt'],
     filters: { 'OpenDate.Typed': { filterType:'DateRange', periodType:'CUSTOM', from, to, includeLow:true, includeHigh:true } },
   };
 
@@ -149,15 +144,12 @@ async function syncRevenue(data, saveData) {
   for (const row of (json.data || [])) {
     const iso = String(row['OpenDate.Typed'] || '').slice(0, 10);
     if (!iso) continue;
-    const fact     = Math.round(Number(row.DishDiscountSumInt || 0));
-    const guests   = Math.round(Number(row.GuestsCount         || 0));
+  const gross    = Number(row.DishSumInt         || 0);
+    const discount = Number(row.DishDiscountSumInt || 0);
+    const fact     = Math.round(gross - discount);
     if (fact > 0) {
       if (!revenue[iso]) revenue[iso] = {};
       revenue[iso].fact = fact;
-      if (guests > 0) {
-        revenue[iso].guests   = guests;
-        revenue[iso].avgCheck = Math.round(fact / guests);
-      }
       updated++;
     }
   }
