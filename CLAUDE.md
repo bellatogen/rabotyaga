@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Agent self-assessment rule (ALWAYS ACTIVE)
+
+Before delivering any implementation, Claude must self-assess quality on a 100-point scale covering: correctness, security, edge cases, consistency with existing code, no regressions. If score < 95 → iterate silently until 95–98 before presenting output. Never ship below 95. State the score when presenting completed work.
+
 ## What this is
 
 "Работяга" — Telegram Mini App for bar shift management (tasks, schedule, hours, "yellow/orange/red card" discipline system, revenue tracking). Two independent halves: a React frontend (Vite) and a small Express + Telegraf bot backend. Russian-language UI and code comments throughout — keep new UI strings/comments in Russian to match.
