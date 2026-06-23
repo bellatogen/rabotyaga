@@ -44,6 +44,7 @@ export default function App(){
   const[revenue,setRevenue]=useState({});
   const[handovers,setHandovers]=useState({});
   const[eventsLog,setEventsLog]=useState([]);
+  const[leaveRequests,setLeaveRequests]=useState([]);
   const[inboxSeen,setInboxSeen]=useState({});
   const[shiftClosed,setShiftClosed]=useState({});
   const[closeNotified,setCloseNotified]=useState({});
@@ -92,11 +93,11 @@ export default function App(){
   const _loaded=await Promise.all([
       ld("tasks:v4",defaultTasks()),ld("done:hist:v2",{}),ld("profiles:v1",DEFAULT_PROFILES),
       ld("cards:v1",[]),ld("status_overrides:v1",[]),ld("revenue:v1",{}),
-      ld("handovers:v1",{}),ld("events_log:v1",[]),ld("inbox_seen:v1",{}),ld("shift_closed:v1",{}),ld("close_notified:v1",{}),ld("acl:v1",{}),ld("task_order:v1",[]),ld("members:v1",DEFAULT_MEMBERS),ld("schedule:v1",EMBEDDED_SCHEDULE),ld("events:v1",EMBEDDED_EVENTS),ld("golist:v1",[]),
+      ld("handovers:v1",{}),ld("events_log:v1",[]),ld("inbox_seen:v1",{}),ld("shift_closed:v1",{}),ld("close_notified:v1",{}),ld("acl:v1",{}),ld("task_order:v1",[]),ld("members:v1",DEFAULT_MEMBERS),ld("schedule:v1",EMBEDDED_SCHEDULE),ld("events:v1",EMBEDDED_EVENTS),ld("golist:v1",[]),ld("leave_requests:v1",[]),
     ]);
-    const[t,hist,profs,cds,so,rev,ho,ev,seen,sc,cn,ac,tord,mem,sch,evKV,gl]=_loaded;
+    const[t,hist,profs,cds,so,rev,ho,ev,seen,sc,cn,ac,tord,mem,sch,evKV,gl,lr]=_loaded;
     setTasks(mergeSeeds(t));setHistory(hist);setProfiles(profs);setCards(cds);setStatusOverrides(so);
-    setRevenue(rev);setHandovers(ho);setEventsLog(ev);setInboxSeen(seen);setShiftClosed(sc);setCloseNotified(cn);setAcl(ac);setTaskOrder(tord);setMembers(mem);setSchedule(sch);if(evKV&&Object.keys(evKV).length)setEventsData(evKV);setGoList(gl);
+    setRevenue(rev);setHandovers(ho);setEventsLog(ev);setInboxSeen(seen);setShiftClosed(sc);setCloseNotified(cn);setAcl(ac);setTaskOrder(tord);setMembers(mem);setSchedule(sch);if(evKV&&Object.keys(evKV).length)setEventsData(evKV);setGoList(gl);if(lr&&lr.length)setLeaveRequests(lr);
     // Восстанавливаем сессию по httpOnly cookie (серверная авторизация)
     const restoredAccount = await authMe();
     if(restoredAccount){setWho(restoredAccount);}else{setPicking(true);}
@@ -126,6 +127,7 @@ export default function App(){
   usePersist("schedule:v1",schedule,ready);
   usePersist("golist:v1",goList,ready);
   usePersist("events:v1",eventsData,ready);
+  usePersist("leave_requests:v1",leaveRequests,ready);
 
   const isManager=who==="manager"||who==="developer";
   const isDeveloper=who==="developer";
@@ -137,6 +139,12 @@ export default function App(){
 
   const logEvent=(type,detail)=>setEventsLog(prev=>[{id:uid(),ts:nowISO(),who:accountLabel(who),type,detail},...prev].slice(0,500));
   const onSetEvent=(date,label)=>setEventsData(prev=>label?{...prev,[date]:label}:Object.fromEntries(Object.entries(prev).filter(([d])=>d!==date)));
+  const onLeaveRequest=req=>setLeaveRequests(prev=>[...prev,{...req,id:uid(),ts:nowISO(),status:"pending",decidedBy:null,decidedAt:null}]);
+  const onLeaveDecide=(id,approved)=>{
+    const req=leaveRequests.find(r=>r.id===id);
+    setLeaveRequests(prev=>prev.map(r=>r.id===id?{...r,status:approved?"approved":"rejected",decidedBy:accountLabel(who),decidedAt:nowISO()}:r));
+    if(approved&&req)setStatusOverrides(prev=>[...prev.filter(x=>x.name!==req.name||x.from!==req.from),{name:req.name,status:req.type,from:req.from,until:req.until||req.from}]);
+  };
 
   const todayTasks=useMemo(()=>{
     if(!who)return[];
@@ -422,7 +430,10 @@ export default function App(){
         onAddOverride={isManager?o=>setStatusOverrides(prev=>[...prev.filter(x=>x.name!==o.name),o]):null} setCardModal={v=>setModal(v)} onToggle={toggle}
         onChangePassword={(newPwd,curPwd)=>changePassword(who,newPwd,curPwd)}
         onLogout={handleLogout}
-        adminPanel={isManager?<AdminTab auth={auth} members={members} ds={ds}/>:null}/>}
+        adminPanel={isManager?<AdminTab auth={auth} members={members} ds={ds}/>:null}
+        leaveRequests={leaveRequests}
+        onLeaveRequest={isManager?null:onLeaveRequest}
+        onLeaveDecide={isManager?onLeaveDecide:null}/>}
 
       {tab==="tasks"&&<TasksTab tasks={tasks} doneMap={doneToday} onToggle={toggle} onEdit={isManager?t=>setModal(t):null} onArchive={canAddTasks?archiveTask:null}/>}
         {tab==="schedule"&&<ScheduleTab schedule={schedule} events={events} revenue={revenue} ds={ds} members={members} onOpenDay={d=>setViewingDay(d)}/>}

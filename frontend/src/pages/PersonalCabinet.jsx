@@ -13,9 +13,11 @@ import { hmm, rangeDays, fmtDate } from '../utils/dateUtils.js';
 import { DueRow } from '../components/DueRow.jsx';
 import { LogsTab } from './LogsTab.jsx';
 
-export function PersonalCabinet({name,isOwnCabinet,tasks,history,schedule,cards,profiles,ds,now,statusOverrides,members,eventsLog,onIssueCard,onUpdateProfile,onAddOverride,setCardModal,onToggle,onChangePassword,onLogout,adminPanel}){
+export function PersonalCabinet({name,isOwnCabinet,tasks,history,schedule,cards,profiles,ds,now,statusOverrides,members,eventsLog,onIssueCard,onUpdateProfile,onAddOverride,setCardModal,onToggle,onChangePassword,onLogout,adminPanel,leaveRequests=[],onLeaveRequest,onLeaveDecide}){
   const isSpecialAccount=name==="manager"||name==="developer";
   const[subtab,setSubtab]=useState(isSpecialAccount?"settings":"overview");
+
+  const pendingLeaves=(leaveRequests||[]).filter(r=>r.status==="pending");
 
   if(isSpecialAccount)return(
     <>
@@ -30,17 +32,18 @@ export function PersonalCabinet({name,isOwnCabinet,tasks,history,schedule,cards,
           </div>
         </div>
         <div style={{display:"flex",gap:4,marginBottom:4}}>
-          {["settings",...(adminPanel?["admin"]:[])].map(s=>(
-            <button key={s} className={`tab${subtab===s?" on":""}`} onClick={()=>setSubtab(s)} style={{flex:1,textAlign:"center"}}>
-              {s==="settings"?"Настройки":"Администрирование"}
+          {["settings","leaves",...(adminPanel?["admin"]:[])].map(s=>(
+            <button key={s} className={`tab${subtab===s?" on":""}`} onClick={()=>setSubtab(s)} style={{flex:1,textAlign:"center",position:"relative"}}>
+              {s==="settings"?"Настройки":s==="leaves"?"Заявки":"Администрирование"}
+              {s==="leaves"&&pendingLeaves.length>0&&<span style={{position:"absolute",top:2,right:4,background:"var(--rs)",color:"#fff",fontSize:9,fontWeight:700,borderRadius:8,minWidth:14,height:14,display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"0 3px"}}>{pendingLeaves.length}</span>}
             </button>
           ))}
         </div>
       </div>
       {subtab==="settings"&&<div className="sec">
-        {(!onChangePassword)&&<div className="info-box" style={{marginBottom:12}}>Управление аккаунтом</div>}
         {isOwnCabinet&&onChangePassword&&<PasswordChanger onChange={onChangePassword}/>}
       </div>}
+      {subtab==="leaves"&&<LeaveManager requests={leaveRequests} onDecide={onLeaveDecide} ds={ds}/>}
       {subtab==="admin"&&adminPanel}
     </>
   );
@@ -68,7 +71,12 @@ export function PersonalCabinet({name,isOwnCabinet,tasks,history,schedule,cards,
         {activeCards.length>0&&<div style={{marginTop:10,display:"flex",gap:6}}>{activeCards.map(c=><span key={c.id} style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:10,background:c.type==="yellow"?"rgba(232,160,48,.2)":c.type==="orange"?"rgba(201,125,60,.2)":"rgba(158,63,43,.2)",color:c.type==="yellow"?"var(--am)":c.type==="orange"?"var(--cu)":"#e07a60"}}>{c.type==="yellow"?"🟡":c.type==="orange"?"🟠":"🔴"} Карточка</span>)}</div>}
       </div>
       <div style={{display:"flex",gap:4,marginBottom:4}}>
-        {["overview","tasks","stats","recs","cards",...(isOwnCabinet?["log"]:[])].map(s=><button key={s} className={`tab${subtab===s?" on":""}`} onClick={()=>setSubtab(s)} style={{flex:1,textAlign:"center"}}>{s==="overview"?"Обзор":s==="tasks"?"Задачи":s==="stats"?"Цифры":s==="recs"?"Советы":s==="cards"?"Карточки":"Журнал"}</button>)}
+        {["overview","tasks","stats","recs","cards",...(isOwnCabinet?["log","leave"]:[])].map(s=>{
+          const myPendingLeaves=isOwnCabinet&&s==="leave"?(leaveRequests||[]).filter(r=>r.name===name&&r.status==="pending").length:0;
+          return(<button key={s} className={`tab${subtab===s?" on":""}`} onClick={()=>setSubtab(s)} style={{flex:1,textAlign:"center",position:"relative"}}>
+            {s==="overview"?"Обзор":s==="tasks"?"Задачи":s==="stats"?"Цифры":s==="recs"?"Советы":s==="cards"?"Карты":s==="log"?"Журнал":"Отпуск"}
+            {myPendingLeaves>0&&<span style={{position:"absolute",top:2,right:4,background:"var(--am)",color:"#fff",fontSize:9,fontWeight:700,borderRadius:8,minWidth:14,height:14,display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"0 3px"}}>{myPendingLeaves}</span>}
+          </button>);})}
       </div>
     </div>
     {subtab==="overview"&&<div className="sec">
@@ -116,6 +124,7 @@ export function PersonalCabinet({name,isOwnCabinet,tasks,history,schedule,cards,
         {c.comment&&<div className="dc-comment">{c.comment}</div>}{c.isPrivate&&<div style={{fontSize:11,color:"var(--mt)",marginTop:4,display:"flex",alignItems:"center",gap:3}}><Lock size={11}/>Конфиденциально</div>}</div>)}
     </div>}
     {subtab==="log"&&<LogsTab tasks={tasks} history={history} members={members||[name]} who={name} isManager={false} ds={ds} eventsLog={eventsLog||[]}/>}
+    {subtab==="leave"&&<LeaveSection name={name} isOwnCabinet={isOwnCabinet} requests={(leaveRequests||[]).filter(r=>r.name===name)} onRequest={onLeaveRequest} ds={ds}/>}
   </>);
 }
 
@@ -139,5 +148,128 @@ function PasswordChanger({onChange}){
     <div className="field" style={{marginBottom:8}}><input type="password" value={v2} onChange={e=>{setV2(e.target.value);setMsg("");}} placeholder="Повторите пароль"/></div>
     {msg&&<div style={{fontSize:12,color:msg.includes("✓")?"#8bc47a":"#e07a60",marginBottom:8}}>{msg}</div>}
     <button className="btn btn-p" onClick={submit} disabled={loading}><Key size={15}/>{loading?"Сохранение…":"Обновить пароль"}</button>
+  </div>);
+}
+
+// --- Заявки на отгул/отпуск (сотрудник) ---
+const LEAVE_TYPES=[
+  {id:"vacation",  label:"Отпуск",       emoji:"🏖️"},
+  {id:"sick",      label:"Больничный",   emoji:"🤒"},
+  {id:"business_trip", label:"Командировка", emoji:"✈️"},
+  {id:"day_off",   label:"Отгул",        emoji:"💤"},
+];
+const LEAVE_STATUS={
+  pending:  {label:"На рассмотрении", color:"var(--am)"},
+  approved: {label:"Одобрено",        color:"#8bc47a"},
+  rejected: {label:"Отклонено",       color:"#e07a60"},
+};
+
+function LeaveSection({name,isOwnCabinet,requests,onRequest,ds}){
+  const[showForm,setShowForm]=useState(false);
+  const[type,setType]=useState(null);
+  const[from,setFrom]=useState(ds);
+  const[until,setUntil]=useState(ds);
+  const[comment,setComment]=useState("");
+
+  const submit=()=>{
+    if(!type||!from) return;
+    onRequest&&onRequest({name,type:type.id,from,until,comment});
+    setShowForm(false);setType(null);setComment("");
+  };
+
+  const sorted=[...requests].sort((a,b)=>b.ts.localeCompare(a.ts));
+
+  return(<div className="sec">
+    {isOwnCabinet&&onRequest&&!showForm&&(
+      <button className="btn btn-p" style={{marginBottom:12}} onClick={()=>setShowForm(true)}>
+        <Plus size={15}/>Подать заявку
+      </button>
+    )}
+    {showForm&&(
+      <div style={{background:"var(--sf)",border:"1px solid var(--bd)",borderRadius:12,padding:14,marginBottom:12}}>
+        <div className="sec-lbl" style={{marginBottom:8}}>Тип</div>
+        <div className="chip-row" style={{marginBottom:12}}>
+          {LEAVE_TYPES.map(t=><button key={t.id} className={`chip${type?.id===t.id?" on":""}`} onClick={()=>setType(t)}>{t.emoji} {t.label}</button>)}
+        </div>
+        <div style={{display:"flex",gap:8,marginBottom:12}}>
+          <div style={{flex:1}}>
+            <div className="sec-lbl" style={{marginBottom:4}}>С</div>
+            <input type="date" value={from} onChange={e=>setFrom(e.target.value)}
+              style={{width:"100%",padding:"7px 8px",borderRadius:8,border:"1px solid var(--bd)",background:"var(--bg)",color:"var(--pp)",fontFamily:"inherit",fontSize:13,boxSizing:"border-box"}}/>
+          </div>
+          <div style={{flex:1}}>
+            <div className="sec-lbl" style={{marginBottom:4}}>По</div>
+            <input type="date" value={until} onChange={e=>setUntil(e.target.value)}
+              style={{width:"100%",padding:"7px 8px",borderRadius:8,border:"1px solid var(--bd)",background:"var(--bg)",color:"var(--pp)",fontFamily:"inherit",fontSize:13,boxSizing:"border-box"}}/>
+          </div>
+        </div>
+        <div className="field" style={{marginBottom:10}}>
+          <input value={comment} onChange={e=>setComment(e.target.value)} placeholder="Комментарий (необязательно)"/>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <button className="btn btn-p" onClick={submit} style={{flex:2}} disabled={!type}>Отправить</button>
+          <button className="btn btn-g" onClick={()=>setShowForm(false)} style={{flex:1}}>Отмена</button>
+        </div>
+      </div>
+    )}
+    {sorted.length===0&&<div className="empty">Заявок нет</div>}
+    {sorted.map(r=>{
+      const lt=LEAVE_TYPES.find(t=>t.id===r.type)||{emoji:"📋",label:r.type};
+      const st=LEAVE_STATUS[r.status]||LEAVE_STATUS.pending;
+      return(<div key={r.id} style={{background:"var(--sf)",border:"1px solid var(--bd)",borderRadius:10,padding:"10px 12px",marginBottom:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+          <span style={{fontSize:18}}>{lt.emoji}</span>
+          <span style={{fontWeight:600,fontSize:14,flex:1}}>{lt.label}</span>
+          <span style={{fontSize:11,fontWeight:700,color:st.color}}>{st.label}</span>
+        </div>
+        <div style={{fontSize:12,color:"var(--mt)"}}>
+          {r.from}{r.until&&r.until!==r.from?` — ${r.until}`:""}
+          {r.comment&&<span style={{marginLeft:8}}>· {r.comment}</span>}
+        </div>
+        {r.decidedBy&&<div style={{fontSize:11,color:"var(--mt)",marginTop:3}}>Решил: {r.decidedBy}</div>}
+      </div>);
+    })}
+  </div>);
+}
+
+// --- Список заявок для менеджера ---
+function LeaveManager({requests,onDecide,ds}){
+  const pending=requests.filter(r=>r.status==="pending").sort((a,b)=>a.from.localeCompare(b.from));
+  const decided=requests.filter(r=>r.status!=="pending").sort((a,b)=>b.ts.localeCompare(a.ts));
+  if(requests.length===0) return <div className="sec"><div className="empty">Заявок нет</div></div>;
+  return(<div className="sec">
+    {pending.length>0&&<>
+      <div className="sec-lbl" style={{marginBottom:10}}>На рассмотрении ({pending.length})</div>
+      {pending.map(r=>{
+        const lt=LEAVE_TYPES.find(t=>t.id===r.type)||{emoji:"📋",label:r.type};
+        return(<div key={r.id} style={{background:"var(--sf)",border:"1px solid var(--am)",borderRadius:10,padding:"10px 12px",marginBottom:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+            <span style={{fontSize:18}}>{lt.emoji}</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontWeight:600,fontSize:14}}>{r.name} · {lt.label}</div>
+              <div style={{fontSize:12,color:"var(--mt)"}}>{r.from}{r.until&&r.until!==r.from?` — ${r.until}`:""}{r.comment&&` · ${r.comment}`}</div>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            <button className="btn btn-p" onClick={()=>onDecide&&onDecide(r.id,true)} style={{flex:1,padding:"8px"}}>✓ Одобрить</button>
+            <button className="btn btn-d" onClick={()=>onDecide&&onDecide(r.id,false)} style={{flex:1,padding:"8px"}}>✗ Отклонить</button>
+          </div>
+        </div>);
+      })}
+    </>}
+    {decided.length>0&&<>
+      <div className="sec-lbl" style={{marginBottom:10,marginTop:decided.length?12:0,opacity:.7}}>Рассмотренные</div>
+      {decided.slice(0,10).map(r=>{
+        const lt=LEAVE_TYPES.find(t=>t.id===r.type)||{emoji:"📋",label:r.type};
+        const st=LEAVE_STATUS[r.status];
+        return(<div key={r.id} style={{background:"var(--sf)",border:"1px solid var(--bd)",borderRadius:10,padding:"9px 12px",marginBottom:6,opacity:.7}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span>{lt.emoji}</span>
+            <div style={{flex:1,fontSize:13}}>{r.name} · {lt.label} · {r.from}{r.until&&r.until!==r.from?` — ${r.until}`:""}</div>
+            <span style={{fontSize:11,fontWeight:700,color:st?.color}}>{st?.label}</span>
+          </div>
+        </div>);
+      })}
+    </>}
   </div>);
 }
