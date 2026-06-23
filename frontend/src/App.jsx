@@ -82,6 +82,8 @@ export default function App(){
   },[themePref]);
   function cycleTheme(){setThemePref(p=>p==="auto"?"light":p==="light"?"dark":"auto");}
   useEffect(()=>{let on=true;const tick=async()=>{const ok=await pingServer();if(on)setServerOk(ok);};tick();const id=setInterval(tick,15000);return()=>{on=false;clearInterval(id);};},[]);
+  // Сохраняем порядок вкладок в localStorage (хук здесь — до early returns)
+  useEffect(()=>{localStorage.setItem('rab:nav_tab_order',JSON.stringify(navTabOrder));},[navTabOrder]);
   useEffect(()=>{(async()=>{
     const[t,hist,profs,cds,so,rev,ho,ev,savedWho,seen,sc,cn,au,ac,tord,mem,sch,gl]=await Promise.all([
       ld("tasks:v4",defaultTasks()),ld("done:hist:v2",{}),ld("profiles:v1",DEFAULT_PROFILES),
@@ -339,7 +341,6 @@ export default function App(){
     ...(canTeam||canStats?[{id:"team",label:"Команда"}]:[]),
     {id:"admin",label:"Админка",hidden:true},
   ];
-  useEffect(()=>{localStorage.setItem('rab:nav_tab_order',JSON.stringify(navTabOrder));},[navTabOrder]);
   const visibleTabs=tabs.filter(t=>!t.hidden);
   const orderedTabs=navTabOrder.length
     ?[...visibleTabs].sort((a,b)=>{const ai=navTabOrder.indexOf(a.id),bi=navTabOrder.indexOf(b.id);return(ai<0?99:ai)-(bi<0?99:bi);})
