@@ -1,5 +1,6 @@
 // Вкладка «Сегодня» — прогресс, выручка, гоу-лист, состав смены, задачи дня
-import { CheckCircle, Bell, Send, AlertTriangle, FileText } from 'lucide-react';
+import { useState } from 'react';
+import { CheckCircle, Bell, Send, AlertTriangle, FileText, ChevronDown, ChevronUp } from 'lucide-react';
 import { Avatar } from '../components/Avatar.jsx';
 import { SHIFT_STATUSES } from '../constants/shifts.js';
 import { staffCheck, getShiftStatus } from '../utils/staffUtils.js';
@@ -11,6 +12,7 @@ import { DraggableTaskList } from '../components/DraggableTaskList.jsx';
 import { DoneAccordion } from '../components/DoneAccordion.jsx';
 
 export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,todayShifts,myStatus,myAssigned,schedule,events,statusOverrides,now,revenue,handovers,dayClosed,dayRegularCount,irregular,irregularDoneMap,pushGateOk,onSummary,taskOrder,onReorder,onDelete,onArchive,goList,onGoAdd,onGoToggle,onGoRemove,onToggle,onEdit,onViewEmployee,onHandover,onIikoLoad}){
+  const [shiftOpen, setShiftOpen] = useState(true);
   const check=staffCheck(ds,schedule,events);
   const todayHandovers=handovers[ds]||[];
   const regularTasks=todayTasks.filter(t=>t.kind!=="irregular");
@@ -48,38 +50,55 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
       {todayHandovers.map(h=><div className="handover" key={h.id}>{h.text}<div className="handover-by">— {h.by}, {fmtDate(h.ts.slice(0,10))}</div></div>)}
     </div>}
 
-    <div className="sec">
-      <div className="sec-head" style={{marginBottom:10}}>
-        <span className="sec-lbl">👥 Смена сегодня</span>
-        <span className="sec-cnt">{todayShifts.filter(s=>!s.guest).length} / {check.norm.count} норма</span>
+    <div className="sec" style={{paddingBottom:shiftOpen?undefined:4}}>
+      {/* Шапка блока — клик сворачивает/разворачивает */}
+      <div onClick={()=>setShiftOpen(o=>!o)}
+        style={{display:'flex',alignItems:'center',justifyContent:'space-between',
+          cursor:'pointer',marginBottom:shiftOpen?10:0,userSelect:'none'}}>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          {/* Превью аватаров когда свёрнуто */}
+          {!shiftOpen&&todayShifts.filter(s=>!s.guest).slice(0,4).map((s,i)=>(
+            <Avatar key={i} name={s.name} size={24} style={{marginLeft:i>0?-8:0,
+              boxShadow:'0 0 0 2px var(--bg)',zIndex:4-i}}/>
+          ))}
+          {!shiftOpen&&<span style={{fontSize:12,color:'var(--mt)',marginLeft:4}}>
+            {todayShifts.filter(s=>!s.guest).map(s=>s.name.split(' ')[0]).join(', ')}
+          </span>}
+        </div>
+        {shiftOpen
+          ? <ChevronUp size={15} style={{color:'var(--mt)',flexShrink:0}}/>
+          : <ChevronDown size={15} style={{color:'var(--mt)',flexShrink:0}}/>}
       </div>
-      {!check.ok&&<div className="alert danger" style={{marginBottom:8}}><AlertTriangle size={16} style={{flexShrink:0}}/><span>{check.msg}</span></div>}
-      {check.ok&&check.msg&&<div className="alert warn" style={{marginBottom:8}}><AlertTriangle size={16} style={{flexShrink:0}}/><span>{check.msg}</span></div>}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-        {todayShifts.filter(s=>!s.guest).map((s,i)=>{
-          const ss=SHIFT_STATUSES[getShiftStatus(s.name,ds,schedule,statusOverrides,now)];
-          return(
-            <div key={i} onClick={()=>onViewEmployee&&onViewEmployee(s.name)}
-              style={{background:"var(--sf)",border:`1px solid ${ss?.bg||"var(--bd)"}`,borderRadius:12,
-                padding:"11px",cursor:onViewEmployee?"pointer":"default",display:"flex",flexDirection:"column",gap:8}}>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <Avatar name={s.name} size={36}/>
-                <div style={{minWidth:0,flex:1}}>
-                  <div style={{fontWeight:600,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
-                  <span style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:6,
-                    background:ss?.bg,color:ss?.color,display:"inline-block",marginTop:2,letterSpacing:".04em"}}>{ss?.label}</span>
+
+      {shiftOpen&&<>
+        {!check.ok&&<div className="alert danger" style={{marginBottom:8}}><AlertTriangle size={16} style={{flexShrink:0}}/><span>{check.msg}</span></div>}
+        {check.ok&&check.msg&&<div className="alert warn" style={{marginBottom:8}}><AlertTriangle size={16} style={{flexShrink:0}}/><span>{check.msg}</span></div>}
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+          {todayShifts.filter(s=>!s.guest).map((s,i)=>{
+            const ss=SHIFT_STATUSES[getShiftStatus(s.name,ds,schedule,statusOverrides,now)];
+            return(
+              <div key={i} onClick={()=>onViewEmployee&&onViewEmployee(s.name)}
+                style={{background:'var(--sf)',border:`1px solid ${ss?.bg||'var(--bd)'}`,borderRadius:12,
+                  padding:'11px',cursor:onViewEmployee?'pointer':'default',display:'flex',flexDirection:'column',gap:8}}>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <Avatar name={s.name} size={36}/>
+                  <div style={{minWidth:0,flex:1}}>
+                    <div style={{fontWeight:600,fontSize:13,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.name}</div>
+                    <span style={{fontSize:9,fontWeight:700,padding:'2px 6px',borderRadius:6,
+                      background:ss?.bg,color:ss?.color,display:'inline-block',marginTop:2,letterSpacing:'.04em'}}>{ss?.label}</span>
+                  </div>
                 </div>
+                {s.start&&<div className="mono" style={{fontSize:11,color:'var(--mt)',display:'flex',alignItems:'center',gap:4}}>
+                  {s.start}{s.end?` · ${s.end}ч`:''}
+                  {s.report&&<span style={{color:'var(--am)',fontWeight:700}}>★</span>}
+                </div>}
               </div>
-              {s.start&&<div className="mono" style={{fontSize:11,color:"var(--mt)",display:"flex",alignItems:"center",gap:4}}>
-                {s.start}{s.end?` · ${s.end}ч`:""}
-                {s.report&&<span style={{color:"var(--am)",fontWeight:700}}>★</span>}
-              </div>}
-            </div>
-          );
-        })}
-      </div>
-      {todayShifts.filter(s=>!s.guest).length===0&&<div className="empty">Никто не запланирован на смену</div>}
-      {!isManager&&myStatus==="day_off"&&<div className="empty" style={{padding:"4px 0"}}>Выходной 🍺</div>}
+            );
+          })}
+        </div>
+        {todayShifts.filter(s=>!s.guest).length===0&&<div className="empty">Никто не запланирован на смену</div>}
+        {!isManager&&myStatus==='day_off'&&<div className="empty" style={{padding:'4px 0'}}>Выходной 🍺</div>}
+      </>}
     </div>
 
     <div className="sec">
