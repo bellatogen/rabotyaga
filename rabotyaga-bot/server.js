@@ -1,27 +1,59 @@
 require('dotenv').config();
-const express = require('express');
+const express    = require('express');
 const { Telegraf } = require('telegraf');
-const cors = require('cors');
-const fs = require('fs');
-const path = require('path');
+const cors       = require('cors');
+const helmet     = require('helmet');
+const cookieParser = require('cookie-parser');
+const rateLimit  = require('express-rate-limit');
+const fs         = require('fs');
+const path       = require('path');
+const bcrypt     = require('bcrypt');
 
-const pushApi = require('./src/api/push');
-const pushSender = require('./src/push/sender');
+const pushApi       = require('./src/api/push');
+const pushSender    = require('./src/push/sender');
 const pushScheduler = require('./src/push/scheduler');
-const makeAdminApi = require('./src/api/admin');
-const iiko = require('./src/api/iiko');
+const makeAdminApi  = require('./src/api/admin');
+const makeAuthApi   = require('./src/api/auth');
+const iiko          = require('./src/api/iiko');
 const { syncSchedule } = require('./src/sync/scheduleSync');
+const { requireAuth, requireManager } = require('./src/middleware/auth');
 
-// ── Конфиг из окружения (без хардкодов) ──
-const PORT = process.env.PORT || 3001;
-const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'data.json');
+// ── Конфиг ──
+const PORT          = process.env.PORT     || 3001;
+const DATA_FILE     = process.env.DATA_FILE     || path.join(__dirname, 'data.json');
 const FRONTEND_DIST = process.env.FRONTEND_DIST || path.join(__dirname, 'frontend', 'dist');
+const BCRYPT_ROUNDS = 10;
+
+// ── KV-ключи, которые НИКОГДА не должны уходить на клиент ──
+const KV_BLACKLIST = new Set(['auth:v1']);
 
 const app = express();
-app.use(cors({ origin: ['https://rabotyaga55.ru', 'http://localhost:5173', /\.timeweb\.cloud$/], credentials: true }));
-app.use(express.json());
-// index.html — без кеша (браузер всегда запрашивает свежий),
-// ассеты — долгий кеш (Vite добавляет контент-хеш в имя файла)
+
+// ── Security headers ──
+app.use(helmet({
+  contentSecurityPolicy: false, // CSP настраивается отдельно под Mini App
+  crossOriginEmbedderPolicy: false,
+}));
+
+// ── CORS: только доверенные origins ──
+const ALLOWED_ORIGINS = [
+  'https://rabotyaga55.ru',
+  'http://localhost:5173',
+  'http://localhost:3001',
+];
+app.use(cors({
+  origin(origin, cb) {
+    // Разрешаем запросы без origin (curl, мобильный Telegram WebView)
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    cb(new Error(`CORS: origin ${origin} не разрешён`));
+  },
+  credentials: true,
+}));
+
+app.use(cookieParser());
+app.use(express.json({ limit: '2mb' }));
+
+// ── Статика фронтенда ──
 app.use(express.static(FRONTEND_DIST, {
   setHeaders(res, filePath) {
     if (filePath.endsWith('.html')) {
@@ -33,61 +65,70 @@ app.use(express.static(FRONTEND_DIST, {
     }
   },
 }));
+
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 app.use('/api/push', pushApi);
-// adminApi монтируется после инициализации data — передаём ссылку и saveData
-// чтобы роутер работал с тем же in-memory объектом (устраняет race condition)
 
-const TOKEN = process.env.TELEGRAM_TOKEN;
-const WEBAPP_URL = process.env.WEBAPP_URL || 'https://rabotyaga.ru';
-
-if (!TOKEN) {
-  console.error('❌ Ошибка: не задан TELEGRAM_TOKEN в файле .env');
-  process.exit(1);
-}
-
+// ── Telegram Bot ──
+const TOKEN    = process.env.TELEGRAM_TOKEN;
+const WEBAPP_URL = process.env.WEBAPP_URL || 'https://rabotyaga55.ru';
+if (!TOKEN) { console.error('❌ Не задан TELEGRAM_TOKEN в .env'); process.exit(1); }
 const bot = new Telegraf(TOKEN);
 
+// ── In-memory хранилище ──
 let data = { kv: {}, bindings: {}, pushSettings: {}, adminUsers: [] };
 if (fs.existsSync(DATA_FILE)) {
   try {
     const loaded = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-    data.kv = loaded.kv || {};
-    data.bindings = loaded.bindings || {};
-    data.pushSettings = loaded.pushSettings || {};
-    data.adminUsers = loaded.adminUsers || [];
-    console.log(`📂 Загружено ${Object.keys(data.kv).length} kv-ключей, ${Object.keys(data.bindings).length} привязок, ${Object.keys(data.pushSettings).length} настроек пушей`);
-  } catch (e) {
-    console.error('Ошибка чтения data.json:', e);
-  }
+    data.kv           = loaded.kv           || {};
+    data.bindings      = loaded.bindings      || {};
+    data.pushSettings  = loaded.pushSettings  || {};
+    data.adminUsers    = loaded.adminUsers    || [];
+    console.log(`📂 Загружено ${Object.keys(data.kv).length} kv-ключей, ${Object.keys(data.bindings).length} привязок`);
+  } catch (e) { console.error('Ошибка чтения data.json:', e); }
 }
 
 let saveTimer = null;
 function saveData() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    try {
-      fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-    } catch (e) {
-      console.error('Ошибка записи data.json:', e);
-    }
+    try { fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2)); }
+    catch (e) { console.error('Ошибка записи data.json:', e); }
   }, 300);
 }
 
-// Монтируем admin-роутер здесь, после инициализации data и saveData
-app.use('/api/admin', makeAdminApi(data, saveData));
+// ── Авто-миграция plaintext паролей → bcrypt при старте ──
+(async () => {
+  try {
+    const auth = JSON.parse(data.kv['auth:v1'] || '{}');
+    let migrated = 0;
+    for (const [account, pwd] of Object.entries(auth)) {
+      if (typeof pwd === 'string' && !pwd.startsWith('$2b$') && !pwd.startsWith('$2a$')) {
+        auth[account] = await bcrypt.hash(pwd, BCRYPT_ROUNDS);
+        migrated++;
+      }
+    }
+    if (migrated > 0) {
+      data.kv['auth:v1'] = JSON.stringify(auth);
+      saveData();
+      console.log(`[auth] мигрировано паролей plaintext→bcrypt: ${migrated}`);
+    }
+  } catch (e) { console.error('[auth] ошибка миграции паролей:', e.message); }
+})();
 
-// ── Синхронизация расписания из Google Sheets ──
-// POST /api/sync/schedule — ручной запуск (админка)
-// GET  /api/sync/schedule/status — статус последней синхронизации
-app.get('/api/sync/schedule/status', (req, res) => {
+// ── Монтируем роутеры (требующие data) ──
+app.use('/api/auth',  makeAuthApi(data, saveData));
+app.use('/api/admin', requireManager, makeAdminApi(data, saveData));
+
+// ── Синхронизация расписания — только авторизованные ──
+app.get('/api/sync/schedule/status', requireAuth, (req, res) => {
   try {
     const status = JSON.parse(data.kv['sync:schedule:status'] || 'null');
     res.json(status || { lastRun: null, daysUpdated: 0, error: null });
   } catch { res.json({ lastRun: null, daysUpdated: 0, error: null }); }
 });
 
-app.post('/api/sync/schedule', async (req, res) => {
+app.post('/api/sync/schedule', requireManager, async (req, res) => {
   try {
     const result = await syncSchedule(data, saveData);
     res.json(result);
@@ -106,10 +147,10 @@ setTimeout(() => {
   setInterval(() => {
     syncSchedule(data, saveData).catch(e => console.error('[scheduleSync] interval error:', e.message));
   }, 12 * 60 * 60 * 1000);
-}, 10000); // 10 сек после старта
+}, 10000);
 
-// ── iiko: синхронизация выручки за текущий месяц ──
-app.post('/api/iiko/revenue/sync', async (req, res) => {
+// ── iiko — только авторизованные ──
+app.post('/api/iiko/revenue/sync', requireAuth, async (req, res) => {
   try {
     const result = await iiko.syncRevenue(data, saveData);
     res.json(result);
@@ -119,33 +160,82 @@ app.post('/api/iiko/revenue/sync', async (req, res) => {
   }
 });
 
-// ── iiko: факт выручки за день ──
-// GET /api/iiko/revenue/:date  →  { fact: number }
-// Требует IIKO_URL, IIKO_LOGIN, IIKO_PASSWORD в .env
-app.get('/api/iiko/revenue/:date', async (req, res) => {
+app.get('/api/iiko/revenue/:date', requireAuth, async (req, res) => {
   const { date } = req.params;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Неверный формат даты (ожидается YYYY-MM-DD)' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Неверный формат даты (YYYY-MM-DD)' });
   try {
     const result = await iiko.getDayRevenue(date);
     res.json(result);
   } catch (err) {
-    const status = err.status || 500;
-    console.error('[iiko] ошибка:', err.message);
-    res.status(status).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
+// ── KV: GET — защита чёрного списка ──
+app.get('/api/kv/:key', requireAuth, (req, res) => {
+  const key = req.params.key;
+  if (KV_BLACKLIST.has(key)) {
+    return res.status(403).json({ error: 'Этот ключ защищён' });
+  }
+  res.json({ value: data.kv[key] ?? null });
+});
+
+// ── KV: PUT — защита чёрного списка + только авторизованные ──
+app.put('/api/kv/:key', requireAuth, (req, res) => {
+  const key = req.params.key;
+  if (KV_BLACKLIST.has(key)) {
+    return res.status(403).json({ error: 'Запись в этот ключ запрещена' });
+  }
+  data.kv[key] = req.body.value;
+  saveData();
+  res.json({ ok: true });
+});
+
+// ── Health (открытый — нужен для пинга с фронта) ──
+app.get('/api/health', (req, res) => res.json({ ok: true, ts: Date.now() }));
+
+// ── Bind: привязка Telegram — только авторизованные ──
+app.post('/api/bind', requireAuth, (req, res) => {
+  const { name, telegramId } = req.body;
+  if (!name || !telegramId) return res.status(400).json({ error: 'name и telegramId обязательны' });
+  data.bindings[name] = telegramId;
+  saveData();
+  console.log(`✅ Привязан: ${name} -> ID ${telegramId}`);
+  bot.telegram.sendMessage(telegramId, `👋 Привет, ${name}! Ты подключён к «Работяге».`).catch(err => console.error('Ошибка отправки:', err));
+  res.json({ success: true });
+});
+
+app.delete('/api/bind/:name', requireManager, (req, res) => {
+  const { name } = req.params;
+  if (data.bindings[name]) {
+    delete data.bindings[name];
+    saveData();
+    return res.json({ success: true });
+  }
+  res.status(404).json({ error: 'Сотрудник не найден' });
+});
+
+app.get('/api/bindings', requireManager, (req, res) => {
+  res.json({ success: true, bindings: data.bindings });
+});
+
+// ── Test push — только manager ──
+app.get('/api/push/test/:name', requireManager, async (req, res) => {
+  const name = req.params.name;
+  const userId = data.bindings[name];
+  if (!userId) return res.json({ success: false, msg: 'Пользователь не найден' });
+  const ok = await pushSender.sendPush(bot, String(userId), '🔔 Тестовое уведомление! 🍻', 'test');
+  res.json(ok ? { success: true, msg: 'Пуш отправлен' } : { success: false, msg: 'Пуши отключены' });
+});
+
+// ── Telegram bot: команды ──
 function nameByTelegramId(id) {
   return Object.keys(data.bindings).find(name => data.bindings[name] === id) || null;
 }
-
 function sendToName(name, text) {
   const id = data.bindings[name];
   if (!id) return Promise.resolve(false);
-  return bot.telegram.sendMessage(id, text).then(() => true).catch(err => {
-    console.error('Ошибка отправки:', err);
-    return false;
-  });
+  return bot.telegram.sendMessage(id, text).then(() => true).catch(err => { console.error('Ошибка отправки:', err); return false; });
 }
 
 function isToday(task, ds) {
@@ -162,7 +252,7 @@ const isDone = v => v === true || (v && typeof v === 'object' && !!v.done);
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
 function todayTasksText(name) {
-  const tasks = JSON.parse(data.kv['tasks:v4'] || '[]');
+  const tasks   = JSON.parse(data.kv['tasks:v4']     || '[]');
   const history = JSON.parse(data.kv['done:hist:v2'] || '{}');
   const ds = todayStr();
   const reg = tasks.filter(t => !t.archived && isToday(t, ds));
@@ -174,162 +264,49 @@ function todayTasksText(name) {
   return `📋 Дела на сегодня${name ? ` (${name})` : ''}:\n\n${lines.join('\n')}`;
 }
 
-// === КОМАНДЫ ===
-bot.command('start', (ctx) => {
-  ctx.reply(
-    '🍺 «Работяга» на связи!\n\n' +
-    'Открыть приложение — синей кнопкой меню слева внизу.\n' +
-    'А здесь — быстрые действия:',
-    {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: '📋 Общие дела на сегодня', callback_data: 'today' }],
-          [{ text: '📋 Мои задачи на сегодня', callback_data: 'mytasks' }],
-          [{ text: '👤 Мой статус', callback_data: 'status' }],
-          [{ text: '🔔 Настройки пушей', callback_data: 'pushsettings' }]
-        ]
-      }
-    }
-  );
-});
-
-bot.command('today', (ctx) => {
-  ctx.reply(todayTasksText(null));
-});
-
-bot.command('mytasks', (ctx) => {
-  const name = nameByTelegramId(ctx.from.id);
-  if (!name) return ctx.reply('❌ Ты не привязан к системе. Обратись к администратору.');
-  ctx.reply(todayTasksText(name));
-});
-
-bot.command('startpush', async (ctx) => {
-  const userId = String(ctx.from.id);
-  const chatId = String(ctx.chat.id);
-  pushSender.updatePushSettings(userId, {
-    enabled: true, chatId,
-    notifications: { dayBeforeShift: true, personalTasks: true, closeShiftReminder: true, individualTasks: true }
+bot.command('start', ctx => {
+  ctx.reply('🍺 «Работяга» на связи!\n\nОткрыть приложение — синей кнопкой меню слева внизу.\nА здесь — быстрые действия:', {
+    reply_markup: { inline_keyboard: [
+      [{ text: '📋 Общие дела на сегодня', callback_data: 'today' }],
+      [{ text: '📋 Мои задачи на сегодня', callback_data: 'mytasks' }],
+      [{ text: '👤 Мой статус', callback_data: 'status' }],
+      [{ text: '🔔 Настройки пушей', callback_data: 'pushsettings' }],
+    ]},
   });
+});
+bot.command('today',    ctx => ctx.reply(todayTasksText(null)));
+bot.command('mytasks',  ctx => { const name = nameByTelegramId(ctx.from.id); if (!name) return ctx.reply('❌ Ты не привязан к системе.'); ctx.reply(todayTasksText(name)); });
+bot.command('startpush', async ctx => {
+  const userId = String(ctx.from.id), chatId = String(ctx.chat.id);
+  pushSender.updatePushSettings(userId, { enabled: true, chatId, notifications: { dayBeforeShift: true, personalTasks: true, closeShiftReminder: true, individualTasks: true } });
   await ctx.reply('✅ Пуши включены! /pushsettings — настройки');
 });
-
-bot.command('stoppush', async (ctx) => {
-  const userId = String(ctx.from.id);
-  pushSender.updatePushSettings(userId, { enabled: false });
-  await ctx.reply('❌ Пуши отключены');
-});
-
-bot.command('pushsettings', async (ctx) => {
-  const userId = String(ctx.from.id);
-  const settings = pushSender.getPushSettings(userId);
+bot.command('stoppush', async ctx => { pushSender.updatePushSettings(String(ctx.from.id), { enabled: false }); await ctx.reply('❌ Пуши отключены'); });
+bot.command('pushsettings', async ctx => {
+  const settings = pushSender.getPushSettings(String(ctx.from.id));
   if (!settings) return ctx.reply('🔔 Настройки не найдены. Используй /startpush');
-  const text = `📱 Настройки пушей:\n\nВключены: ${settings.enabled ? '✅' : '❌'}\n\n🔔 Уведомления:\n• За сутки до смены: ${settings.notifications?.dayBeforeShift ? '✅' : '❌'}\n• Личные задачи: ${settings.notifications?.personalTasks ? '✅' : '❌'}\n• Закрытие смены: ${settings.notifications?.closeShiftReminder ? '✅' : '❌'}\n• Индивидуальные: ${settings.notifications?.individualTasks ? '✅' : '❌'}`;
-  await ctx.reply(text);
+  await ctx.reply(`📱 Пуши: ${settings.enabled ? '✅' : '❌'}\n• За сутки до смены: ${settings.notifications?.dayBeforeShift ? '✅' : '❌'}\n• Личные задачи: ${settings.notifications?.personalTasks ? '✅' : '❌'}\n• Закрытие смены: ${settings.notifications?.closeShiftReminder ? '✅' : '❌'}\n• Индивидуальные: ${settings.notifications?.individualTasks ? '✅' : '❌'}`);
 });
-
-bot.command('toggle_daybefore', async (ctx) => {
-  const userId = String(ctx.from.id);
-  const settings = pushSender.getPushSettings(userId);
-  if (!settings) return ctx.reply('Сначала /startpush');
-  const newVal = !settings.notifications?.dayBeforeShift;
-  pushSender.updatePushSettings(userId, { notifications: { ...settings.notifications, dayBeforeShift: newVal } });
-  await ctx.reply(`За сутки до смены: ${newVal ? '✅' : '❌'}`);
+['toggle_daybefore','toggle_personal','toggle_closeshift','toggle_individual'].forEach(cmd => {
+  const key = { toggle_daybefore:'dayBeforeShift', toggle_personal:'personalTasks', toggle_closeshift:'closeShiftReminder', toggle_individual:'individualTasks' }[cmd];
+  bot.command(cmd, async ctx => {
+    const s = pushSender.getPushSettings(String(ctx.from.id));
+    if (!s) return ctx.reply('Сначала /startpush');
+    const val = !s.notifications?.[key];
+    pushSender.updatePushSettings(String(ctx.from.id), { notifications: { ...s.notifications, [key]: val } });
+    await ctx.reply(`${key}: ${val ? '✅' : '❌'}`);
+  });
 });
-
-bot.command('toggle_personal', async (ctx) => {
-  const userId = String(ctx.from.id);
-  const settings = pushSender.getPushSettings(userId);
-  if (!settings) return ctx.reply('Сначала /startpush');
-  const newVal = !settings.notifications?.personalTasks;
-  pushSender.updatePushSettings(userId, { notifications: { ...settings.notifications, personalTasks: newVal } });
-  await ctx.reply(`Личные задачи: ${newVal ? '✅' : '❌'}`);
-});
-
-bot.command('toggle_closeshift', async (ctx) => {
-  const userId = String(ctx.from.id);
-  const settings = pushSender.getPushSettings(userId);
-  if (!settings) return ctx.reply('Сначала /startpush');
-  const newVal = !settings.notifications?.closeShiftReminder;
-  pushSender.updatePushSettings(userId, { notifications: { ...settings.notifications, closeShiftReminder: newVal } });
-  await ctx.reply(`Закрытие смены: ${newVal ? '✅' : '❌'}`);
-});
-
-bot.command('toggle_individual', async (ctx) => {
-  const userId = String(ctx.from.id);
-  const settings = pushSender.getPushSettings(userId);
-  if (!settings) return ctx.reply('Сначала /startpush');
-  const newVal = !settings.notifications?.individualTasks;
-  pushSender.updatePushSettings(userId, { notifications: { ...settings.notifications, individualTasks: newVal } });
-  await ctx.reply(`Индивидуальные: ${newVal ? '✅' : '❌'}`);
-});
-
-bot.on('callback_query', (ctx) => {
-  const cdata = ctx.callbackQuery.data;
-  if (cdata === 'today') {
-    ctx.reply(todayTasksText(null));
-  } else if (cdata === 'mytasks') {
-    const name = nameByTelegramId(ctx.from.id);
-    if (!name) return ctx.reply('❌ Ты не привязан к системе.');
-    ctx.reply(todayTasksText(name));
-  } else if (cdata === 'status') {
-    ctx.reply('👤 Чтобы узнать свой статус, открой приложение и выбери своё имя.');
-  } else if (cdata === 'pushsettings') {
-    ctx.answerCbQuery();
-    return ctx.reply('Команды пушей:\n/startpush — включить\n/stoppush — выключить\n/pushsettings — настройки\n/toggle_daybefore\n/toggle_personal\n/toggle_closeshift\n/toggle_individual');
-  }
+bot.on('callback_query', ctx => {
+  const d = ctx.callbackQuery.data;
+  if (d === 'today')         ctx.reply(todayTasksText(null));
+  else if (d === 'mytasks')  { const name = nameByTelegramId(ctx.from.id); ctx.reply(name ? todayTasksText(name) : '❌ Ты не привязан.'); }
+  else if (d === 'status')   ctx.reply('👤 Статус — открой приложение.');
+  else if (d === 'pushsettings') ctx.reply('/startpush /stoppush /pushsettings');
   ctx.answerCbQuery();
 });
 
-// === API ===
-app.get('/api/kv/:key', (req, res) => {
-  res.json({ value: data.kv[req.params.key] ?? null });
-});
-
-app.put('/api/kv/:key', (req, res) => {
-  data.kv[req.params.key] = req.body.value;
-  saveData();
-  res.json({ ok: true });
-});
-
-app.get('/api/health', (req, res) => {
-  res.json({ ok: true, ts: Date.now() });
-});
-
-app.post('/api/bind', (req, res) => {
-  const { name, telegramId } = req.body;
-  if (!name || !telegramId) return res.status(400).json({ error: 'name и telegramId обязательны' });
-  data.bindings[name] = telegramId;
-  saveData();
-  console.log(`✅ Привязан: ${name} -> ID ${telegramId}`);
-  bot.telegram.sendMessage(telegramId, `👋 Привет, ${name}! Ты подключен к "Работяга".`).catch(err => console.error('Ошибка отправки:', err));
-  res.json({ success: true });
-});
-
-app.delete('/api/bind/:name', (req, res) => {
-  const { name } = req.params;
-  if (data.bindings[name]) {
-    delete data.bindings[name];
-    saveData();
-    console.log(`❌ Удалена привязка: ${name}`);
-    return res.json({ success: true });
-  }
-  res.status(404).json({ error: 'Сотрудник не найден' });
-});
-
-app.get('/api/bindings', (req, res) => {
-  res.json({ success: true, bindings: data.bindings });
-});
-
-app.get("/api/push/test/:name", async (req, res) => {
-  const name = req.params.name;
-  const userId = data.bindings[name];
-  if (!userId) return res.json({ success: false, msg: "Пользователь не найден" });
-  const ok = await pushSender.sendPush(bot, String(userId), "🔔 Тестовое уведомление! 🍻", "test");
-  res.json(ok ? { success: true, msg: "Пуш отправлен" } : { success: false, msg: "Пуши отключены" });
-});
-
-// SPA-fallback: любой не-API GET отдаёт index.html (Mini App без роутера —
-// но это страхует прямые ссылки). Express 5: финальный middleware, не '*'.
+// ── SPA fallback ──
 app.use((req, res, next) => {
   if (req.method !== 'GET' || req.path.startsWith('/api') || req.path === '/admin') return next();
   const indexFile = path.join(FRONTEND_DIST, 'index.html');
@@ -340,26 +317,22 @@ app.use((req, res, next) => {
   next();
 });
 
-// === ЗАПУСК ===
-bot.launch().catch(err => {
-  // Бот упал (напр. 409 Conflict от Telegram) — логируем, но НЕ убиваем сервер.
-  // HTTP-сервер, API и фронтенд продолжают работать независимо от бота.
-  console.error('⚠️  Ошибка запуска бота (сервер продолжает работу):', err.message);
-});
+// ── Запуск ──
+bot.launch().catch(err => console.error('⚠️  Ошибка запуска бота (сервер продолжает работу):', err.message));
 pushScheduler.startScheduler(bot);
 
-// Запускаем HTTP-сервер и сохраняем ссылку для graceful shutdown
 const httpServer = app.listen(PORT, () => {
-  console.log(`🚀 Сервер Работяги запущен на порту ${PORT}`);
+  console.log(`🚀 Сервер запущен на порту ${PORT}`);
   console.log(`📁 Данные: ${DATA_FILE}`);
   console.log(`🖥  Фронтенд: ${FRONTEND_DIST}`);
   console.log(`🌐 Web App URL: ${WEBAPP_URL}`);
+  console.log(`🔒 JWT_SECRET: ${process.env.JWT_SECRET ? 'из .env ✅' : 'dev-ключ ⚠️'}`);
 });
 
 function shutdown(signal) {
   bot.stop(signal);
   httpServer.close(() => process.exit(0));
-  setTimeout(() => process.exit(0), 5000).unref(); // fallback если close завис
+  setTimeout(() => process.exit(0), 5000).unref();
 }
-process.once('SIGINT', () => shutdown('SIGINT'));
+process.once('SIGINT',  () => shutdown('SIGINT'));
 process.once('SIGTERM', () => shutdown('SIGTERM'));

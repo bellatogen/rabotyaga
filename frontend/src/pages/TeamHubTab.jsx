@@ -70,8 +70,8 @@ function TeamTab({profiles,members,statusOverrides,account,isDeveloper,auth,acl,
       <span>Управляющий может видеть пароли</span></label>}
     {!seePwd&&<div className="info-box" style={{fontSize:12}}>У тебя нет права видеть пароли. Это право выдаёт разработчик.</div>}
     {seePwd&&<>
-      <div className="info-box" style={{fontSize:12}}>Прототип: пароли показаны как есть (для раздачи команде). На сервере вместо просмотра будет «сброс» — пароли хранятся хешированными.</div>
-      {ACCOUNTS.map(a=><PwdRow key={a} account={a} pwd={auth[a]} onReset={()=>onResetPassword(a)}/>)}
+      <div className="info-box" style={{fontSize:12}}>Пароли хранятся bcrypt-хешами на сервере — просмотр невозможен. Можно только сбросить (сотрудник задаст новый при следующем входе).</div>
+      {ACCOUNTS.map(a=><PwdRow key={a} account={a} hasPassword={!!(auth&&auth[a])} onReset={()=>onResetPassword(a)}/>)}
     </>}
   </div>);
 }
@@ -126,14 +126,13 @@ function CardsTab({cards,members,setCardModal,onRevoke}){
   </div>);
 }
 
-function PwdRow({account,pwd,onReset}){
-  const[show,setShow]=useState(false);
+// PwdRow: пароли больше не передаются на клиент — только флаг hasPassword
+function PwdRow({account,hasPassword,onReset}){
   return(<div className="pr" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
     <div><div style={{fontWeight:600,fontSize:14}}>{accountLabel(account)}</div>
-      <div className="mono" style={{fontSize:13,color:pwd?"var(--am)":"var(--mt)",marginTop:3}}>{pwd?(show?pwd:"•".repeat(Math.min(pwd.length,8))):"пароль не задан"}</div></div>
+      <div className="mono" style={{fontSize:13,color:hasPassword?"var(--hp)":"var(--mt)",marginTop:3}}>{hasPassword?"🔒 пароль задан":"⚪ пароль не задан"}</div></div>
     <div style={{display:"flex",gap:6,alignItems:"center"}}>
-      {pwd&&<button onClick={()=>setShow(v=>!v)} style={{background:"transparent",border:"none",color:"var(--mt)",cursor:"pointer"}}>{show?<EyeOff size={16}/>:<Eye size={16}/>}</button>}
-      {pwd&&<button onClick={onReset} style={{background:"transparent",border:"1px solid rgba(158,63,43,.35)",color:"#e07a60",borderRadius:6,padding:"4px 9px",fontSize:11,cursor:"pointer"}}>сбросить</button>}
+      {hasPassword&&<button onClick={onReset} style={{background:"transparent",border:"1px solid rgba(158,63,43,.35)",color:"#e07a60",borderRadius:6,padding:"4px 9px",fontSize:11,cursor:"pointer"}}>сбросить</button>}
     </div>
   </div>);
 }

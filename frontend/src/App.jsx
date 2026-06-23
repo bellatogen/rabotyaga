@@ -13,7 +13,7 @@ import { hasPerm, accountLabel } from './utils/authUtils.js';
 import { afterPushGate, getShiftStatus } from './utils/staffUtils.js';
 import { processCard } from './utils/cardUtils.js';
 import { applyTheme, THEME_KEY } from './utils/theme.js';
-import { ld, sv, pingServer, tgBind } from './services/api.js';
+  import { ld, sv, pingServer, tgBind, authLogin, authLogout, authMe, authHasPassword, authChangePassword, authResetPassword } from './services/api.js';
 import { usePersist } from './hooks/usePersist.js';
 import { Mascot } from './components/Mascot.jsx';
 import { TodayTab } from './pages/TodayTab.jsx';
@@ -46,7 +46,8 @@ export default function App(){
   const[inboxSeen,setInboxSeen]=useState({});
   const[shiftClosed,setShiftClosed]=useState({});
   const[closeNotified,setCloseNotified]=useState({});
-  const[auth,setAuth]=useState({});
+  const[auth,setAuth]=useState({}); // после миграции auth:v1 не грузится на клиент — только для совместимости TeamHub
+  const[authHasPasswordMap,setAuthHasPasswordMap]=useState({}); // кешируем hasPassword флаги
   const[taskOrder,setTaskOrder]=useState([]);
   const[members,setMembers]=useState(DEFAULT_MEMBERS);
   const[schedule,setSchedule]=useState(EMBEDDED_SCHEDULE);
@@ -87,14 +88,22 @@ export default function App(){
   // Сохраняем порядок вкладок в localStorage (хук здесь — до early returns)
   useEffect(()=>{localStorage.setItem('rab:nav_tab_order',JSON.stringify(navTabOrder));},[navTabOrder]);
   useEffect(()=>{(async()=>{
-    const[t,hist,profs,cds,so,rev,ho,ev,savedWho,seen,sc,cn,au,ac,tord,mem,sch,evKV,gl]=await Promise.all([
+  const _loaded=await Promise.all([
       ld("tasks:v4",defaultTasks()),ld("done:hist:v2",{}),ld("profiles:v1",DEFAULT_PROFILES),
       ld("cards:v1",[]),ld("status_overrides:v1",[]),ld("revenue:v1",{}),
-      ld("handovers:v1",{}),ld("events_log:v1",[]),ld("currentUser",null),ld("inbox_seen:v1",{}),ld("shift_closed:v1",{}),ld("close_notified:v1",{}),ld("auth:v1",{}),ld("acl:v1",{}),ld("task_order:v1",[]),ld("members:v1",DEFAULT_MEMBERS),ld("schedule:v1",EMBEDDED_SCHEDULE),ld("events:v1",EMBEDDED_EVENTS),ld("golist:v1",[]),
+      ld("handovers:v1",{}),ld("events_log:v1",[]),ld("inbox_seen:v1",{}),ld("shift_closed:v1",{}),ld("close_notified:v1",{}),ld("acl:v1",{}),ld("task_order:v1",[]),ld("members:v1",DEFAULT_MEMBERS),ld("schedule:v1",EMBEDDED_SCHEDULE),ld("events:v1",EMBEDDED_EVENTS),ld("golist:v1",[]),
     ]);
+    const[t,hist,profs,cds,so,rev,ho,ev,seen,sc,cn,ac,tord,mem,sch,evKV,gl]=_loaded;
     setTasks(mergeSeeds(t));setHistory(hist);setProfiles(profs);setCards(cds);setStatusOverrides(so);
-    setRevenue(rev);setHandovers(ho);setEventsLog(ev);setInboxSeen(seen);setShiftClosed(sc);setCloseNotified(cn);setAuth(au);setAcl(ac);setTaskOrder(tord);setMembers(mem);setSchedule(sch);if(evKV&&Object.keys(evKV).length)setEventsData(evKV);setGoList(gl);
-    if(savedWho)setWho(savedWho);else setPicking(true);
+    setRevenue(rev);setHandovers(ho);setEventsLog(ev);setInboxSeen(seen);setShiftClosed(sc);setCloseNotified(cn);setAcl(ac);setTaskOrder(tord);setMembers(mem);setSchedule(sch);if(evKV&&Object.keys(evKV).length)setEventsData(evKV);setGoList(gl);
+    // Восстанавливаем сессию по httpOnly cookie (серверная авторизация)
+    const restoredAccount = await authMe();
+    if(restoredAccount){setWho(restoredAccount);}else{setPicking(true);}
+    // Загружаем hasPassword флаги для всех аккаунтов (UI: «нет пароля» / «задан»)
+    const allAccounts=[...DEFAULT_MEMBERS,'manager','developer'];
+    const hpResults=await Promise.all(allAccounts.map(a=>authHasPassword(a).then(has=>({a,has})).catch(()=>({a,has:false}))));
+    const hpMap=Object.fromEntries(hpResults.map(({a,has})=>[a,has]));
+    setAuthHasPasswordMap(hpMap);
     setLoading(false);
   })();},[]);
   const ready=!loading;
@@ -109,7 +118,7 @@ export default function App(){
   usePersist("inbox_seen:v1",inboxSeen,ready);
   usePersist("shift_closed:v1",shiftClosed,ready);
   usePersist("close_notified:v1",closeNotified,ready);
-  usePersist("auth:v1",auth,ready);
+  // auth:v1 НЕ синхронизируется на клиент — управляется только через /api/auth/*
   usePersist("acl:v1",acl,ready);
   usePersist("task_order:v1",taskOrder,ready);
   usePersist("members:v1",members,ready);
@@ -235,21 +244,36 @@ export default function App(){
     if(createTask&&taskTitle){const nt={id:uid(),title:`[Перенос] ${taskTitle}`,repeat:"once",date:forDate,time:"",assignee:"смена",notes:text,isReport:false};setTasks(p=>[...p,nt]);}
     logEvent("handover",`на ${fmtDate(forDate)}: ${text.slice(0,40)}`);
   };
-  const doLogin=name=>{setWho(name);sv("currentUser",name);setPicking(false);setAuthPending(null);logEvent("login",accountLabel(name));tgBind(name, tgUserId());};
-  const requestLogin=account=>setAuthPending(account);
-  const submitAuth=(account,pwd)=>{
-    const existing=auth[account];
-    if(!existing){ // первый вход — задаём пароль
-      setAuth(prev=>({...prev,[account]:pwd}));
-      logEvent("password_set",accountLabel(account));
+  const doLogin=name=>{setWho(name);setPicking(false);setAuthPending(null);logEvent("login",accountLabel(name));tgBind(name, tgUserId());};
+  const requestLogin=async account=>{
+    // Проверяем наличие пароля на сервере перед показом модалки
+    const has=await authHasPassword(account);
+    setAuthHasPasswordMap(prev=>({...prev,[account]:has}));
+    setAuthPending(account);
+  };
+  const submitAuth=async(account,pwd)=>{
+    try{
+      await authLogin(account,pwd);
       doLogin(account);
       return{ok:true};
+    }catch(e){
+      return{ok:false,error:e.message};
     }
-    if(existing===pwd){doLogin(account);return{ok:true};}
-    return{ok:false,error:"Неверный пароль"};
   };
-  const changePassword=(account,newPwd)=>{setAuth(prev=>({...prev,[account]:newPwd}));logEvent("password_changed",accountLabel(account));};
-  const resetPassword=account=>{setAuth(prev=>{const n={...prev};delete n[account];return n;});logEvent("password_reset",accountLabel(account));};
+  const handleLogout=async()=>{
+    await authLogout();
+    setWho(null);
+    setPicking(true);
+    logEvent("logout",accountLabel(who));
+  };
+  const changePassword=async(account,newPwd,currentPwd)=>{
+    await authChangePassword(account,newPwd,currentPwd);
+    logEvent("password_changed",accountLabel(account));
+  };
+  const resetPassword=async account=>{
+    await authResetPassword(account);
+    logEvent("password_reset",accountLabel(account));
+  };
   const setManagerCanViewPasswords=v=>{setAcl(prev=>({...prev,managerCanViewPasswords:v}));logEvent("acl_changed",`Управляющий ${v?"может":"не может"} видеть пароли`);};
   const canAddTasks=hasPerm(who,profiles,"add_tasks");
   const isChef=!isManager&&(profiles.find(p=>p.name===who)?.role==="head_barman");
@@ -308,7 +332,7 @@ export default function App(){
         </button>
         <div style={{fontSize:11,color:"var(--mt)",marginTop:16,textAlign:"center",lineHeight:1.5}}>Первый вход — задаёшь пароль. Прототип: пароли хранятся локально, реальная защита — на сервере.</div>
       </div>
-      {authPending&&<AuthModal account={authPending} hasPassword={!!auth[authPending]} onCancel={()=>setAuthPending(null)} onSubmit={pwd=>submitAuth(authPending,pwd)}/>}
+        {authPending&&<AuthModal account={authPending} hasPassword={!!authHasPasswordMap[authPending]} onCancel={()=>setAuthPending(null)} onSubmit={pwd=>submitAuth(authPending,pwd)}/>}
     </div>);
 
   if(viewingDay)return (
@@ -367,7 +391,7 @@ export default function App(){
               title={themePref==="auto"?"Тема: авто (по устройству)":themePref==="light"?"Тема: светлая":"Тема: тёмная"}>
               {themePref==="auto"?<MonitorSmartphone size={14}/>:themePref==="light"?<Sun size={14}/>:<Moon size={14}/>}
             </button>
-            <button className="nav-who" onClick={()=>setPicking(true)}><User size={12}/>{accountLabel(who)}
+            <button className="nav-who" onClick={handleLogout}><User size={12}/>{accountLabel(who)}
               <span title={serverOk===false?"Сервер недоступен — данные только на этом устройстве":serverOk?"Сервер на связи":"проверка связи"}
                 style={{width:7,height:7,borderRadius:"50%",marginLeft:6,display:"inline-block",
                 background:serverOk===false?"var(--rs)":serverOk?"var(--hp)":"var(--mt)"}}/></button>
@@ -394,13 +418,13 @@ export default function App(){
         members={members} eventsLog={eventsLog}
         onIssueCard={isManager?issueCard:null} onUpdateProfile={isManager?p=>setProfiles(prev=>prev.map(x=>x.name===p.name?p:x)):null}
         onAddOverride={isManager?o=>setStatusOverrides(prev=>[...prev.filter(x=>x.name!==o.name),o]):null} setCardModal={v=>setModal(v)} onToggle={toggle}
-        onChangePassword={pwd=>changePassword(who,pwd)}/>}
+        onChangePassword={(newPwd,curPwd)=>changePassword(who,newPwd,curPwd)}/>}
 
       {tab==="tasks"&&<TasksTab tasks={tasks} doneMap={doneToday} onToggle={toggle} onEdit={isManager?t=>setModal(t):null} onArchive={canAddTasks?archiveTask:null}/>}
       {tab==="schedule"&&<ScheduleTab schedule={schedule} events={events} revenue={revenue} ds={ds} members={members} onOpenDay={d=>setViewingDay(d)}/>}
       {tab==="team"&&(canTeam||canStats)&&<TeamHubTab canTeam={canTeam} canStats={canStats} isManager={isManager}
         profiles={profiles} members={members} statusOverrides={statusOverrides}
-        account={who} who={who} isDeveloper={isDeveloper} auth={auth} acl={acl}
+        account={who} who={who} isDeveloper={isDeveloper} auth={authHasPasswordMap} acl={acl}
         onAddMember={addMember} onRemoveMember={removeMember}
         onResetPassword={resetPassword} onToggleAclPwd={setManagerCanViewPasswords}
         onUpdateProfile={p=>setProfiles(prev=>prev.map(x=>x.name===p.name?p:x))}

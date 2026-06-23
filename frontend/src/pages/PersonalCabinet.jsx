@@ -95,13 +95,24 @@ export function PersonalCabinet({name,isOwnCabinet,tasks,history,schedule,cards,
 }
 
 function PasswordChanger({onChange}){
-  const[v,setV]=useState("");const[v2,setV2]=useState("");const[msg,setMsg]=useState("");
-  const submit=()=>{if(v.length<3){setMsg("Минимум 3 символа");return;}if(v!==v2){setMsg("Пароли не совпадают");return;}onChange(v);setV("");setV2("");setMsg("Пароль обновлён ✓");};
+  const[cur,setCur]=useState("");const[v,setV]=useState("");const[v2,setV2]=useState("");
+  const[msg,setMsg]=useState("");const[loading,setLoading]=useState(false);
+  const submit=async()=>{
+    if(v.length<3){setMsg("Минимум 3 символа");return;}
+    if(v!==v2){setMsg("Пароли не совпадают");return;}
+    setLoading(true);setMsg("");
+    try{
+      await onChange(v,cur);
+      setV("");setV2("");setCur("");setMsg("Пароль обновлён ✓");
+    }catch(e){setMsg(e.message||"Ошибка");}
+    finally{setLoading(false);}
+  };
   return(<div style={{marginTop:14}}>
     <div className="sec-lbl" style={{marginBottom:8}}><Key size={12}/> Сменить пароль</div>
+    <div className="field" style={{marginBottom:8}}><input type="password" value={cur} onChange={e=>{setCur(e.target.value);setMsg("");}} placeholder="Текущий пароль"/></div>
     <div className="field" style={{marginBottom:8}}><input type="password" value={v} onChange={e=>{setV(e.target.value);setMsg("");}} placeholder="Новый пароль"/></div>
     <div className="field" style={{marginBottom:8}}><input type="password" value={v2} onChange={e=>{setV2(e.target.value);setMsg("");}} placeholder="Повторите пароль"/></div>
     {msg&&<div style={{fontSize:12,color:msg.includes("✓")?"#8bc47a":"#e07a60",marginBottom:8}}>{msg}</div>}
-    <button className="btn btn-p" onClick={submit}><Key size={15}/>Обновить пароль</button>
+    <button className="btn btn-p" onClick={submit} disabled={loading}><Key size={15}/>{loading?"Сохранение…":"Обновить пароль"}</button>
   </div>);
 }
