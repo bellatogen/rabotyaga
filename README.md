@@ -1,49 +1,86 @@
-# Pavel Frolov
+# Работяга
 
-**Tech CEO** | **Full-Stack Developer** | **Bar Industry Optimizer**
+Telegram Mini App для управления сменами в баре — задачи, расписание, дисциплина, аналитика.
 
-Building products that turn hospitality operations into scalable systems.
-
----
-
-## Who I Am
-
-I'm the GM of **beercard.ru**, first of th one of the most relevant restaraunt group across Saint Petersburg as part of **dreamteam.fm**. I code solutions to real business problems—reducing operational friction, scaling teams, and automating what shouldn't be manual.
-
-Started as a full-stack developer. Now I build tech products that solve my own business challenges and scale them to market.
-
-## Current Focus
-
-### [Rabotyaga](https://github.com/bellatogen/rabotyaga)
-**Internal SaaS → External Product**
-
-Telegram Mini App for bar & restaurant operations:
-- Shift management & staff scheduling
-- Task assignment & tracking  
-- Discipline system (card-based performance)
-- Revenue & analytics dashboard
-- Real-time sync between web & Telegram bot
-
-**Stack:** React 19 + Vite | Express 5 | Telegraf 4 | JavaScript
-
-**Status:** Running internally across dreamteam.fm locations. Scaling to external SaaS.
+Работает как внутренний инструмент сети [dreamteam.fm](https://dreamteam.fm) (Санкт-Петербург). Разрабатывается в сторону внешнего SaaS-продукта для HoReCa.
 
 ---
 
-## Background
+## Возможности
 
-- **Hospitality:** 8 premium restaurants, SPb. Focus on efficiency, team scaling, digitalization.
-- **Skills:** Financial management, team building, process optimization, business scaling, personnel management.
-- **Interests:** AI, management systems, social tech, hospitality innovation.
+- **Смены** — расписание на месяц, статусы сотрудников, контроль нормы штата, ручные переопределения (отпуск, больничный)
+- **Задачи** — открытие/закрытие/ежедневные/будние/еженедельные/разовые/нерегулярный бэклог; перенос невыполненных
+- **Дисциплина** — жёлтые / оранжевые / красные карточки с историей и прогрессией
+- **Аналитика** — процент выполнения задач, выручка план/факт, личные тренды, рекомендации
+- **Личный кабинет** — статистика за 14 и 30 дней, активные карточки, предстоящие смены, советы
+- **Telegram-пуши** — напоминание за день до смены (20:00), личные задачи (09:00), закрытие смены (22:00)
+- **Гоу-лист** — общий список дел смены, редактируется всеми
+- **Передача смены** — перенос невыполненного на следующий день с заметками
+- **Команда** — управление составом, выдача карточек, статистика, сброс паролей
+- **Тёмная/светлая/авто-тема** — следует системным настройкам устройства
 
----
+## Стек
 
-## Connect
+| Слой | Технологии |
+|---|---|
+| Frontend | React 19, Vite 6, Lucide React |
+| Backend | Express 5, Telegraf 4 |
+| Хранилище | KV flat-file (`data.json`), дебаунс-flush |
+| Auth | JWT (httpOnly cookie), bcrypt, rate limiting |
+| Деплой | Docker + Caddy, Timeweb Cloud |
 
-📱 **Telegram:** [@pavel_frolov93](https://t.me/pavel_frolov93)
+## Роли
 
-🔗 **Projects:** [beercard.ru](https://beercard.ru) | [dreamteam.fm](https://dreamteam.fm)
+| Роль | Доступ |
+|---|---|
+| **Бармен** | Свои задачи, расписание, личная статистика |
+| **Шеф-бармен** | + все задачи смены, создание задач, статистика команды |
+| **Управляющий** | Полный доступ, управление командой и расписанием |
+| **Разработчик** | Суперадмин + системные настройки (ACL, шаблоны пушей) |
 
----
+## Быстрый старт
 
-*Building in public. Code + business = results.*
+```bash
+# 1. Бэкенд (порт 3001)
+cd rabotyaga-bot
+cp .env.example .env        # TELEGRAM_TOKEN + JWT_SECRET (openssl rand -hex 32)
+npm install && npm start
+
+# 2. Фронтенд (порт 5173, прокси → :3001)
+cd frontend
+npm install && npm run dev
+```
+
+Для тестирования Telegram Mini App нужен туннель (ngrok) и бот с настроенным menu button URL.
+
+## Деплой
+
+Продакшн: **rabotyaga55.ru** — Timeweb Cloud, Docker, Caddy.
+
+```bash
+./deploy.sh   # build frontend → обновить Docker-образ → рестартовать контейнер
+```
+
+## Структура
+
+```
+rabotyaga/
+├── frontend/src/
+│   ├── pages/          # TodayTab, TasksTab, ScheduleTab, TeamHubTab, PersonalCabinet, LogsTab
+│   ├── modals/         # AuthModal, TaskModal, CardModal, HandoverModal, InboxModal, ClosingSummaryModal
+│   ├── components/     # Переиспользуемые компоненты
+│   ├── utils/          # Бизнес-логика: задачи, статусы, карточки, статистика
+│   └── services/api.js # HTTP-клиент (cookie-auth, KV CRUD, push API)
+└── rabotyaga-bot/
+    ├── server.js        # Express API + Telegraf bot
+    └── src/
+        ├── api/         # auth, push, admin, iiko, dataSources
+        ├── push/        # scheduler.js, sender.js
+        └── middleware/  # JWT auth
+```
+
+## Документация
+
+- [Руководство пользователя](docs/user-guide.md)
+- [Планы разработки](docs/plans/)
+- [.env.example](rabotyaga-bot/.env.example)
