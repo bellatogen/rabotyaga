@@ -21,6 +21,7 @@ import { TasksTab } from './pages/TasksTab.jsx';
 import { ScheduleTab, DayDetail } from './pages/ScheduleTab.jsx';
 import { PersonalCabinet } from './pages/PersonalCabinet.jsx';
 import { TeamHubTab } from './pages/TeamHubTab.jsx';
+import { EventsTab } from './pages/EventsTab.jsx';
 import { TaskModal } from './modals/TaskModal.jsx';
 import { CardModal } from './modals/CardModal.jsx';
 import { HandoverModal } from './modals/HandoverModal.jsx';
@@ -124,6 +125,7 @@ export default function App(){
   usePersist("members:v1",members,ready);
   usePersist("schedule:v1",schedule,ready);
   usePersist("golist:v1",goList,ready);
+  usePersist("events:v1",eventsData,ready);
 
   const isManager=who==="manager"||who==="developer";
   const isDeveloper=who==="developer";
@@ -134,6 +136,7 @@ export default function App(){
   const imReport=myShift?.report;
 
   const logEvent=(type,detail)=>setEventsLog(prev=>[{id:uid(),ts:nowISO(),who:accountLabel(who),type,detail},...prev].slice(0,500));
+  const onSetEvent=(date,label)=>setEventsData(prev=>label?{...prev,[date]:label}:Object.fromEntries(Object.entries(prev).filter(([d])=>d!==date)));
 
   const todayTasks=useMemo(()=>{
     if(!who)return[];
@@ -365,6 +368,7 @@ export default function App(){
     ...(hasPerm(who,profiles,"view_all_tasks")||hasPerm(who,profiles,"view_own_tasks")?[{id:"tasks",label:"Задачи"}]:[]),
     ...(hasPerm(who,profiles,"view_schedule")?[{id:"schedule",label:"График"}]:[]),
     ...(canTeam||canStats?[{id:"team",label:"Команда"}]:[]),
+    {id:"events",label:"События"},
   ];
   const visibleTabs=tabs.filter(t=>!t.hidden);
   const orderedTabs=navTabOrder.length
@@ -421,7 +425,8 @@ export default function App(){
         adminPanel={isManager?<AdminTab auth={auth} members={members} ds={ds}/>:null}/>}
 
       {tab==="tasks"&&<TasksTab tasks={tasks} doneMap={doneToday} onToggle={toggle} onEdit={isManager?t=>setModal(t):null} onArchive={canAddTasks?archiveTask:null}/>}
-      {tab==="schedule"&&<ScheduleTab schedule={schedule} events={events} revenue={revenue} ds={ds} members={members} onOpenDay={d=>setViewingDay(d)}/>}
+        {tab==="schedule"&&<ScheduleTab schedule={schedule} events={events} revenue={revenue} ds={ds} members={members} onOpenDay={d=>setViewingDay(d)}/>}
+        {tab==="events"&&<EventsTab events={events} isManager={isManager} onSetEvent={onSetEvent} ds={ds}/>}
       {tab==="team"&&(canTeam||canStats)&&<TeamHubTab canTeam={canTeam} canStats={canStats} isManager={isManager}
         profiles={profiles} members={members} statusOverrides={statusOverrides}
         account={who} who={who} isDeveloper={isDeveloper} auth={authHasPasswordMap} acl={acl}
