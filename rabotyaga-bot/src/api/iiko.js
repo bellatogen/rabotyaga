@@ -53,7 +53,7 @@ async function getDayRevenue(date, data, saveData) {
     groupByRowFields: ['OpenDate.Typed'],
     // DishSumInt — сумма без скидок, DishDiscountSumInt — размер скидок.
     // Чистая выручка = DishSumInt − DishDiscountSumInt
-    aggregateFields: ['DishSumInt', 'DishDiscountSumInt'],
+    aggregateFields: ['DishDiscountSumInt'],
     filters: {
       'OpenDate.Typed': {
         filterType: 'DateRange',
@@ -86,20 +86,15 @@ async function getDayRevenue(date, data, saveData) {
   const json = await res.json();
 
   // Суммируем DishAmountInt − DishDiscountSumInt по сводной строке или по всем строкам
-  let gross = 0, discounts = 0;
+  let fact = 0;
+  // В этой версии iiko DishDiscountSumInt = чистая выручка (итоговая сумма по чекам)
   if (json.summary) {
-    gross     = Number(json.summary.DishSumInt         ?? 0);
-    discounts = Number(json.summary.DishDiscountSumInt ?? 0);
+    fact = Math.round(Number(json.summary.DishDiscountSumInt ?? 0));
   } else if (Array.isArray(json.data)) {
-    for (const row of json.data) {
-      gross     += Number(row.DishSumInt         ?? 0);
-      discounts += Number(row.DishDiscountSumInt ?? 0);
-    }
+    for (const row of json.data) fact += Number(row.DishDiscountSumInt ?? 0);
+    fact = Math.round(fact);
   }
-
-  // Чистая выручка = брутто минус скидки
-  const fact = Math.round(gross - discounts);
-  console.log(`[iiko] выручка за ${date}: ${fact} ₽ (gross=${gross}, discount=${discounts})`);
+  console.log(`[iiko] выручка за ${date}: ${fact} ₽`);
 
   // Сохраняем в KV если переданы data/saveData (чтобы фронтенд увидел при следующей загрузке)
   if (data && saveData && fact > 0) {
@@ -127,7 +122,7 @@ async function syncRevenue(data, saveData) {
   const body = {
     reportType: 'SALES', buildSummary: 'false',
     groupByRowFields: ['OpenDate.Typed'],
-    aggregateFields: ['DishSumInt', 'DishDiscountSumInt'],
+    aggregateFields: ['DishDiscountSumInt'],
     filters: { 'OpenDate.Typed': { filterType:'DateRange', periodType:'CUSTOM', from, to, includeLow:true, includeHigh:true } },
   };
 
@@ -144,9 +139,7 @@ async function syncRevenue(data, saveData) {
   for (const row of (json.data || [])) {
     const iso = String(row['OpenDate.Typed'] || '').slice(0, 10);
     if (!iso) continue;
-  const gross    = Number(row.DishSumInt         || 0);
-    const discount = Number(row.DishDiscountSumInt || 0);
-    const fact     = Math.round(gross - discount);
+    const fact = Math.round(Number(row.DishDiscountSumInt || 0));
     if (fact > 0) {
       if (!revenue[iso]) revenue[iso] = {};
       revenue[iso].fact = fact;
