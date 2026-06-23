@@ -351,32 +351,6 @@ export function DayDetail({date,schedule,events,tasks,history,revenue,handovers,
   </div>);
 }
 
-function HoursTab({schedule,members,ds}){
-  const[mode,setMode]=useState("month");
-  const days=mode==="week"?rangeDays(ds,7):Object.keys(schedule).filter(d=>d.startsWith("2026-06"));
-  const stats=members.map(name=>{
-    const h=days.reduce((a,d)=>{const s=(schedule[d]||[]).find(x=>x.name===name);return a+(s&&s.end?hmm(s.end)/60:0);},0);
-    const shifts=days.filter(d=>(schedule[d]||[]).some(s=>s.name===name)).length;
-    return{name,hours:Math.round(h*10)/10,shifts};
-  });
-  const total=stats.reduce((a,m)=>a+m.hours,0);
-  return(<div className="sec">
-    <div className="sec-head"><span className="sec-lbl"><Clock size={12}/>Часы работы</span>
-      <div style={{display:"flex",gap:4}}>{["week","month"].map(m=><button key={m} className={`tab${mode===m?" on":""}`} onClick={()=>setMode(m)} style={{padding:"4px 10px",fontSize:11}}>{m==="week"?"7 дней":"Июнь"}</button>)}</div>
-    </div>
-    <div className="info-box">Итого: <span className="mono" style={{color:"var(--am)",fontWeight:600}}>{Math.round(total)}ч</span> за {mode==="week"?"неделю":"июнь"}</div>
-    {stats.map(m=>{const nrm=hourNorm(m.name);const denom=mode==="month"?nrm.max:48;
-      const inCorridor=mode==="month"&&m.hours>=nrm.min&&m.hours<=nrm.max;
-      const over=mode==="month"&&m.hours>nrm.max;
-      return(<div className="pr" key={m.name}>
-      <div className="pr-nm"><span>{m.name}</span><span className="mono" style={{fontWeight:600,fontSize:14,color:over?"#e07a60":inCorridor?"#8bc47a":"var(--am)"}}>{m.hours}ч</span></div>
-      <div className="bar-bg"><div className="bar-fill" style={{width:`${Math.min(m.hours/denom*100,100)}%`,background:over?"var(--rs)":inCorridor?"var(--hp)":"var(--am)"}}/></div>
-      <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}><span className="bar-pct">{m.shifts} смен</span>
-        <span className="bar-pct">{mode==="month"?`норма ${nrm.min}–${nrm.max}ч${over?" · превышение":inCorridor?" · в норме":""}`:`${Math.round(m.hours/48*100)}% нормы`}</span></div>
-    </div>);})}
-  </div>);
-}
-
 function DashboardTab({schedule,members,ds}){
   const[view,setView]=useState("bars");
   const month=ds.slice(0,7);

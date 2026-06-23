@@ -50,9 +50,11 @@ export default function App(){
   const[taskOrder,setTaskOrder]=useState([]);
   const[members,setMembers]=useState(DEFAULT_MEMBERS);
   const[schedule,setSchedule]=useState(EMBEDDED_SCHEDULE);
+  const[eventsData,setEventsData]=useState(EMBEDDED_EVENTS); // события из KV (синкаются scheduleSync)
   const[goList,setGoList]=useState([]);
   const[serverOk,setServerOk]=useState(null);
-  const events=EMBEDDED_EVENTS;
+  // events читается из KV (scheduleSync синкает events:v1), фолбек — EMBEDDED_EVENTS
+  const events=eventsData;
   const[acl,setAcl]=useState({});
   const[authPending,setAuthPending]=useState(null);
   const[toast,setToast]=useState(null);
@@ -85,13 +87,13 @@ export default function App(){
   // Сохраняем порядок вкладок в localStorage (хук здесь — до early returns)
   useEffect(()=>{localStorage.setItem('rab:nav_tab_order',JSON.stringify(navTabOrder));},[navTabOrder]);
   useEffect(()=>{(async()=>{
-    const[t,hist,profs,cds,so,rev,ho,ev,savedWho,seen,sc,cn,au,ac,tord,mem,sch,gl]=await Promise.all([
+    const[t,hist,profs,cds,so,rev,ho,ev,savedWho,seen,sc,cn,au,ac,tord,mem,sch,evKV,gl]=await Promise.all([
       ld("tasks:v4",defaultTasks()),ld("done:hist:v2",{}),ld("profiles:v1",DEFAULT_PROFILES),
       ld("cards:v1",[]),ld("status_overrides:v1",[]),ld("revenue:v1",{}),
-      ld("handovers:v1",{}),ld("events_log:v1",[]),ld("currentUser",null),ld("inbox_seen:v1",{}),ld("shift_closed:v1",{}),ld("close_notified:v1",{}),ld("auth:v1",{}),ld("acl:v1",{}),ld("task_order:v1",[]),ld("members:v1",DEFAULT_MEMBERS),ld("schedule:v1",EMBEDDED_SCHEDULE),ld("golist:v1",[]),
+      ld("handovers:v1",{}),ld("events_log:v1",[]),ld("currentUser",null),ld("inbox_seen:v1",{}),ld("shift_closed:v1",{}),ld("close_notified:v1",{}),ld("auth:v1",{}),ld("acl:v1",{}),ld("task_order:v1",[]),ld("members:v1",DEFAULT_MEMBERS),ld("schedule:v1",EMBEDDED_SCHEDULE),ld("events:v1",EMBEDDED_EVENTS),ld("golist:v1",[]),
     ]);
     setTasks(mergeSeeds(t));setHistory(hist);setProfiles(profs);setCards(cds);setStatusOverrides(so);
-    setRevenue(rev);setHandovers(ho);setEventsLog(ev);setInboxSeen(seen);setShiftClosed(sc);setCloseNotified(cn);setAuth(au);setAcl(ac);setTaskOrder(tord);setMembers(mem);setSchedule(sch);setGoList(gl);
+    setRevenue(rev);setHandovers(ho);setEventsLog(ev);setInboxSeen(seen);setShiftClosed(sc);setCloseNotified(cn);setAuth(au);setAcl(ac);setTaskOrder(tord);setMembers(mem);setSchedule(sch);if(evKV&&Object.keys(evKV).length)setEventsData(evKV);setGoList(gl);
     if(savedWho)setWho(savedWho);else setPicking(true);
     setLoading(false);
   })();},[]);

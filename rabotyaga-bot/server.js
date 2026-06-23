@@ -18,7 +18,7 @@ const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'data.json');
 const FRONTEND_DIST = process.env.FRONTEND_DIST || path.join(__dirname, 'frontend', 'dist');
 
 const app = express();
-app.use(cors({ origin: ['https://rabotyaga55.ru', 'http://localhost:5173', /timeweb.cloud$/], credentials: true }));
+app.use(cors({ origin: ['https://rabotyaga55.ru', 'http://localhost:5173', /\.timeweb\.cloud$/], credentials: true }));
 app.use(express.json());
 // index.html — без кеша (браузер всегда запрашивает свежий),
 // ассеты — долгий кеш (Vite добавляет контент-хеш в имя файла)
@@ -348,93 +348,8 @@ bot.launch().catch(err => {
 });
 pushScheduler.startScheduler(bot);
 
-const httpServer = 
-// ===== THEME PRESETS API =====
-app.get('/api/theme/presets', async (req, res) => {
-  try {
-    const userId = req.query.userId || 'default';
-    const result = await pool.query(
-      'SELECT * FROM user_theme_presets WHERE user_id = $1 ORDER BY updated_at DESC',
-      [userId]
-    );
-    res.json({ presets: result.rows });
-  } catch (err) {
-    console.error('Get theme presets error:', err);
-    res.status(500).json({ error: 'Failed to load presets' });
-  }
-});
-
-app.post('/api/theme/presets', async (req, res) => {
-  try {
-    const { userId, presetName, themeId, customTokens } = req.body;
-    if (!userId || !presetName) {
-      return res.status(400).json({ error: 'userId and presetName required' });
-    }
-    
-    const result = await pool.query(
-      `INSERT INTO user_theme_presets (user_id, preset_name, theme_id, custom_tokens, updated_at)
-       VALUES ($1, $2, $3, $4, NOW())
-       ON CONFLICT (user_id, preset_name) DO UPDATE SET
-         theme_id = EXCLUDED.theme_id,
-         custom_tokens = EXCLUDED.custom_tokens,
-         updated_at = NOW()
-       RETURNING *`,
-      [userId, presetName, themeId || 'dark', JSON.stringify(customTokens || {})]
-    );
-    res.json({ success: true, preset: result.rows[0] });
-  } catch (err) {
-    console.error('Save theme preset error:', err);
-    res.status(500).json({ error: 'Failed to save preset' });
-  }
-});
-
-app.delete('/api/theme/presets/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    await pool.query('DELETE FROM user_theme_presets WHERE id = $1', [id]);
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Delete theme preset error:', err);
-    res.status(500).json({ error: 'Failed to delete preset' });
-  }
-});
-
-// Глобальные пресеты (админка)
-app.get('/api/theme/global-presets', async (req, res) => {
-  try {
-    const result = await pool.query('SELECT * FROM global_theme_presets ORDER BY updated_at DESC');
-    res.json({ presets: result.rows });
-  } catch (err) {
-    console.error('Get global presets error:', err);
-    res.status(500).json({ error: 'Failed to load global presets' });
-  }
-});
-
-app.post('/api/theme/global-presets', async (req, res) => {
-  try {
-    const { presetName, themeId, customTokens } = req.body;
-    if (!presetName) {
-      return res.status(400).json({ error: 'presetName required' });
-    }
-    
-    const result = await pool.query(
-      `INSERT INTO global_theme_presets (preset_name, theme_id, custom_tokens, updated_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (preset_name) DO UPDATE SET
-         theme_id = EXCLUDED.theme_id,
-         custom_tokens = EXCLUDED.custom_tokens,
-         updated_at = NOW()
-       RETURNING *`,
-      [presetName, themeId || 'dark', JSON.stringify(customTokens || {})]
-    );
-    res.json({ success: true, preset: result.rows[0] });
-  } catch (err) {
-    console.error('Save global preset error:', err);
-    res.status(500).json({ error: 'Failed to save global preset' });
-  }
-});
-
-app.listen(PORT, () => {
+// Запускаем HTTP-сервер и сохраняем ссылку для graceful shutdown
+const httpServer = app.listen(PORT, () => {
   console.log(`🚀 Сервер Работяги запущен на порту ${PORT}`);
   console.log(`📁 Данные: ${DATA_FILE}`);
   console.log(`🖥  Фронтенд: ${FRONTEND_DIST}`);
@@ -444,6 +359,7 @@ app.listen(PORT, () => {
 function shutdown(signal) {
   bot.stop(signal);
   httpServer.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 5000).unref(); // fallback если close завис
 }
 process.once('SIGINT', () => shutdown('SIGINT'));
 process.once('SIGTERM', () => shutdown('SIGTERM'));
