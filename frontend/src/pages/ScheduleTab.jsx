@@ -385,11 +385,24 @@ function DashboardTab({schedule,members,ds}){
   const week=rangeDays(ds,7).slice().reverse();
   const dayHours=d=>(schedule[d]||[]).reduce((a,s)=>a+(s.end?hmm(s.end)/60:0),0);
   const maxDay=Math.max(1,...week.map(dayHours));
-  const VIEWS=[["bars","Часы"],["days","По дням"],["rings","Кольца"]];
   const col=m=>m.hours>m.nrm.max?"var(--rs)":m.hours>=m.nrm.min?"var(--hp)":"var(--am)";
+  const VIEWS=[["bars","Список"],["days","Дни"],["rings","Кольца"]];
   return(<div className="sec">
-    <div className="sec-head"><span className="sec-lbl"><Clock size={12}/>Дашборд · {totalH}ч / мес</span></div>
-    <div className="chip-row" style={{marginBottom:14}}>{VIEWS.map(([id,l])=><button key={id} className={`chip${view===id?" on":""}`} onClick={()=>setView(id)}>{l}</button>)}</div>
+    <div className="sec-head">
+      <span className="sec-lbl"><Clock size={12}/>Дашборд · {totalH}ч / мес</span>
+      <div style={{display:"flex",gap:3}}>
+        {VIEWS.map(([id,l])=>(
+          <button key={id} onClick={()=>setView(id)} style={{
+            padding:"3px 9px",fontSize:11,fontWeight:600,borderRadius:6,border:"1px solid",
+            cursor:"pointer",fontFamily:"inherit",letterSpacing:".02em",
+            background:view===id?"var(--cu)":"transparent",
+            color:view===id?"var(--bg)":"var(--mt)",
+            borderColor:view===id?"var(--cu)":"var(--bd)",
+            transition:"all .15s"
+          }}>{l}</button>
+        ))}
+      </div>
+    </div>
 
     {view==="bars"&&stats.map(m=>{const denom=m.nrm.max;return(<div className="pr" key={m.name}>
       <div className="pr-nm"><span>{m.name}</span><span className="mono" style={{fontWeight:600,fontSize:14,color:col(m)}}>{m.hours}ч</span></div>
