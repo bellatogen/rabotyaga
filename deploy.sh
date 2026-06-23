@@ -23,6 +23,9 @@ cd frontend && npm run build && cd ..
 echo "📤 Пуш уже зафиксированного main..."
 git push origin main
 
+echo "🔑 Копируем .env на сервер..."
+scp rabotyaga-bot/.env root@147.45.255.158:/root/rabotyaga/rabotyaga-bot/.env
+
 echo "🚀 Деплой на сервер (образ пересобирается сам, фронт вшит внутрь)..."
 ssh root@147.45.255.158 "cd /root/rabotyaga && git pull origin main && cd rabotyaga-bot && docker compose up -d --build && docker compose logs rabotyaga-bot --tail=5 && echo '✅ Деплой завершён!'"
 
