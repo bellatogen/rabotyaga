@@ -1,6 +1,7 @@
 // Вкладка «Команда» — состав, статистика, карточки, журнал
 import { useState } from 'react';
 import { Users, Plus, Trash2, Key, BarChart2, TrendingUp, TrendingDown, Minus, Award, Eye, EyeOff, Lock } from 'lucide-react';
+import { Avatar } from '../components/Avatar.jsx';
 import { ROLES, ALL_PERMS } from '../constants/roles.js';
 import { SHIFT_STATUSES } from '../constants/shifts.js';
 import { accountLabel, canViewPasswords } from '../utils/authUtils.js';
@@ -93,19 +94,23 @@ function StatsTab({tasks,history,ds,members,schedule,cards,onView}){
     </div>
     <div className="info-box" style={{fontSize:12}}>Статистика за {range} дней, обновляется автоматически. Стрелка = тренд (последние 15 vs предыдущие 15 дней). 🔍 — замечено нереалистичное закрытие.</div>
     {stats.sort((a,b)=>b.pct-a.pct).map(m=><div className="pr" key={m.name} onClick={()=>onView&&onView(m.name)} style={{cursor:onView?"pointer":"default"}}>
-      <div className="pr-nm">
-        <span style={{display:"flex",alignItems:"center",gap:6}}>{m.name}
-          {m.ac.some(c=>c.type==="red")&&<span>🔴</span>}{!m.ac.some(c=>c.type==="red")&&m.ac.some(c=>c.type==="orange")&&<span>🟠</span>}{!m.ac.some(c=>c.type==="orange")&&m.ac.some(c=>c.type==="yellow")&&<span>🟡</span>}
-          {m.susp>0&&<span title="нереалистичное закрытие">🔍</span>}
-        </span>
-        <span style={{display:"flex",gap:10,alignItems:"center"}}>
-          {m.tr&&<span style={{color:m.tr.delta>=0?"#8bc47a":"#e07a60",display:"flex",alignItems:"center"}}>{m.tr.delta>0?<TrendingUp size={13}/>:m.tr.delta<0?<TrendingDown size={13}/>:<Minus size={13}/>}</span>}
-          <span className="mono" style={{fontSize:11,color:"var(--mt)"}}>{m.hours}ч</span>
-          <span className="mono" style={{fontSize:12,color:"var(--mt)"}}>{m.don}/{m.tot}</span>
-        </span>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+        <Avatar name={m.name} size={34}/>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontWeight:600,fontSize:14,display:"flex",alignItems:"center",gap:5}}>{m.name}
+              {m.ac.some(c=>c.type==="red")&&<span>🔴</span>}{!m.ac.some(c=>c.type==="red")&&m.ac.some(c=>c.type==="orange")&&<span>🟠</span>}{!m.ac.some(c=>c.type==="orange")&&m.ac.some(c=>c.type==="yellow")&&<span>🟡</span>}
+              {m.susp>0&&<span title="нереалистичное закрытие" style={{fontSize:12}}>🔍</span>}
+            </span>
+            <span style={{display:"flex",gap:8,alignItems:"center"}}>
+              {m.tr&&<span style={{color:m.tr.delta>=0?"#8bc47a":"#e07a60",display:"flex",alignItems:"center"}}>{m.tr.delta>0?<TrendingUp size={13}/>:m.tr.delta<0?<TrendingDown size={13}/>:<Minus size={13}/>}</span>}
+              <span className="mono" style={{fontSize:11,color:"var(--mt)"}}>{m.hours}ч</span>
+              <span style={{fontSize:14,fontWeight:700,fontFamily:'"Fraunces",serif',color:m.pct>=80?"#8bc47a":m.pct>=50?"var(--am)":"#e07a60"}}>{m.pct}%</span>
+            </span>
+          </div>
+          <div className="bar-bg" style={{marginTop:5}}><div className="bar-fill" style={{width:`${m.pct}%`,background:m.pct>=80?"#8bc47a":m.pct>=50?"var(--am)":"#e07a60"}}/></div>
+        </div>
       </div>
-      <div className="bar-bg"><div className="bar-fill" style={{width:`${m.pct}%`}}/></div>
-      <div className="bar-pct">{m.pct}%</div>
     </div>)}
   </div>);
 }

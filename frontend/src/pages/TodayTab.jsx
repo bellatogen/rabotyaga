@@ -1,5 +1,6 @@
 // Вкладка «Сегодня» — прогресс, выручка, гоу-лист, состав смены, задачи дня
-import { CheckCircle, Bell, Send, User, AlertTriangle, FileText } from 'lucide-react';
+import { CheckCircle, Bell, Send, AlertTriangle, FileText } from 'lucide-react';
+import { Avatar } from '../components/Avatar.jsx';
 import { SHIFT_STATUSES } from '../constants/shifts.js';
 import { staffCheck, getShiftStatus } from '../utils/staffUtils.js';
 import { fmtDate } from '../utils/dateUtils.js';
@@ -48,20 +49,37 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
     </div>}
 
     <div className="sec">
-      <div className="sec-head"><span className="sec-lbl"><User size={12}/>На смене · норма {check.norm.count}</span></div>
-      {!check.ok&&<div className="alert danger"><AlertTriangle size={16} style={{flexShrink:0,marginTop:1}}/><span>{check.msg}</span></div>}
-      {check.ok&&check.msg&&<div className="alert warn"><AlertTriangle size={16} style={{flexShrink:0,marginTop:1}}/><span>{check.msg}</span></div>}
-      {todayShifts.filter(s=>!s.guest).map((s,i)=>{const ss=SHIFT_STATUSES[getShiftStatus(s.name,ds,schedule,statusOverrides,now)];
-        return(<div className="sc" key={i} onClick={()=>onViewEmployee&&onViewEmployee(s.name)} style={{cursor:onViewEmployee?"pointer":"default"}}>
-          <div className="sr">
-            <div><div className="sn"><User size={13} color="var(--cu)"/>{s.name}</div>{s.start&&<div className="st">{s.start}{s.end?` · ${s.end}ч`:""}</div>}</div>
-            <div style={{display:"flex",gap:4,flexWrap:"wrap",justifyContent:"flex-end"}}>
-              {s.report&&<span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:8,background:"rgba(232,160,48,.18)",color:"var(--am)"}}>отчёт</span>}
-              <span style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:8,background:ss?.bg,color:ss?.color}}>{ss?.label}</span>
+      <div className="sec-head" style={{marginBottom:10}}>
+        <span className="sec-lbl">👥 Смена сегодня</span>
+        <span className="sec-cnt">{todayShifts.filter(s=>!s.guest).length} / {check.norm.count} норма</span>
+      </div>
+      {!check.ok&&<div className="alert danger" style={{marginBottom:8}}><AlertTriangle size={16} style={{flexShrink:0}}/><span>{check.msg}</span></div>}
+      {check.ok&&check.msg&&<div className="alert warn" style={{marginBottom:8}}><AlertTriangle size={16} style={{flexShrink:0}}/><span>{check.msg}</span></div>}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+        {todayShifts.filter(s=>!s.guest).map((s,i)=>{
+          const ss=SHIFT_STATUSES[getShiftStatus(s.name,ds,schedule,statusOverrides,now)];
+          return(
+            <div key={i} onClick={()=>onViewEmployee&&onViewEmployee(s.name)}
+              style={{background:"var(--sf)",border:`1px solid ${ss?.bg||"var(--bd)"}`,borderRadius:12,
+                padding:"11px",cursor:onViewEmployee?"pointer":"default",display:"flex",flexDirection:"column",gap:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <Avatar name={s.name} size={36}/>
+                <div style={{minWidth:0,flex:1}}>
+                  <div style={{fontWeight:600,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.name}</div>
+                  <span style={{fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:6,
+                    background:ss?.bg,color:ss?.color,display:"inline-block",marginTop:2,letterSpacing:".04em"}}>{ss?.label}</span>
+                </div>
+              </div>
+              {s.start&&<div className="mono" style={{fontSize:11,color:"var(--mt)",display:"flex",alignItems:"center",gap:4}}>
+                {s.start}{s.end?` · ${s.end}ч`:""}
+                {s.report&&<span style={{color:"var(--am)",fontWeight:700}}>★</span>}
+              </div>}
             </div>
-          </div>
-        </div>);})}
-      {!isManager&&myStatus==="day_off"&&<div className="empty" style={{padding:"12px 0"}}>Выходной 🍺</div>}
+          );
+        })}
+      </div>
+      {todayShifts.filter(s=>!s.guest).length===0&&<div className="empty">Никто не запланирован на смену</div>}
+      {!isManager&&myStatus==="day_off"&&<div className="empty" style={{padding:"4px 0"}}>Выходной 🍺</div>}
     </div>
 
     <div className="sec">
