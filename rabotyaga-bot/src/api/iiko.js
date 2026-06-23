@@ -39,8 +39,8 @@ function invalidateToken() { _token = null; _tokenExpiry = 0; }
 
 // Запрос OLAP-отчёта по продажам за один день.
 // date — строка 'YYYY-MM-DD'.
-// Возвращает { fact: number } — факт выручки в рублях.
-async function getDayRevenue(date) {
+// Если переданы data и saveData — результат сохраняется в revenue:v1 KV (чтобы не делать повторный запрос).
+async function getDayRevenue(date, data, saveData) {
   if (!IIKO_URL || !IIKO_LOGIN) {
     throw Object.assign(new Error('iiko не настроен: задайте IIKO_URL и IIKO_LOGIN в .env'), { status: 503 });
   }
@@ -51,7 +51,9 @@ async function getDayRevenue(date) {
     reportType: 'SALES',
     buildSummary: 'true',
     groupByRowFields: ['OpenDate.Typed'],
-    aggregateFields: ['DishAmountInt', 'DishDiscountSumInt', 'GuestsCount'],
+    // DishSumInt — сумма без скидок, DishDiscountSumInt — размер скидок.
+    // Чистая выручка = DishSumInt − DishDiscountSumInt
+    aggregateFields: ['DishSumInt', 'DishDiscountSumInt', 'GuestsCount'],
     filters: {
       'OpenDate.Typed': {
         filterType: 'DateRange',
@@ -84,25 +86,35 @@ async function getDayRevenue(date) {
   const json = await res.json();
 
   // Суммируем DishAmountInt − DishDiscountSumInt по сводной строке или по всем строкам
-  let amount = 0, discount = 0, guests = 0;
+  let gross = 0, discounts = 0, guests = 0;
   if (json.summary) {
-    amount   = Number(json.summary.DishAmountInt      ?? 0);
-    discount = Number(json.summary.DishDiscountSumInt ?? 0);
-    guests   = Number(json.summary.GuestsCount        ?? 0);
+    gross     = Number(json.summary.DishSumInt          ?? 0);
+    discounts = Number(json.summary.DishDiscountSumInt  ?? 0);
+    guests    = Number(json.summary.GuestsCount         ?? 0);
   } else if (Array.isArray(json.data)) {
     for (const row of json.data) {
-      amount   += Number(row.DishAmountInt      ?? 0);
-      discount += Number(row.DishDiscountSumInt ?? 0);
-      guests   += Number(row.GuestsCount        ?? 0);
+      gross     += Number(row.DishSumInt         ?? 0);
+      discounts += Number(row.DishDiscountSumInt ?? 0);
+      guests    += Number(row.GuestsCount        ?? 0);
     }
   }
 
-  // DishDiscountSumInt = выручка в рублях (уже итоговая сумма)
-  // DishAmountInt = количество порций (не деньги)
-  const fact     = Math.round(discount);
+  // Чистая выручка = брутто минус скидки
+  const fact      = Math.round(gross - discounts);
   const guestsRnd = Math.round(guests);
-  const avgCheck = guestsRnd > 0 ? Math.round(fact / guestsRnd) : null;
-  console.log(`[iiko] выручка за ${date}: ${fact} ₽, гостей: ${guestsRnd}, ср.чек: ${avgCheck ?? '—'} ₽`);
+  const avgCheck  = guestsRnd > 0 ? Math.round(fact / guestsRnd) : null;
+  console.log(`[iiko] выручка за ${date}: ${fact} ₽ (DishSumInt=${gross}, discount=${discounts}), гостей: ${guestsRnd}, ср.чек: ${avgCheck ?? '—'} ₽`);
+
+  // Сохраняем в KV если переданы data/saveData (чтобы фронтенд увидел при следующей загрузке)
+  if (data && saveData && fact > 0) {
+    const revenue = JSON.parse(data.kv?.['revenue:v1'] || '{}');
+    if (!revenue[date]) revenue[date] = {};
+    revenue[date].fact = fact;
+    if (guestsRnd > 0) { revenue[date].guests = guestsRnd; revenue[date].avgCheck = avgCheck; }
+    data.kv['revenue:v1'] = JSON.stringify(revenue);
+    saveData();
+  }
+
   return { fact, guests: guestsRnd, avgCheck };
 }
 

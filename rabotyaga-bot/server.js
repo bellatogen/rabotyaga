@@ -9,8 +9,8 @@ const fs         = require('fs');
 const path       = require('path');
 const bcrypt     = require('bcrypt');
 
-const pushApi       = require('./src/api/push');
-const pushSender    = require('./src/push/sender');
+const makePushApi   = require('./src/api/push');
+const makePushSender = require('./src/push/sender');
 const pushScheduler = require('./src/push/scheduler');
 const makeAdminApi  = require('./src/api/admin');
 const makeAuthApi   = require('./src/api/auth');
@@ -74,7 +74,7 @@ app.use(express.static(FRONTEND_DIST, {
 }));
 
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
-app.use('/api/push', pushApi);
+// pushApi монтируется ниже — после создания pushSender с доступом к data
 
 // ── Telegram Bot ──
 const TOKEN    = process.env.TELEGRAM_TOKEN;
@@ -96,6 +96,9 @@ if (fs.existsSync(DATA_FILE)) {
 }
 
 let saveTimer = null;
+// Инстанс sender создаётся здесь: data уже объявлен, saveData объявляется ниже через hoisting
+let pushSender; // будет инициализирован сразу после saveData
+
 function saveData() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
@@ -122,6 +125,10 @@ function saveData() {
     }
   } catch (e) { console.error('[auth] ошибка миграции паролей:', e.message); }
 })();
+
+// Инициализируем sender и push API (data + saveData уже готовы)
+pushSender = makePushSender(data, saveData);
+app.use('/api/push', makePushApi(pushSender));
 
 // ── Монтируем роутеры (требующие data) ──
 app.use('/api/auth',  makeAuthApi(data, saveData));
@@ -171,7 +178,7 @@ app.get('/api/iiko/revenue/:date', requireAuth, async (req, res) => {
   const { date } = req.params;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Неверный формат даты (YYYY-MM-DD)' });
   try {
-    const result = await iiko.getDayRevenue(date);
+    const result = await iiko.getDayRevenue(date, data, saveData);
     res.json(result);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
@@ -326,7 +333,7 @@ app.use((req, res, next) => {
 
 // ── Запуск ──
 bot.launch().catch(err => console.error('⚠️  Ошибка запуска бота (сервер продолжает работу):', err.message));
-pushScheduler.startScheduler(bot);
+pushScheduler.startScheduler(bot, data, pushSender);
 
 const httpServer = app.listen(PORT, () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);

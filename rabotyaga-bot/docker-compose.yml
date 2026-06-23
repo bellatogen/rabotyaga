@@ -14,3 +14,6 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3001
+      - IIKO_URL=${IIKO_URL:-}
+      - IIKO_LOGIN=${IIKO_LOGIN:-}
+      - IIKO_PASSWORD=${IIKO_PASSWORD:-}

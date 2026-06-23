@@ -1,131 +1,114 @@
-const fs = require('fs');
+// sender.js — factory: принимает in-memory data + saveData из server.js.
+// Устраняет race condition: раньше sender читал/писал data.json напрямую,
+// теперь работает с объектом data из памяти сервера.
+// Лог пишется в push-log.json (отдельный append-файл, читается /api/push/stats).
+const fs   = require('fs');
 const path = require('path');
 
-const DATA_FILE = path.join(__dirname, '../../data.json');
+const LOG_FILE = path.join(__dirname, '../../push-log.json');
 
-function loadData() {
-  if (fs.existsSync(DATA_FILE)) {
-    return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+function readLog() {
+  if (!fs.existsSync(LOG_FILE)) return [];
+  try { return JSON.parse(fs.readFileSync(LOG_FILE, 'utf8')); } catch { return []; }
+}
+
+module.exports = function makeSender(data, saveData) {
+
+  // Пишем запись в push-log.json с форматом, который ждёт /api/push/stats:
+  // { userId, userName, type, status: 'sent'|'failed'|'skipped', error?, ts }
+  function log(userId, userName, type, status, error = null) {
+    const logs = readLog();
+    const entry = { userId, userName, type, status, ts: new Date().toISOString() };
+    if (error) entry.error = error;
+    logs.unshift(entry);
+    if (logs.length > 500) logs.length = 500;
+    try { fs.writeFileSync(LOG_FILE, JSON.stringify(logs, null, 2)); } catch {}
   }
-  return { pushSettings: {}, adminUsers: [], pushLogs: [] };
-}
 
-function saveData(data) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-}
+  // Отправить пуш с ретраем до 3 раз (линейный backoff 1s·attempt).
+  // 403 = пользователь заблокировал бота — не ретраить.
+  async function sendPush(bot, userId, message, type = 'test') {
+    const settings = data.pushSettings?.[userId];
+    const userName = Object.keys(data.bindings || {}).find(n => data.bindings[n] == userId) || null;
 
-function logPush(userId, userName, type, success, error = null) {
-  const data = loadData();
-  if (!data.pushLogs) data.pushLogs = [];
-  
-  data.pushLogs.unshift({
-    userId,
-    userName,
-    type,
-    success,
-    error,
-    timestamp: new Date().toISOString()
-  });
-  
-  // Храним только последние 500 записей
-  if (data.pushLogs.length > 500) {
-    data.pushLogs = data.pushLogs.slice(0, 500);
-  }
-  
-  saveData(data);
-}
+    if (!settings?.enabled || !settings?.chatId) {
+      log(userId, userName, type, 'skipped', 'Пуши отключены');
+      return false;
+    }
 
-async function sendPush(bot, userId, message, type = 'test') {
-  const data = loadData();
-  const settings = data.pushSettings?.[userId];
-  const userName = Object.keys(data.bindings || {}).find(name => data.bindings[name] == userId) || null;
-  
-  if (!settings || !settings.enabled || !settings.chatId) {
-    logPush(userId, userName, type, false, 'Пуши отключены');
-    console.log(`❌ Пуши для ${userId} отключены`);
+    let lastErr;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await bot.telegram.sendMessage(settings.chatId, message, { parse_mode: 'HTML' });
+        log(userId, userName, type, 'sent');
+        console.log(`✅ Пуш отправлен ${userId} (${type})`);
+        return true;
+      } catch (err) {
+        lastErr = err;
+        // 403 = навсегда заблокирован — не ретраить
+        if (err.response?.error_code === 403) break;
+        if (attempt < 3) await new Promise(r => setTimeout(r, 1000 * attempt));
+      }
+    }
+    log(userId, userName, type, 'failed', lastErr.message);
+    console.error(`❌ Ошибка пуша ${userId} (${type}):`, lastErr.message);
     return false;
   }
-  
-  try {
-    await bot.telegram.sendMessage(settings.chatId, message, { parse_mode: 'HTML' });
-    logPush(userId, userName, type, true);
-    console.log(`✅ Пуш отправлен ${userId} (${type})`);
-    return true;
-  } catch (error) {
-    logPush(userId, userName, type, false, error.message);
-    console.error(`❌ Ошибка пуша ${userId}:`, error.message);
-    return false;
+
+  async function sendDayBeforeShiftPush(bot, userId, tasks) {
+    if (!data.pushSettings?.[userId]?.notifications?.dayBeforeShift) return false;
+    const s = data.pushSettings[userId];
+    const template = s.templates?.dayBeforeShift ||
+      data.defaultTemplates?.dayBeforeShift ||
+      '🔔 Завтра твоя смена!\n\nЗадачи:\n{tasks}';
+    const tasksText = tasks.map((t, i) => `${i + 1}. ${t}`).join('\n');
+    return sendPush(bot, userId, template.replace('{tasks}', tasksText), 'dayBeforeShift');
   }
-}
 
-async function sendDayBeforeShiftPush(bot, userId, tasks) {
-  const data = loadData();
-  const settings = data.pushSettings?.[userId];
-  if (!settings?.notifications?.dayBeforeShift) return false;
-  
-  const template = settings.templates?.dayBeforeShift || 
-    data.defaultTemplates?.dayBeforeShift ||
-    '🔔 Завтра твоя смена!\n\nЗадачи:\n{tasks}';
-  const tasksText = tasks.map((t, i) => `${i + 1}. ${t}`).join('\n');
-  return sendPush(bot, userId, template.replace('{tasks}', tasksText), 'dayBeforeShift');
-}
+  async function sendPersonalTasksPush(bot, userId, tasks) {
+    if (!data.pushSettings?.[userId]?.notifications?.personalTasks) return false;
+    const s = data.pushSettings[userId];
+    const template = s.templates?.personalTasks ||
+      data.defaultTemplates?.personalTasks ||
+      '📬 Твои задачи на сегодня:\n\n{tasks}';
+    const tasksText = tasks.map(t =>
+      `📌 ${t.title}\n👤 ${t.assignedBy || '—'}\n⏰ ${t.deadline || '—'}\n📝 ${t.context || ''}`
+    ).join('\n\n');
+    return sendPush(bot, userId, template.replace('{tasks}', tasksText), 'personalTasks');
+  }
 
-async function sendPersonalTasksPush(bot, userId, tasks) {
-  const data = loadData();
-  const settings = data.pushSettings?.[userId];
-  if (!settings?.notifications?.personalTasks) return false;
-  
-  const template = settings.templates?.personalTasks ||
-    data.defaultTemplates?.personalTasks ||
-    '📬 Твои задачи на сегодня:\n\n{tasks}';
-  const tasksText = tasks.map(t => 
-    `📌 ${t.title}\n👤 ${t.assignedBy || '—'}\n⏰ ${t.deadline || '—'}\n📝 ${t.context || ''}`
-  ).join('\n\n');
-  return sendPush(bot, userId, template.replace('{tasks}', tasksText), 'personalTasks');
-}
+  async function sendCloseShiftPush(bot, userId) {
+    if (!data.pushSettings?.[userId]?.notifications?.closeShiftReminder) return false;
+    const s = data.pushSettings[userId];
+    const template = s.templates?.closeShiftReminder ||
+      data.defaultTemplates?.closeShiftReminder ||
+      '⏰ Пора закрывать смену!\n\n✅ Чек-лист:\n• Пересчитать кассу\n• Убраться\n• Сдать отчёт\n• Закрыть бар';
+    return sendPush(bot, userId, template, 'closeShiftReminder');
+  }
 
-async function sendCloseShiftPush(bot, userId) {
-  const data = loadData();
-  const settings = data.pushSettings?.[userId];
-  if (!settings?.notifications?.closeShiftReminder) return false;
-  
-  const template = settings.templates?.closeShiftReminder ||
-    data.defaultTemplates?.closeShiftReminder ||
-    '⏰ Пора закрывать смену!\n\n✅ Чек-лист:\n• Пересчитать кассу\n• Убраться\n• Сдать отчёт\n• Закрыть бар';
-  return sendPush(bot, userId, template, 'closeShiftReminder');
-}
+  async function sendIndividualPush(bot, userId, message) {
+    if (!data.pushSettings?.[userId]?.notifications?.individualTasks) return false;
+    return sendPush(bot, userId, message, 'individualTasks');
+  }
 
-async function sendIndividualPush(bot, userId, message) {
-  const data = loadData();
-  const settings = data.pushSettings?.[userId];
-  if (!settings?.notifications?.individualTasks) return false;
-  return sendPush(bot, userId, message, 'individualTasks');
-}
+  // Запись настроек через in-memory data (без прямого обращения к диску)
+  function updatePushSettings(userId, settings) {
+    if (!data.pushSettings) data.pushSettings = {};
+    data.pushSettings[userId] = { ...data.pushSettings[userId], ...settings };
+    saveData();
+  }
 
-function updatePushSettings(userId, settings) {
-  const data = loadData();
-  if (!data.pushSettings) data.pushSettings = {};
-  data.pushSettings[userId] = { ...data.pushSettings[userId], ...settings };
-  saveData(data);
-}
+  function getPushSettings(userId) {
+    return data.pushSettings?.[userId] || null;
+  }
 
-function getPushSettings(userId) {
-  const data = loadData();
-  return data.pushSettings?.[userId] || null;
-}
+  function getAllPushSettings() {
+    return data.pushSettings || {};
+  }
 
-function getAllPushSettings() {
-  const data = loadData();
-  return data.pushSettings || {};
-}
-
-function getPushLogs(limit = 100) {
-  const data = loadData();
-  return (data.pushLogs || []).slice(0, limit);
-}
-
-module.exports = {
-  sendPush, sendDayBeforeShiftPush, sendPersonalTasksPush,
-  sendCloseShiftPush, sendIndividualPush,
-  updatePushSettings, getPushSettings, getAllPushSettings, getPushLogs
+  return {
+    sendPush, sendDayBeforeShiftPush, sendPersonalTasksPush,
+    sendCloseShiftPush, sendIndividualPush,
+    updatePushSettings, getPushSettings, getAllPushSettings,
+  };
 };

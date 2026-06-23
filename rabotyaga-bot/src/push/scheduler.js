@@ -1,15 +1,5 @@
-const fs = require('fs');
-const path = require('path');
-const sender = require('./sender');
-
-const DATA_FILE = path.join(__dirname, '../../data.json');
-
-function loadData() {
-  if (fs.existsSync(DATA_FILE)) {
-    return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-  }
-  return { kv: {}, bindings: {}, pushSettings: {} };
-}
+// scheduler.js — принимает in-memory data и sender из server.js.
+// Убраны прямые чтения data.json — теперь работает только с объектом data из памяти.
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -23,7 +13,7 @@ function tomorrowStr() {
 
 function isToday(task, ds) {
   if (task.kind === 'irregular') return false;
-  if (task.from && ds < task.from) return false;
+  if (task.from  && ds < task.from)  return false;
   if (task.until && ds > task.until) return false;
   if (task.repeat === 'once') return task.date === ds;
   if (['daily', 'opening', 'closing'].includes(task.repeat)) return true;
@@ -32,23 +22,21 @@ function isToday(task, ds) {
   return false;
 }
 
-function getSchedule() {
-  const data = loadData();
-  return data.schedule || {
-    dayBeforeShift: { time: '20:00', enabled: true },
-    personalTasks: { time: '09:00', enabled: true },
-    closeShiftReminder: { time: '22:00', enabled: true }
-  };
-}
-
 function timeToMinutes(timeStr) {
-  const [h, m] = timeStr.split(':').map(Number);
+  const [h, m] = (timeStr || '00:00').split(':').map(Number);
   return h * 60 + m;
 }
 
-async function sendDayBeforeShiftPushes(bot) {
-  const data = loadData();
-  const tasks = JSON.parse(data.kv['tasks:v4'] || '[]');
+function getScheduleConfig(data) {
+  return data.schedule || {
+    dayBeforeShift:    { time: '20:00', enabled: true },
+    personalTasks:     { time: '09:00', enabled: true },
+    closeShiftReminder: { time: '22:00', enabled: true },
+  };
+}
+
+async function sendDayBeforeShiftPushes(bot, data, sender) {
+  const tasks = JSON.parse(data.kv?.['tasks:v4'] || '[]');
   const tomorrow = tomorrowStr();
   const tomorrowTasks = tasks.filter(t => !t.archived && isToday(t, tomorrow));
   if (!tomorrowTasks.length) return;
@@ -59,87 +47,94 @@ async function sendDayBeforeShiftPushes(bot) {
   }
 }
 
-async function sendPersonalTasksPushes(bot) {
-  const data = loadData();
-  const tasks = JSON.parse(data.kv['tasks:v4'] || '[]');
+async function sendPersonalTasksPushes(bot, data, sender) {
+  const tasks = JSON.parse(data.kv?.['tasks:v4'] || '[]');
   const today = todayStr();
+  // Ключ — имя пользователя (assignedTo), значение — массив задач
   const userTasks = {};
   tasks.forEach(t => {
     if (!t.archived && t.assignedTo && isToday(t, today)) {
       if (!userTasks[t.assignedTo]) userTasks[t.assignedTo] = [];
       userTasks[t.assignedTo].push({
-        title: t.title,
+        title:      t.title,
         assignedBy: t.createdBy || '—',
-        deadline: t.deadline || '—',
-        context: t.context || ''
+        deadline:   t.dueDate   || t.deadline || '—',
+        context:    t.notes     || '',
       });
     }
   });
+  // Матчим имя → userId через bindings
+  const nameToId = {};
+  for (const [name, uid] of Object.entries(data.bindings || {})) nameToId[name] = String(uid);
+
   for (const [userId, settings] of Object.entries(data.pushSettings || {})) {
     if (!settings.enabled || !settings.notifications?.personalTasks) continue;
-    if (userTasks[userId]?.length > 0) {
-      await sender.sendPersonalTasksPush(bot, userId, userTasks[userId]);
+    // Ищем имя по userId в bindings
+    const name = Object.keys(data.bindings || {}).find(n => String(data.bindings[n]) === userId);
+    if (name && userTasks[name]?.length > 0) {
+      await sender.sendPersonalTasksPush(bot, userId, userTasks[name]);
     }
   }
 }
 
-async function sendCloseShiftPushes(bot) {
-  const data = loadData();
+async function sendCloseShiftPushes(bot, data, sender) {
   for (const [userId, settings] of Object.entries(data.pushSettings || {})) {
     if (!settings.enabled || !settings.notifications?.closeShiftReminder) continue;
     await sender.sendCloseShiftPush(bot, userId);
   }
 }
 
-function startScheduler(bot) {
+function startScheduler(bot, data, sender) {
   console.log('⏰ Планировщик пушей запущен');
-  
+
   // Отслеживаем что уже отправлено сегодня (чтобы не дублировать)
   const sentToday = { dayBeforeShift: null, personalTasks: null, closeShiftReminder: null };
-  
+
   setInterval(async () => {
     const now = new Date();
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
     const today = todayStr();
-    const schedule = getSchedule();
-    
+    const schedule = getScheduleConfig(data);
+
     // Сбрасываем счётчик в полночь
     if (currentMinutes === 0) {
       sentToday.dayBeforeShift = null;
       sentToday.personalTasks = null;
       sentToday.closeShiftReminder = null;
     }
-    
-    // За сутки до смены
+
     if (schedule.dayBeforeShift?.enabled !== false) {
-      const targetTime = timeToMinutes(schedule.dayBeforeShift?.time || '20:00');
-      if (currentMinutes === targetTime && sentToday.dayBeforeShift !== today) {
+      const t = timeToMinutes(schedule.dayBeforeShift?.time || '20:00');
+      if (currentMinutes === t && sentToday.dayBeforeShift !== today) {
         console.log('📅 Отправка пушей "За сутки до смены"');
-        await sendDayBeforeShiftPushes(bot);
+        await sendDayBeforeShiftPushes(bot, data, sender);
         sentToday.dayBeforeShift = today;
       }
     }
-    
-    // Личные задачи
+
     if (schedule.personalTasks?.enabled !== false) {
-      const targetTime = timeToMinutes(schedule.personalTasks?.time || '09:00');
-      if (currentMinutes === targetTime && sentToday.personalTasks !== today) {
+      const t = timeToMinutes(schedule.personalTasks?.time || '09:00');
+      if (currentMinutes === t && sentToday.personalTasks !== today) {
         console.log('📬 Отправка личных задач');
-        await sendPersonalTasksPushes(bot);
+        await sendPersonalTasksPushes(bot, data, sender);
         sentToday.personalTasks = today;
       }
     }
-    
-    // Закрытие смены
+
     if (schedule.closeShiftReminder?.enabled !== false) {
-      const targetTime = timeToMinutes(schedule.closeShiftReminder?.time || '22:00');
-      if (currentMinutes === targetTime && sentToday.closeShiftReminder !== today) {
+      const t = timeToMinutes(schedule.closeShiftReminder?.time || '22:00');
+      if (currentMinutes === t && sentToday.closeShiftReminder !== today) {
         console.log('⏰ Отправка напоминания о закрытии смены');
-        await sendCloseShiftPushes(bot);
+        await sendCloseShiftPushes(bot, data, sender);
         sentToday.closeShiftReminder = today;
       }
     }
-  }, 30000); // Проверяем каждые 30 секунд
+  }, 30000); // каждые 30 секунд
 }
 
-module.exports = { startScheduler, sendDayBeforeShiftPushes, sendPersonalTasksPushes, sendCloseShiftPushes };
+module.exports = {
+  startScheduler,
+  sendDayBeforeShiftPushes,
+  sendPersonalTasksPushes,
+  sendCloseShiftPushes,
+};
