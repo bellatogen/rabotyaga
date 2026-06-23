@@ -55,6 +55,7 @@ export default function App(){
   const[schedule,setSchedule]=useState(EMBEDDED_SCHEDULE);
   const[eventsData,setEventsData]=useState(EMBEDDED_EVENTS); // события из KV (синкаются scheduleSync)
   const[goList,setGoList]=useState([]);
+  const[taskComments,setTaskComments]=useState({});
   const[serverOk,setServerOk]=useState(null);
   // events читается из KV (scheduleSync синкает events:v1), фолбек — EMBEDDED_EVENTS
   const events=eventsData;
@@ -93,11 +94,11 @@ export default function App(){
   const _loaded=await Promise.all([
       ld("tasks:v4",defaultTasks()),ld("done:hist:v2",{}),ld("profiles:v1",DEFAULT_PROFILES),
       ld("cards:v1",[]),ld("status_overrides:v1",[]),ld("revenue:v1",{}),
-      ld("handovers:v1",{}),ld("events_log:v1",[]),ld("inbox_seen:v1",{}),ld("shift_closed:v1",{}),ld("close_notified:v1",{}),ld("acl:v1",{}),ld("task_order:v1",[]),ld("members:v1",DEFAULT_MEMBERS),ld("schedule:v1",EMBEDDED_SCHEDULE),ld("events:v1",EMBEDDED_EVENTS),ld("golist:v1",[]),ld("leave_requests:v1",[]),
+      ld("handovers:v1",{}),ld("events_log:v1",[]),ld("inbox_seen:v1",{}),ld("shift_closed:v1",{}),ld("close_notified:v1",{}),ld("acl:v1",{}),ld("task_order:v1",[]),ld("members:v1",DEFAULT_MEMBERS),ld("schedule:v1",EMBEDDED_SCHEDULE),ld("events:v1",EMBEDDED_EVENTS),ld("golist:v1",[]),ld("leave_requests:v1",[]),ld("task_comments:v1",{}),
     ]);
-    const[t,hist,profs,cds,so,rev,ho,ev,seen,sc,cn,ac,tord,mem,sch,evKV,gl,lr]=_loaded;
+    const[t,hist,profs,cds,so,rev,ho,ev,seen,sc,cn,ac,tord,mem,sch,evKV,gl,lr,tc]=_loaded;
     setTasks(mergeSeeds(t));setHistory(hist);setProfiles(profs);setCards(cds);setStatusOverrides(so);
-    setRevenue(rev);setHandovers(ho);setEventsLog(ev);setInboxSeen(seen);setShiftClosed(sc);setCloseNotified(cn);setAcl(ac);setTaskOrder(tord);setMembers(mem);setSchedule(sch);if(evKV&&Object.keys(evKV).length)setEventsData(evKV);setGoList(gl);if(lr&&lr.length)setLeaveRequests(lr);
+    setRevenue(rev);setHandovers(ho);setEventsLog(ev);setInboxSeen(seen);setShiftClosed(sc);setCloseNotified(cn);setAcl(ac);setTaskOrder(tord);setMembers(mem);setSchedule(sch);if(evKV&&Object.keys(evKV).length)setEventsData(evKV);setGoList(gl);if(lr&&lr.length)setLeaveRequests(lr);if(tc&&Object.keys(tc).length)setTaskComments(tc);
     // Восстанавливаем сессию по httpOnly cookie (серверная авторизация)
     const restoredAccount = await authMe();
     if(restoredAccount){setWho(restoredAccount);}else{setPicking(true);}
@@ -128,6 +129,7 @@ export default function App(){
   usePersist("golist:v1",goList,ready);
   usePersist("events:v1",eventsData,ready);
   usePersist("leave_requests:v1",leaveRequests,ready);
+  usePersist("task_comments:v1",taskComments,ready);
 
   const isManager=who==="manager"||who==="developer";
   const isDeveloper=who==="developer";
@@ -240,13 +242,17 @@ export default function App(){
     setTasks(p=>{
       const existing=p.find(x=>x.id===t.id);
       let nt=t;
+      // Новая задача — фиксируем автора
+      if(!existing) nt={...nt,createdBy:accountLabel(who),createdAt:nowISO()};
+      // Назначение изменилось — фиксируем кто назначил
       if(t.assignedTo&&(!existing||existing.assignedTo!==t.assignedTo))
-        nt={...t,assignedTs:nowISO(),assignedBy:accountLabel(who)};
+        nt={...nt,assignedTs:nowISO(),assignedBy:accountLabel(who)};
       return p.some(x=>x.id===t.id)?p.map(x=>x.id===t.id?nt:x):[...p,nt];
     });
     logEvent(t.assignedTo?"assigned":"task_added",t.assignedTo?`@${t.assignedTo}: ${t.title}`:t.title);
     setModal(null);
   };
+  const onAddComment=(taskId,comment)=>setTaskComments(prev=>({...prev,[taskId]:[...(prev[taskId]||[]),comment]}));
   const delTask=id=>{const t=tasks.find(x=>x.id===id);setTasks(p=>p.filter(x=>x.id!==id));logEvent("task_deleted",t?.title||id);setModal(null);};
   const archiveTask=(id,val=true)=>{const t=tasks.find(x=>x.id===id);setTasks(p=>p.map(x=>x.id===id?{...x,archived:val}:x));logEvent(val?"task_archived":"task_restored",t?.title||id);};
   const issueCard=(name,type,comment,isPrivate)=>{setCards(prev=>{const r=processCard(prev,name,type,comment,isPrivate,accountLabel(who));logEvent("card_issued",`${name}: ${r.finalType}${isPrivate?" (конфид.)":""}`);return r.cards;});};
@@ -454,7 +460,7 @@ export default function App(){
 
 
       {canAddTasks&&["today"].includes(tab)&&<button className="fab" onClick={()=>setModal({_new:true})}><Plus size={24} color="var(--bg)"/></button>}
-      {modal&&!modal._card&&!modal._handover&&!modal._inbox&&!modal._closing&&<TaskModal task={modal._new?null:modal} ds={modal._date||ds} members={members} onClose={()=>setModal(null)} onSave={saveTask} onDelete={delTask}/>}
+      {modal&&!modal._card&&!modal._handover&&!modal._inbox&&!modal._closing&&<TaskModal task={modal._new?null:modal} ds={modal._date||ds} members={members} who={accountLabel(who)} onClose={()=>setModal(null)} onSave={saveTask} onDelete={delTask} comments={modal&&!modal._new?taskComments[modal.id]||[]:undefined} onAddComment={onAddComment}/>}
       {modal?._card&&<CardModal targetName={modal.targetName} onClose={()=>setModal(null)} onIssue={(type,comment,isPrivate)=>{issueCard(modal.targetName,type,comment,isPrivate);setModal(null);}}/>}
       {modal?._handover&&<HandoverModal task={modal.task} ds={ds} onClose={()=>setModal(null)} onSubmit={(text,createTask)=>{addHandover(addDays(ds,1),text,createTask,modal.task?.title);setModal(null);}}/>}
       {modal?._inbox&&<InboxModal who={who} tasks={inboxItems} history={history} ds={ds} onClose={()=>setModal(null)} onToggle={toggle}/>}
