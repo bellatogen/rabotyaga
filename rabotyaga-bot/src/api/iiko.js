@@ -84,7 +84,6 @@ async function getDayRevenue(date, data, saveData) {
   }
 
   const json = await res.json();
-  console.log('[iiko] DEBUG:', JSON.stringify(json).slice(0, 600));
   // В этой версии iiko summary — массив массивов, данные реально в json.data
   let fact = 0;
   if (Array.isArray(json.data)) {
