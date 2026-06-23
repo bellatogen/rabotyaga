@@ -40,6 +40,7 @@ app.use(helmet({
 // ── CORS: только доверенные origins ──
 const ALLOWED_ORIGINS = [
   'https://rabotyaga55.ru',
+  'https://bellatogen-rabotyaga-5c83.twc1.net', // Timeweb Apps preview
   'http://localhost:5173',
   'http://localhost:3001',
 ];
@@ -47,7 +48,8 @@ app.use(cors({
   origin(origin, cb) {
     // Разрешаем запросы без origin (curl, мобильный Telegram WebView)
     if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
-    cb(new Error(`CORS: origin ${origin} не разрешён`));
+    console.warn(`[cors] blocked: ${origin}`);
+    cb(null, false); // тихий отказ — не бросаем Error в лог каждый раз
   },
   credentials: true,
 }));
