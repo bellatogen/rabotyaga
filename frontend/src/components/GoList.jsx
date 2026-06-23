@@ -23,8 +23,8 @@ export function GoListInput({onAdd}){
 }
 
 /* Компактный гоу-лист на «Сегодня» — всегда под рукой, сворачивается */
-export function GoListBlock({items,onAdd,onToggle,onRemove}){
-  const[open,setOpen]=useState(true);
+export function GoListBlock({items,onAdd,onToggle,onRemove,defaultOpen=false}){
+  const[open,setOpen]=useState(defaultOpen);
   const openCnt=items.filter(i=>!i.done).length;
   return(<div style={{border:"1px solid var(--bd)",borderRadius:10,overflow:"hidden",background:"var(--sf)"}}>
     <button onClick={()=>setOpen(o=>!o)} className="acc-head">

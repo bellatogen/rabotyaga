@@ -258,6 +258,45 @@ function ProfileSection({profile,name,isOwnCabinet,onUpdateProfile,ds}){
       <ProfileField label="Последнее обследование" editing={editing} value={editing?f.medbook.lastCheck:profile.medbook?.lastCheck||""} onChange={v=>setMed("lastCheck",v)} type="date"/>
     </div>
 
+    {/* Настройки отображения — сохраняются сразу, без режима редактирования */}
+    {isOwnCabinet&&onUpdateProfile&&(
+      <div style={{background:'var(--sf)',border:'1px solid var(--bd)',borderRadius:12,padding:14,marginBottom:12}}>
+        <div className="sec-lbl" style={{marginBottom:12}}>Отображение</div>
+
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:11,color:'var(--mt)',marginBottom:6}}>Блоки при открытии</div>
+          <div style={{display:'flex',gap:6}}>
+            {[{v:false,l:'Свёрнуты'},{v:true,l:'Развёрнуты'}].map(({v,l})=>(
+              <button key={l} onClick={()=>onUpdateProfile({...profile,sectionsOpen:v})}
+                style={{flex:1,padding:'7px 0',borderRadius:8,fontFamily:'inherit',
+                  border:`1px solid ${(profile.sectionsOpen??false)===v?'var(--cu)':'var(--bd)'}`,
+                  background:(profile.sectionsOpen??false)===v?'rgba(76,175,130,.15)':'transparent',
+                  color:(profile.sectionsOpen??false)===v?'var(--cu)':'var(--mt)',
+                  fontSize:12,fontWeight:600,cursor:'pointer'}}>
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div style={{fontSize:11,color:'var(--mt)',marginBottom:6}}>Вид задач (Сегодня)</div>
+          <div style={{display:'flex',gap:6}}>
+            {[{v:'list',l:'Список'},{v:'carousel',l:'Карусель'}].map(({v,l})=>(
+              <button key={v} onClick={()=>onUpdateProfile({...profile,tasksView:v})}
+                style={{flex:1,padding:'7px 0',borderRadius:8,fontFamily:'inherit',
+                  border:`1px solid ${(profile.tasksView??'list')===v?'var(--cu)':'var(--bd)'}`,
+                  background:(profile.tasksView??'list')===v?'rgba(76,175,130,.15)':'transparent',
+                  color:(profile.tasksView??'list')===v?'var(--cu)':'var(--mt)',
+                  fontSize:12,fontWeight:600,cursor:'pointer'}}>
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    )}
+
     {(isOwnCabinet||!isOwnCabinet)&&onUpdateProfile&&!editing&&(
       <button className="btn btn-g" onClick={()=>setEditing(true)}><Plus size={14}/>Редактировать</button>
     )}

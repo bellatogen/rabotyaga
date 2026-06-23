@@ -4,9 +4,13 @@ import { CheckCircle, ChevronUp, ChevronDown } from 'lucide-react';
 import { TaskCard } from './TaskCard.jsx';
 import { SwipeRow } from './SwipeRow.jsx';
 
-export function DoneAccordion({tasks,onToggle,onEdit,onDelete,onArchive}){
+export function DoneAccordion({tasks,onToggle,onEdit,onDelete,onArchive,compact=false}){
   const [open,setOpen]=useState(false);
-  return(<div className="acc">
+  // compact=true — встраивается внутрь родительской карточки (без внешних отступов и бордера)
+  const wrapStyle=compact
+    ?{borderTop:'1px solid var(--bd)',marginTop:8,background:'transparent'}
+    :undefined;
+  return(<div className={compact?'':"acc"} style={wrapStyle}>
     <button className="acc-head" onClick={()=>setOpen(o=>!o)}>
       <span style={{display:"flex",alignItems:"center",gap:6}}><CheckCircle size={13} color="var(--hp)"/>Выполнено · {tasks.length}</span>
       {open?<ChevronUp size={16}/>:<ChevronDown size={16}/>}

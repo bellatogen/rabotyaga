@@ -1,6 +1,7 @@
 // Вкладка «Сегодня» — прогресс, выручка, гоу-лист, состав смены, задачи дня
 import { useState } from 'react';
-import { CheckCircle, Bell, Send, AlertTriangle, FileText, ChevronDown, ChevronUp } from 'lucide-react';
+import { CheckCircle, Bell, Send, AlertTriangle, FileText, ChevronDown, ChevronUp, AlignJustify, Square } from 'lucide-react';
+import { TaskCarousel } from '../components/TaskCarousel.jsx';
 import { Avatar } from '../components/Avatar.jsx';
 import { SHIFT_STATUSES } from '../constants/shifts.js';
 import { staffCheck, getShiftStatus } from '../utils/staffUtils.js';
@@ -11,8 +12,10 @@ import { TaskCard } from '../components/TaskCard.jsx';
 import { DraggableTaskList } from '../components/DraggableTaskList.jsx';
 import { DoneAccordion } from '../components/DoneAccordion.jsx';
 
-export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,todayShifts,myStatus,myAssigned,schedule,events,statusOverrides,now,revenue,handovers,dayClosed,dayRegularCount,irregular,irregularDoneMap,pushGateOk,onSummary,taskOrder,onReorder,onDelete,onArchive,goList,onGoAdd,onGoToggle,onGoRemove,onToggle,onEdit,onViewEmployee,onHandover,onIikoLoad}){
-  const [shiftOpen, setShiftOpen] = useState(true);
+export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,todayShifts,myStatus,myAssigned,schedule,events,statusOverrides,now,revenue,handovers,dayClosed,dayRegularCount,irregular,irregularDoneMap,pushGateOk,onSummary,taskOrder,onReorder,onDelete,onArchive,goList,onGoAdd,onGoToggle,onGoRemove,onToggle,onEdit,onViewEmployee,onHandover,onIikoLoad,sectionsOpen=false,tasksView='list'}){
+  const [shiftOpen, setShiftOpen] = useState(sectionsOpen);
+  const [tasksOpen, setTasksOpen] = useState(sectionsOpen);
+  const [viewMode,  setViewMode]  = useState(tasksView);
   const check=staffCheck(ds,schedule,events);
   const todayHandovers=handovers[ds]||[];
   const regularTasks=todayTasks.filter(t=>t.kind!=="irregular");
@@ -38,7 +41,7 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
 
     <div className="sec"><RevenueCard date={ds} revenue={revenue} onIikoLoad={onIikoLoad}/></div>
 
-    {goList&&<div className="sec"><GoListBlock items={goList} onAdd={onGoAdd} onToggle={onGoToggle} onRemove={onGoRemove}/></div>}
+    {goList&&<div className="sec"><GoListBlock items={goList} onAdd={onGoAdd} onToggle={onGoToggle} onRemove={onGoRemove} defaultOpen={sectionsOpen}/></div>}
 
     {myAssigned&&myAssigned.length>0&&<div className="sec">
       <div className="sec-head"><span className="sec-lbl" style={{color:"var(--am)"}}><Bell size={12}/>Назначено вам</span><span className="sec-cnt">{myAssigned.filter(t=>doneMap[t.id]).length}/{myAssigned.length}</span></div>
@@ -98,14 +101,41 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
     </div>
 
     <div className="sec">
-      <div className="sec-head"><span className="sec-lbl"><CheckCircle size={12}/>Задачи смены</span><span className="sec-cnt">{done.length}/{regularTasks.length}</span></div>
-      {active.length===0&&regularTasks.length>0&&<div className="empty" style={{padding:"14px 0"}}>Все задачи выполнены 🎉</div>}
-      {regularTasks.length===0&&<div className="empty" style={{padding:"14px 0"}}>Задач на сегодня нет</div>}
-      <DraggableTaskList tasks={active} onReorder={ids=>onReorder(ids)}
-        onToggle={onToggle} onEdit={onEdit} onHandover={onHandover} doneMap={doneMap}
-        onDelete={onDelete} onArchive={onArchive}/>
+      <div style={{border:'1px solid var(--bd)',borderRadius:10,overflow:'hidden',background:'var(--sf)'}}>
+        <button onClick={()=>setTasksOpen(o=>!o)} className="acc-head">
+          <span style={{display:'flex',alignItems:'center',gap:6}}>
+            <CheckCircle size={13} color="var(--hp)"/>Задачи смены
+          </span>
+          <div style={{display:'flex',alignItems:'center',gap:8}}>
+            <span className="mono" style={{fontSize:11,opacity:.55}}>{done.length}/{regularTasks.length}</span>
+            {tasksOpen&&(
+              <button onClick={e=>{e.stopPropagation();setViewMode(m=>m==='list'?'carousel':'list');}}
+                title={viewMode==='list'?'Режим карусели':'Режим списка'}
+                style={{background:'transparent',border:'1px solid var(--bd)',borderRadius:6,
+                  width:26,height:26,display:'flex',alignItems:'center',justifyContent:'center',
+                  color:'var(--mt)',cursor:'pointer',padding:0,flexShrink:0}}>
+                {viewMode==='list' ? <Square size={11}/> : <AlignJustify size={11}/>}
+              </button>
+            )}
+            {tasksOpen ? <ChevronUp size={15}/> : <ChevronDown size={15}/>}
+          </div>
+        </button>
+        {tasksOpen&&<div style={{padding:'0 12px 12px'}}>
+          {active.length===0&&regularTasks.length>0&&<div className="empty" style={{padding:'14px 0'}}>Все задачи выполнены 🎉</div>}
+          {regularTasks.length===0&&<div className="empty" style={{padding:'14px 0'}}>Задач на сегодня нет</div>}
+          {active.length>0&&viewMode==='list'&&(
+            <DraggableTaskList tasks={active} onReorder={ids=>onReorder(ids)}
+              onToggle={onToggle} onEdit={onEdit} onHandover={onHandover} doneMap={doneMap}
+              onDelete={onDelete} onArchive={onArchive}/>
+          )}
+          {active.length>0&&viewMode==='carousel'&&(
+            <TaskCarousel tasks={active} doneMap={doneMap}
+              onToggle={onToggle} onEdit={onEdit} onHandover={onHandover}/>
+          )}
+          {done.length>0&&<DoneAccordion compact tasks={done} onToggle={onToggle} onEdit={onEdit} onDelete={onDelete} onArchive={onArchive}/>}
+        </div>}
+      </div>
     </div>
-    {done.length>0&&<DoneAccordion tasks={done} onToggle={onToggle} onEdit={onEdit} onDelete={onDelete} onArchive={onArchive}/>}
 
     {irregularOpen.length>0&&<div className="sec">
       <div className="sec-head"><span className="sec-lbl" style={{color:"#9bb0c4"}}><FileText size={12}/>Нерегулярные · требуют внимания</span><span className="sec-cnt">{irregularOpen.length}</span></div>
