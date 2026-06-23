@@ -33,8 +33,11 @@ function getRevenueColor(pct){
 
 function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
   const[ym,setYm]=useState("2026-06");
-  const[tooltip,setTooltip]=useState(null);
-  // Скролл/ресайз сдвигают ячейки — fixed-тултип иначе залипает не на месте.
+  const[tooltip,setTooltip]=useState(null);   // только desktop hover
+  const[daySheet,setDaySheet]=useState(null); // mobile bottom sheet
+  const sheetSwipeY=useRef(null);
+
+  // Скролл/ресайз — скрываем тултип
   useEffect(()=>{
     if(!tooltip)return;
     const hide=()=>setTooltip(null);
@@ -42,28 +45,47 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
     window.addEventListener("resize",hide);
     return()=>{window.removeEventListener("scroll",hide,true);window.removeEventListener("resize",hide);};
   },[tooltip]);
-  // Тултип: мышь — hover; тач (Telegram) — long-press (зажатие). Тап остаётся открытием дня.
-  const press=useRef({timer:null,hide:null,long:false});
+  // Закрытие шита при скролле
+  useEffect(()=>{
+    if(!daySheet)return;
+    const hide=()=>setDaySheet(null);
+    window.addEventListener("scroll",hide,true);
+    return()=>window.removeEventListener("scroll",hide,true);
+  },[daySheet]);
+
+  const press=useRef({timer:null,long:false,ptype:'mouse'});
   const clearPress=()=>{clearTimeout(press.current.timer);press.current.timer=null;};
-  const openTip=(el,c,touch)=>{
+
+  const openTip=(el,c)=>{
     const r=el.getBoundingClientRect();
     const rev=revenue[c]||{};
     const pct=rev.plan&&rev.fact?(rev.fact/rev.plan)*100:null;
     const below=r.top<180;
     const vw=typeof window!=="undefined"?window.innerWidth:360;
-    const cx=Math.max(150,Math.min(vw-150,r.left+r.width/2)); // не даём тултипу уехать за край экрана
+    const cx=Math.max(150,Math.min(vw-150,r.left+r.width/2));
     setTooltip({x:cx,y:below?r.bottom:r.top,below,date:c,check:staffCheck(c,schedule,events),shifts:schedule[c]||[],event:events[c]||null,rev,pct});
-    clearTimeout(press.current.hide);
-    if(touch)press.current.hide=setTimeout(()=>setTooltip(null),3500); // на таче нет pointerleave — авто-скрытие
   };
-  const onCellEnter=(e,c)=>{if(e.pointerType==="mouse")openTip(e.currentTarget,c,false);};
+
+  const onCellEnter=(e,c)=>{if(e.pointerType==="mouse")openTip(e.currentTarget,c);};
   const onCellLeave=(e)=>{if(e.pointerType==="mouse")setTooltip(null);clearPress();};
   const onCellDown=(e,c)=>{
+    press.current.ptype=e.pointerType;
     if(e.pointerType==="mouse")return;
-    const el=e.currentTarget;clearPress();press.current.long=false;
-    press.current.timer=setTimeout(()=>{press.current.long=true;openTip(el,c,true);},350);
+    clearPress();press.current.long=false;
+    // long press на тач — не используем (шит открывается по тапу)
   };
-  const onCellClick=(c)=>{if(press.current.long){press.current.long=false;return;}onOpenDay(c);};
+  const onCellClick=(c)=>{
+    if(press.current.long){press.current.long=false;return;}
+    if(press.current.ptype==="touch"||press.current.ptype==="pen"){
+      // Мобилка: открываем bottom sheet
+      const rev=revenue[c]||{};
+      const pct=rev.plan&&rev.fact?(rev.fact/rev.plan)*100:null;
+      setDaySheet({date:c,check:staffCheck(c,schedule,events),shifts:schedule[c]||[],event:events[c]||null,rev,pct});
+    } else {
+      // Десктоп: сразу открываем день
+      onOpenDay(c);
+    }
+  };
   const[y,m]=ym.split("-").map(Number);
   const first=new Date(y,m-1,1);
   const startDow=(first.getDay()+6)%7; // пн=0
@@ -138,6 +160,89 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
       </div>}
       {tooltip.event&&<div className="cal-tt-mt" style={{marginTop:6,paddingTop:6,borderTop:"1px solid var(--bd)",fontSize:12}}>📌 {tooltip.event}</div>}
     </div>}
+
+    {/* ── Mobile bottom sheet ── */}
+    {daySheet&&<>
+      <div onClick={()=>setDaySheet(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",zIndex:200,touchAction:"none"}}/>
+      <div
+        style={{position:"fixed",bottom:0,left:0,right:0,zIndex:201,background:"var(--bg)",
+          borderRadius:"18px 18px 0 0",padding:"0 0 env(safe-area-inset-bottom)",
+          maxHeight:"82vh",overflowY:"auto",boxShadow:"0 -4px 32px rgba(0,0,0,.25)"}}
+        onTouchStart={e=>{sheetSwipeY.current=e.touches[0].clientY;}}
+        onTouchMove={e=>{if(sheetSwipeY.current!==null&&e.touches[0].clientY-sheetSwipeY.current>64)setDaySheet(null);}}
+        onTouchEnd={()=>{sheetSwipeY.current=null;}}
+      >
+        {/* drag handle */}
+        <div style={{width:40,height:4,background:"var(--bd)",borderRadius:2,margin:"10px auto 0"}}/>
+
+        {/* заголовок */}
+        <div style={{padding:"14px 18px 10px",borderBottom:"1px solid var(--bd)"}}>
+          <div style={{fontSize:20,fontWeight:700}}>
+            {new Date(daySheet.date).toLocaleDateString("ru-RU",{day:"numeric",month:"long"})}
+          </div>
+          <div style={{fontSize:13,color:"var(--mt)",marginTop:2}}>
+            {DOW_FULL[new Date(daySheet.date).getDay()]}
+            {daySheet.event&&<span style={{color:"var(--cu)",marginLeft:8}}>· {daySheet.event}</span>}
+          </div>
+        </div>
+
+        <div style={{padding:"12px 18px"}}>
+          {/* Штат */}
+          <div style={{marginBottom:14}}>
+            <div className="sec-lbl" style={{marginBottom:8}}>👥 Штат</div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+              <span style={{fontSize:22,fontWeight:700,color:daySheet.check.ok?"var(--hp)":"#e07a60"}}>
+                {daySheet.check.actual}/{daySheet.check.norm.count}
+              </span>
+              <span style={{fontSize:13,color:daySheet.check.ok?"var(--hp)":"#e07a60",fontWeight:600}}>
+                {daySheet.check.ok?"в норме":"недобор"}
+              </span>
+            </div>
+            {daySheet.shifts.length>0&&daySheet.shifts.map((s,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                padding:"7px 0",borderBottom:"1px solid var(--bd)"}}>
+                <div>
+                  <span style={{fontWeight:600,fontSize:14}}>{s.name}</span>
+                  {s.report&&<span style={{fontSize:10,fontWeight:700,padding:"2px 6px",borderRadius:6,
+                    background:"rgba(232,160,48,.18)",color:"var(--am)",marginLeft:6}}>отчёт</span>}
+                  {(s.sub||s.guest)&&<span style={{fontSize:10,color:"var(--mt)",marginLeft:6}}>подмена</span>}
+                </div>
+                <span style={{fontSize:12,color:"var(--mt)",fontFamily:"monospace"}}>
+                  {s.start||"—"}{s.end?` · ${s.end}ч`:""}
+                </span>
+              </div>
+            ))}
+            {daySheet.shifts.length===0&&<div style={{fontSize:13,color:"var(--mt)"}}>Смен нет</div>}
+          </div>
+
+          {/* Выручка */}
+          {daySheet.rev.plan!=null&&daySheet.rev.plan!==""&&(
+            <div style={{marginBottom:14}}>
+              <div className="sec-lbl" style={{marginBottom:8}}>₽ Выручка</div>
+              <div style={{display:"flex",gap:16}}>
+                <div>
+                  <div style={{fontSize:11,color:"var(--mt)",marginBottom:2}}>План</div>
+                  <div style={{fontSize:18,fontWeight:700}}>{Number(daySheet.rev.plan).toLocaleString("ru-RU")} ₽</div>
+                </div>
+                {daySheet.rev.fact!=null&&daySheet.rev.fact!==""&&<div>
+                  <div style={{fontSize:11,color:"var(--mt)",marginBottom:2}}>Факт</div>
+                  <div style={{fontSize:18,fontWeight:700,color:daySheet.pct!=null?getRevenueColor(daySheet.pct):"var(--tx)"}}>
+                    {Number(daySheet.rev.fact).toLocaleString("ru-RU")} ₽
+                    {daySheet.pct!=null&&<span style={{fontSize:12,marginLeft:6}}>{Math.round(daySheet.pct)}%</span>}
+                  </div>
+                </div>}
+              </div>
+            </div>
+          )}
+
+          {/* Кнопка */}
+          <button className="btn btn-p" style={{width:"100%",marginTop:4,fontSize:15,padding:"13px"}}
+            onClick={()=>{setDaySheet(null);onOpenDay(daySheet.date);}}>
+            Открыть день →
+          </button>
+        </div>
+      </div>
+    </>}
   </div>);
 }
 
