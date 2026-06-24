@@ -7,12 +7,17 @@ const { setAuthCookie, clearAuthCookie, requireAuth, requireManager } = require(
 
 const BCRYPT_ROUNDS = 10;
 
-// SEC-2: Не более 10 попыток входа за 15 минут с одного IP.
-// Было: 5/мин = ~7200 попыток/сутки. Стало: 10/15мин = ~960/сутки.
+// SEC-2: Не более 10 попыток входа за 15 минут.
+// Было: 5/мин = ~7200/сут. Стало: 10/15мин = ~960/сут.
+// keyGenerator: по аккаунту (если есть) + IP — атак с разных IP на один аккаунт тоже ограничен.
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
   skipSuccessfulRequests: true,
+  keyGenerator: (req) => {
+    const account = (req.body?.account || '').toLowerCase().trim().slice(0, 64);
+    return account ? `${req.ip}|${account}` : req.ip;
+  },
   message: { error: 'Слишком много попыток входа. Подождите 15 минут.' },
   standardHeaders: true,
   legacyHeaders: false,

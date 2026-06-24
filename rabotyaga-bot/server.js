@@ -54,7 +54,7 @@ const app = express();
       defaultSrc:      ["'self'"],
       scriptSrc:       ["'self'", "'unsafe-inline'", "https://telegram.org"],
       styleSrc:        ["'self'", "'unsafe-inline'"],
-      imgSrc:          ["'self'", "data:", "https:"],
+      imgSrc:          ["'self'", "data:"],
       // connectSrc: только своё происхождение — фронтенд обращается только к /api/*.
       // Широкий "https:" заменён на 'self', иначе XSS может слать данные на любой хост.
       connectSrc:      ["'self'"],

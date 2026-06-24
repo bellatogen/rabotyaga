@@ -281,6 +281,8 @@ async function getBasketPairs(data, saveData) {
     // Чек ID = дата + фискальный номер (вместе уникальны)
     const date    = String(row['OpenDate.Typed']      || '').slice(0, 10);
     const cheque  = String(row['FiscalChequeNumber']  || '').trim();
+    // FiscalChequeNumber в iiko сбрасывается ежедневно (1,2,3,…) —
+    // уникальность обеспечивается только в паре с датой.
     const orderId = date && cheque ? `${date}:${cheque}` : null;
     const dish    = (row['DishName'] || '').trim();
     if (!orderId || !dish || dish.length > 80) continue;

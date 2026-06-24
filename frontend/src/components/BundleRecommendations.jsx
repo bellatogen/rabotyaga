@@ -1,7 +1,7 @@
 // Рекомендации сэтов — блюда, которые часто берут вместе (market basket analysis).
 // Данные: GET /api/iiko/basket — кэшируется на сервере 20ч.
 // Кнопка «GoList» → добавляет пару в гоу-лист смены.
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Zap, Plus, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import { iikoBasket } from '../services/api.js';
 
@@ -12,7 +12,7 @@ export function BundleRecommendations({ onGoAdd, defaultOpen = false }) {
   const [err,     setErr]     = useState(null);
   const [added,   setAdded]   = useState(new Set());
 
-  const load = async (force = false) => {
+  const load = useCallback(async (force = false) => {
     setLoading(true); setErr(null);
     // Сброс «добавлено» при принудительном обновлении — данные могут измениться
     if (force) setAdded(new Set());
@@ -21,11 +21,10 @@ export function BundleRecommendations({ onGoAdd, defaultOpen = false }) {
       setData(json);
     } catch (e) { setErr(e.message); }
     finally { setLoading(false); }
-  };
+  }, []); // iikoBasket — стабильная функция из модуля, не меняется
 
   // Загружаем при первом раскрытии (один раз)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (open && !data && !loading) load(); }, [open]);
+  useEffect(() => { if (open && !data && !loading) load(); }, [open, data, loading, load]);
 
   const addToGoList = pair => {
     const text = `${pair.a} + ${pair.b} — предлагай сетом (${pair.confAB}% берут вместе)`;

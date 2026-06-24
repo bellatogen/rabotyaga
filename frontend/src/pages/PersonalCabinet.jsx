@@ -56,7 +56,7 @@ export function PersonalCabinet({name,isOwnCabinet,tasks,history,schedule,cards,
   const rate=r14.rate;
   const tr=progressTrend(name,tasks,history,ds);
   const susp=suspiciousFlags(name,tasks,history);
-  const monthDays=Object.keys(schedule).filter(d=>d.startsWith("2026-06"));
+  const monthDays=Object.keys(schedule).filter(d=>d.startsWith(ds.slice(0,7)));
   const monthHours=monthDays.reduce((a,d)=>{const s=(schedule[d]||[]).find(x=>x.name===name);return a+(s&&s.end?hmm(s.end)/60:0);},0);
   const weekHours=rangeDays(ds,7).reduce((a,d)=>{const s=(schedule[d]||[]).find(x=>x.name===name);return a+(s&&s.end?hmm(s.end)/60:0);},0);
   const recs=genRecs(name,tasks,history,schedule,cards,profiles,ds);
