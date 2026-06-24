@@ -172,8 +172,9 @@ export function HoneycombGrid({ onGoAdd, defaultOpen = false }) {
           {/* Мета */}
           {data && (
             <div style={{ fontSize: 10, color: 'var(--mt)', marginBottom: 10, opacity: 0.65 }}>
-              {data.date} · {items.length} позиций · обновлено {new Date(data.ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
-              {' · '}нажми сот → добавить в GoList
+              Данные {data.periodLabel || 'сегодня'} · {items.length} позиций
+              {' · '}{new Date(data.ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+              {' · '}нажми сот → GoList
             </div>
           )}
 

@@ -504,62 +504,75 @@ async function getMarginData(data, saveData) {
   return result;
 }
 
-// ABC-анализ продаж за сегодня: DishName + DishAmountInt, isMargin из margin_data:v1 (авто) или margin_items:v1 (ручно)
+// Вспомогательная функция: OLAP-запрос количества блюд за период
+async function fetchDishCounts(from, to, token) {
+  const body = {
+    reportType: 'SALES', buildSummary: 'false',
+    groupByRowFields: ['DishName'],
+    aggregateFields: ['DishAmountInt'],
+    filters: {
+      'OpenDate.Typed': { filterType:'DateRange', periodType:'CUSTOM', from, to, includeLow:true, includeHigh:true },
+    },
+  };
+  const url = `${IIKO_URL}/resto/api/v2/reports/olap?key=${token}`;
+  const res = await fetch(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body), signal: AbortSignal.timeout(15_000),
+  });
+  if (res.status === 401) { invalidateToken(); throw Object.assign(new Error('iiko: сессия истекла'), { status: 401 }); }
+  if (!res.ok) { const t = await res.text().catch(() => ''); throw new Error(`iiko OLAP ${res.status}: ${t.slice(0, 200)}`); }
+  let json; try { json = await res.json(); } catch { throw new Error('iiko вернул невалидный JSON (sales-abc)'); }
+  const map = {};
+  for (const row of (json.data || [])) {
+    const name  = (row['DishName'] || '').trim();
+    const count = Math.round(Number(row['DishAmountInt'] || 0));
+    if (!name || count <= 0) continue;
+    map[name] = (map[name] || 0) + count;
+  }
+  return map;
+}
+
+// ABC-анализ продаж: DishName + DishAmountInt.
+// Fallback: сегодня → вчера → последние 3 дня (если < MIN_ITEMS позиций).
+// isMargin из margin_data:v1 (авто) или margin_items:v1 (ручной fallback).
 async function getSalesABC(data, saveData) {
   const CACHE_KEY = 'sales_abc:v1';
   const CACHE_TTL = 30 * 60 * 1000; // 30 минут
+  const MIN_ITEMS = 5; // минимум позиций для показа сот
 
-  // Проверяем кэш
   if (data.kv?.[CACHE_KEY]) {
     const cached = JSON.parse(data.kv[CACHE_KEY]);
-    if (Date.now() - cached.ts < CACHE_TTL) return cached;
+    const effectiveTTL = cached.ttl || CACHE_TTL;
+    if (Date.now() - cached.ts < effectiveTTL) return cached;
   }
 
   if (!IIKO_URL || !IIKO_LOGIN) {
     throw Object.assign(new Error('iiko не настроен: задайте IIKO_URL и IIKO_LOGIN в .env'), { status: 503 });
   }
 
-  const token = await getToken();
+  const token  = await getToken();
+  const nowMs  = Date.now() + 3 * 3_600_000; // UTC+3
+  const d0     = new Date(nowMs).toISOString().slice(0, 10);                   // сегодня
+  const d1     = new Date(nowMs - 86_400_000).toISOString().slice(0, 10);     // вчера
+  const d3     = new Date(nowMs - 3 * 86_400_000).toISOString().slice(0, 10); // 3 дня назад
 
-  // UTC+3 (Москва/Омск) — корректная локальная дата для России
-  const today = new Date(Date.now() + 3 * 3_600_000).toISOString().slice(0, 10);
+  // Сегодня
+  let dishMap     = await fetchDishCounts(d0, d0, token);
+  let periodLabel = 'сегодня';
+  let from = d0, to = d0;
 
-  const body = {
-    reportType: 'SALES', buildSummary: 'false',
-    groupByRowFields: ['DishName'],
-    aggregateFields: ['DishAmountInt'],
-    filters: {
-      'OpenDate.Typed': {
-        filterType: 'DateRange', periodType: 'CUSTOM',
-        from: today, to: today, includeLow: true, includeHigh: true,
-      },
-    },
-  };
-
-  const url = `${IIKO_URL}/resto/api/v2/reports/olap?key=${token}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(15_000),
-  });
-
-  if (res.status === 401) { invalidateToken(); throw Object.assign(new Error('iiko: сессия истекла'), { status: 401 }); }
-  if (!res.ok) {
-    const t = await res.text().catch(() => '');
-    throw new Error(`iiko OLAP (sales-abc) HTTP ${res.status}: ${t.slice(0, 200)}`);
+  // Если мало данных — вчера
+  if (Object.keys(dishMap).length < MIN_ITEMS) {
+    dishMap     = await fetchDishCounts(d1, d1, token);
+    periodLabel = 'вчера';
+    from = to   = d1;
   }
 
-  let json;
-  try { json = await res.json(); } catch { throw new Error('iiko вернул невалидный JSON (sales-abc)'); }
-
-  // Агрегируем по блюду (iiko может дать несколько строк на одно блюдо)
-  const dishMap = {};
-  for (const row of (json.data || [])) {
-    const name  = (row['DishName'] || '').trim();
-    const count = Math.round(Number(row['DishAmountInt'] || 0));
-    if (!name || count <= 0) continue;
-    dishMap[name] = (dishMap[name] || 0) + count;
+  // Если мало — последние 3 дня
+  if (Object.keys(dishMap).length < MIN_ITEMS) {
+    dishMap     = await fetchDishCounts(d3, d0, token);
+    periodLabel = 'за 3 дня';
+    from = d3; to = d0;
   }
 
   // Сортируем по убыванию продаж для ABC
@@ -612,9 +625,11 @@ async function getSalesABC(data, saveData) {
     return { name: item.name, count: item.count, abcGroup: item.abcGroup, isMargin, status };
   });
 
-  const result = { ts: Date.now(), date: today, items };
+  // Если данные не за сегодня — сокращаем TTL до 5 мин, чтобы не пропустить открытие смены
+  const ttlOverride = periodLabel !== 'сегодня' ? 5 * 60 * 1000 : null;
+  const result = { ts: Date.now(), date: to, from, to, periodLabel, items, ttl: ttlOverride || CACHE_TTL };
   if (data && saveData) { data.kv[CACHE_KEY] = JSON.stringify(result); saveData(); }
-  console.log(`[iiko/sales-abc] ${today}: ${items.length} позиций (A:${items.filter(i => i.abcGroup==='A').length}, B:${items.filter(i => i.abcGroup==='B').length}, C:${items.filter(i => i.abcGroup==='C').length})`);
+  console.log(`[iiko/sales-abc] ${periodLabel} (${from}–${to}): ${items.length} позиций (A:${items.filter(i=>i.abcGroup==='A').length}, B:${items.filter(i=>i.abcGroup==='B').length}, C:${items.filter(i=>i.abcGroup==='C').length})`);
   return result;
 }
 
