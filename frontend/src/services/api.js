@@ -202,3 +202,13 @@ export const sendTestPush = async (name) => {
   if (!res.ok) throw new Error('Failed to send push');
   return res.json();
 };
+
+// ── iiko basket analysis (market basket / ассоциативные правила) ──
+// force=true — игнорировать кэш на сервере (20ч), пересчитать
+export async function iikoBasket(force = false) {
+  const url = `${API_BASE}/iiko/basket${force ? '?force=1' : ''}`;
+  const res  = await fetch(url, FETCH_OPTS);
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+  return json;
+}

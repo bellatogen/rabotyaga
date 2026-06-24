@@ -107,6 +107,37 @@
 
 ---
 
+### 🔍 Code Review — найдено и исправлено
+
+#### REV-1: CSP connectSrc — убран wildcard `https:`
+`connectSrc: ["'self'","wss:","https:"]` разрешал XSS экспортировать данные
+на любой HTTPS-хост. Фронтенд обращается только к собственному /api/*,
+поэтому `https:` заменён на `'self'`.
+
+#### REV-2: BundleRecommendations — raw fetch → api.js
+Компонент делал `fetch('/api/iiko/basket', {credentials:'include'})` напрямую,
+минуя сервисный слой. Перенесено в `services/api.js` → `iikoBasket(force)`.
+Теперь авторизация и base URL в одном месте.
+
+#### REV-3: added Set не сбрасывался при force-reload
+Кнопка «Обновить» пересчитывала пары, но старые «✓ В листе» оставались
+для позиций с теми же именами. Фикс: `setAdded(new Set())` при `force=true`.
+
+#### REV-4: totalOrders/totalChecks — путаница имён в iiko.js
+Внутренняя переменная `totalOrders` (чеки с 2+ блюдами) и возвращаемое поле
+`totalOrders: totalChecks` (все чеки) делили одно имя — разные денотаты.
+API теперь возвращает `totalChecks`; UI обновлён.
+
+#### REV-5: dishRevEstimate — мёртвый код удалён
+Объект для «будущей маржинальности» строился но никуда не передавался.
+Удалён из iiko.js вместе с комментарием.
+
+#### REV-6: Ring — role="progressbar" вместо role="img"
+`role="img"` давал скринридеру только текстовый label без числового значения.
+`role="progressbar"` + `aria-valuenow/min/max` передаёт процент явно.
+
+---
+
 ### Предыдущие сессии
 
 - `3b3c4a5` — TodayTab UI overhaul (carousel, accordion, display preferences)

@@ -11,8 +11,9 @@ const IIKO_URL      = (process.env.IIKO_URL      || '').replace(/\/+$/, '');
 const IIKO_LOGIN    =  process.env.IIKO_LOGIN    || '';
 const IIKO_PASSWORD =  process.env.IIKO_PASSWORD || '';
 
-let _token       = null;
-let _tokenExpiry = 0;
+let _token        = null;
+let _tokenExpiry  = 0;
+let _tokenPromise = null; // защита от гонки при параллельных вызовах
 
 function sha1(str) {
   return crypto.createHash('sha1').update(str).digest('hex');
@@ -20,15 +21,24 @@ function sha1(str) {
 
 async function getToken() {
   if (_token && Date.now() < _tokenExpiry) return _token;
-  const url = `${IIKO_URL}/resto/api/auth?login=${encodeURIComponent(IIKO_LOGIN)}&pass=${sha1(IIKO_PASSWORD)}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-  if (!res.ok) throw new Error(`iiko авторизация: HTTP ${res.status}`);
-  const text = (await res.text()).trim().replace(/^"|"$/g, '');
-  if (!text || text.length < 8) throw new Error('iiko вернул пустой токен');
-  _token       = text;
-  _tokenExpiry = Date.now() + 50 * 60 * 1000;
-  console.log('[iiko] токен получен');
-  return _token;
+  // Один Promise на всех: параллельные вызовы ждут один fetch вместо N
+  if (_tokenPromise) return _tokenPromise;
+  _tokenPromise = (async () => {
+    try {
+      const url = `${IIKO_URL}/resto/api/auth?login=${encodeURIComponent(IIKO_LOGIN)}&pass=${sha1(IIKO_PASSWORD)}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) throw new Error(`iiko авторизация: HTTP ${res.status}`);
+      const text = (await res.text()).trim().replace(/^"|"$/g, '');
+      if (!text || text.length < 8) throw new Error('iiko вернул пустой токен');
+      _token       = text;
+      _tokenExpiry = Date.now() + 50 * 60 * 1000;
+      console.log('[iiko] токен получен');
+      return _token;
+    } finally {
+      _tokenPromise = null;
+    }
+  })();
+  return _tokenPromise;
 }
 
 function invalidateToken() { _token = null; _tokenExpiry = 0; }
@@ -60,7 +70,8 @@ async function fetchOlapForDate(date, token) {
   if (!res.ok) {
     const t = await res.text().catch(()=>'');
     // Если GuestNum неизвестен — повторяем без него
-    if (t.includes('GuestNum') || t.includes('Unknown')) {
+    // Проверяем что именно это поле GuestNum неизвестно (а не другое)
+    if (t.includes('GuestNum') || t.includes('Unknown OLAP field')) {
       console.warn('[iiko] GuestNum не поддерживается, запрашиваем только выручку');
       return fetchOlapRevenueOnly(date, token);
     }
@@ -85,8 +96,10 @@ async function fetchOlapRevenueOnly(date, token) {
   };
   const url = `${IIKO_URL}/resto/api/v2/reports/olap?key=${token}`;
   const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body), signal:AbortSignal.timeout(15000) });
-  if (!res.ok) { const t = await res.text(); throw new Error(`iiko OLAP ${res.status}: ${t.slice(0,200)}`); }
-  const json = await res.json();
+  if (res.status === 401) { invalidateToken(); throw Object.assign(new Error('iiko: сессия истекла'), { status: 401 }); }
+  if (!res.ok) { const t = await res.text().catch(()=>''); throw new Error(`iiko OLAP ${res.status}: ${t.slice(0,200)}`); }
+  let json;
+  try { json = await res.json(); } catch { throw new Error('iiko вернул невалидный JSON (fallback)'); }
   let fact = 0;
   for (const row of (json.data || [])) fact += Number(row.DishDiscountSumInt || 0);
   return { fact: Math.round(fact), guests: 0 };
@@ -159,9 +172,17 @@ async function syncRevenue(data, saveData) {
     body: JSON.stringify(body), signal: AbortSignal.timeout(20000),
   });
   if (res.status === 401) { invalidateToken(); throw Object.assign(new Error('iiko: сессия истекла'), { status: 401 }); }
-  if (!res.ok) { const t = await res.text(); throw new Error(`iiko OLAP ${res.status}: ${t.slice(0,200)}`); }
-
-  const json = await res.json();
+  if (!res.ok) {
+    const t = await res.text().catch(()=>'');
+    // Если GuestNum неизвестен — повторяем без него
+    if (t.includes('GuestNum') || t.includes('Unknown OLAP field')) {
+      console.warn('[iiko/sync] GuestNum не поддерживается, синхронизируем только выручку');
+      return syncRevenueRevenueOnly(data, saveData);
+    }
+    throw new Error(`iiko OLAP ${res.status}: ${t.slice(0,200)}`);
+  }
+  let json;
+  try { json = await res.json(); } catch { throw new Error('iiko syncRevenue вернул невалидный JSON'); }
   const revenue = JSON.parse(data.kv['revenue:v1'] || '{}');
   let updated = 0;
 
@@ -184,6 +205,42 @@ async function syncRevenue(data, saveData) {
   data.kv['revenue:v1'] = JSON.stringify(revenue);
   saveData();
   console.log(`[iiko] syncRevenue: обновлено ${updated} дней (${from}–${to})`);
+  return { updated, from, to };
+}
+
+// Fallback для syncRevenue: только выручка без GuestNum
+async function syncRevenueRevenueOnly(data, saveData) {
+  const now  = new Date();
+  const from = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+  const to   = now.toISOString().slice(0, 10);
+  const token = await getToken();
+  const body = {
+    reportType: 'SALES', buildSummary: 'false',
+    groupByRowFields: ['OpenDate.Typed'],
+    aggregateFields: ['DishDiscountSumInt'],
+    filters: { 'OpenDate.Typed': { filterType:'DateRange', periodType:'CUSTOM', from, to, includeLow:true, includeHigh:true } },
+  };
+  const url = `${IIKO_URL}/resto/api/v2/reports/olap?key=${token}`;
+  const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body), signal:AbortSignal.timeout(20000) });
+  if (res.status === 401) { invalidateToken(); throw Object.assign(new Error('iiko: сессия истекла'), { status: 401 }); }
+  if (!res.ok) { const t = await res.text().catch(()=>''); throw new Error(`iiko OLAP ${res.status}: ${t.slice(0,200)}`); }
+  let json;
+  try { json = await res.json(); } catch { throw new Error('iiko syncRevenue невалидный JSON'); }
+  const revenue = JSON.parse(data.kv['revenue:v1'] || '{}');
+  let updated = 0;
+  for (const row of (json.data || [])) {
+    const iso  = String(row['OpenDate.Typed'] || '').slice(0, 10);
+    if (!iso) continue;
+    const fact = Math.round(Number(row.DishDiscountSumInt || 0));
+    if (fact > 0) {
+      if (!revenue[iso]) revenue[iso] = {};
+      revenue[iso].fact = fact;
+      updated++;
+    }
+  }
+  data.kv['revenue:v1'] = JSON.stringify(revenue);
+  saveData();
+  console.log(`[iiko] syncRevenue (fallback): обновлено ${updated} дней (${from}–${to})`);
   return { updated, from, to };
 }
 
@@ -232,7 +289,6 @@ async function getBasketPairs(data, saveData) {
 
   // Строим map: orderId → Set<dishes>
   const orderItems = {};
-  const dishRevEstimate = {}; // для последующей маржинальности
   for (const row of rows) {
     // Чек ID = дата + фискальный номер (вместе уникальны)
     const date    = String(row['OpenDate.Typed']      || '').slice(0, 10);
@@ -242,7 +298,6 @@ async function getBasketPairs(data, saveData) {
     if (!orderId || !dish || dish.length > 80) continue;
     if (!orderItems[orderId]) orderItems[orderId] = new Set();
     orderItems[orderId].add(dish);
-    dishRevEstimate[dish] = (dishRevEstimate[dish] || 0) + Number(row['DishAmountInt'] || 1);
   }
 
   const orders = Object.values(orderItems).map(s => [...s]).filter(arr => arr.length >= 2);
@@ -251,7 +306,7 @@ async function getBasketPairs(data, saveData) {
   console.log(`[iiko/basket] чеков: ${totalChecks}, чеков с 2+ блюдами: ${totalOrders}`);
 
   if (totalOrders < 10) {
-    return { pairs: [], totalOrders: totalChecks, from, to, ts: new Date().toISOString() };
+    return { pairs: [], totalChecks, from, to, ts: new Date().toISOString() };
   }
 
   // Ко-оккуррентность
@@ -291,7 +346,8 @@ async function getBasketPairs(data, saveData) {
     .sort((a, b) => b.score - a.score)
     .slice(0, 30);
 
-  const result = { pairs, totalOrders: totalChecks, from, to, ts: new Date().toISOString() };
+  // totalChecks — полное кол-во чеков за период (для UI); totalOrders — только чеки с 2+ блюдами (для алгоритма)
+  const result = { pairs, totalChecks, from, to, ts: new Date().toISOString() };
   if (data && saveData) { data.kv[CACHE_KEY] = JSON.stringify(result); saveData(); }
   console.log(`[iiko/basket] пар найдено: ${pairs.length}`);
   return result;

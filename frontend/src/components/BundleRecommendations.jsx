@@ -3,6 +3,7 @@
 // Кнопка «GoList» → добавляет пару в гоу-лист смены.
 import { useState, useEffect } from 'react';
 import { Zap, Plus, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { iikoBasket } from '../services/api.js';
 
 export function BundleRecommendations({ onGoAdd, defaultOpen = false }) {
   const [open,    setOpen]    = useState(defaultOpen);
@@ -13,17 +14,17 @@ export function BundleRecommendations({ onGoAdd, defaultOpen = false }) {
 
   const load = async (force = false) => {
     setLoading(true); setErr(null);
+    // Сброс «добавлено» при принудительном обновлении — данные могут измениться
+    if (force) setAdded(new Set());
     try {
-      const url = force ? '/api/iiko/basket?force=1' : '/api/iiko/basket';
-      const res  = await fetch(url, { credentials: 'include' });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      const json = await iikoBasket(force);
       setData(json);
     } catch (e) { setErr(e.message); }
     finally { setLoading(false); }
   };
 
-  // Загружаем при первом раскрытии
+  // Загружаем при первом раскрытии (один раз)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (open && !data && !loading) load(); }, [open]);
 
   const addToGoList = pair => {
@@ -61,7 +62,7 @@ export function BundleRecommendations({ onGoAdd, defaultOpen = false }) {
           {/* Мета */}
           {data && (
             <div style={{fontSize:10,color:'var(--mt)',marginBottom:8,opacity:.6}}>
-              Анализ за {data.from}–{data.to} · {data.totalOrders} чеков
+              Анализ за {data.from}–{data.to} · {data.totalChecks} чеков
             </div>
           )}
 
