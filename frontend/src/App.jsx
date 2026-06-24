@@ -27,6 +27,7 @@ import { EventsTab } from './pages/EventsTab.jsx';
 import { TaskModal } from './modals/TaskModal.jsx';
 import { CardModal } from './modals/CardModal.jsx';
 import { HandoverModal } from './modals/HandoverModal.jsx';
+  import { IncomingHandoverModal } from './modals/IncomingHandoverModal.jsx';
 import { InboxModal } from './modals/InboxModal.jsx';
 import { ClosingSummaryModal } from './modals/ClosingSummaryModal.jsx';
 import { AuthModal } from './modals/AuthModal.jsx';
@@ -47,6 +48,7 @@ export default function App(){
   const[monthPlan,setMonthPlan]=useState({}); // { "YYYY-MM": число } — месячный план выручки
   const[hourNorms,setHourNorms]=useState(DEFAULT_HOUR_NORMS); // { имя: {min,max} } — нормы часов
   const[handovers,setHandovers]=useState({});
+    const[handoverSeen,setHandoverSeen]=useState({});
   const[eventsLog,setEventsLog]=useState([]);
   const[leaveRequests,setLeaveRequests]=useState([]);
   const[inboxSeen,setInboxSeen]=useState({});
@@ -104,11 +106,11 @@ export default function App(){
       ld("tasks:v4",defaultTasks()),ld("done:hist:v2",{}),ld("profiles:v1",DEFAULT_PROFILES),
       ld("cards:v1",[]),ld("status_overrides:v1",[]),ld("revenue:v1",{}),ld("month_plan:v1",{}),
       ld("handovers:v1",{}),ld("events_log:v1",[]),ld("inbox_seen:v1",{}),ld("shift_closed:v1",{}),ld("close_notified:v1",{}),ld("acl:v1",{}),ld("task_order:v1",[]),ld("members:v1",DEFAULT_MEMBERS),ld("schedule:v1",EMBEDDED_SCHEDULE),ld("events:v1",EMBEDDED_EVENTS),ld("golist:v1",[]),ld("leave_requests:v1",[]),ld("task_comments:v1",{}),
-      ld("hour_norms:v1",DEFAULT_HOUR_NORMS),ld("events:v2",[]),
+      ld("hour_norms:v1",DEFAULT_HOUR_NORMS),ld("events:v2",[]),ld("handover_seen:v1",{}),
     ]);
-    const[t,hist,profs,cds,so,rev,mp,ho,ev,seen,sc,cn,ac,tord,mem,sch,evKV,gl,lr,tc,hn,evV2]=_loaded;
+    const[t,hist,profs,cds,so,rev,mp,ho,ev,seen,sc,cn,ac,tord,mem,sch,evKV,gl,lr,tc,hn,evV2,hs]=_loaded;
     setTasks(mergeSeeds(t));setHistory(hist);setProfiles(profs);setCards(cds);setStatusOverrides(so);
-    setRevenue(rev);setMonthPlan(mp||{});setHandovers(ho);setEventsLog(ev);setInboxSeen(seen);setShiftClosed(sc);setCloseNotified(cn);setAcl(ac);setTaskOrder(tord);setMembers(mem);setSchedule(sch);if(evKV&&Object.keys(evKV).length)setEventsData(evKV);setGoList(gl);if(lr&&lr.length)setLeaveRequests(lr);if(tc&&Object.keys(tc).length)setTaskComments(tc);
+    setRevenue(rev);setMonthPlan(mp||{});setHandovers(ho);setEventsLog(ev);setInboxSeen(seen);setShiftClosed(sc);setCloseNotified(cn);setHandoverSeen(hs||{});setAcl(ac);setTaskOrder(tord);setMembers(mem);setSchedule(sch);if(evKV&&Object.keys(evKV).length)setEventsData(evKV);setGoList(gl);if(lr&&lr.length)setLeaveRequests(lr);if(tc&&Object.keys(tc).length)setTaskComments(tc);
     if(hn&&Object.keys(hn).length)setHourNorms(hn);
     // Миграция events:v1 → events:v2 (один раз, пока v2 пуст) — детерминированные id
     const v1src=(evKV&&Object.keys(evKV).length)?evKV:EMBEDDED_EVENTS;
@@ -149,6 +151,7 @@ export default function App(){
   usePersist("inbox_seen:v1",inboxSeen,ready);
   usePersist("shift_closed:v1",shiftClosed,ready);
   usePersist("close_notified:v1",closeNotified,ready);
+    usePersist("handover_seen:v1",handoverSeen,ready);
   // auth:v1 НЕ синхронизируется на клиент — управляется только через /api/auth/*
   usePersist("acl:v1",acl,ready);
   usePersist("task_order:v1",taskOrder,ready);
@@ -246,6 +249,10 @@ export default function App(){
     setModal({_closing:true,summary,auto:true});
   };
   const openSummary=()=>{const summary=buildDaySummary(tasks,history,ds);setModal({_closing:true,summary,auto:false});};
+  const carryOverTasks=useMemo(()=>tasks.filter(t=>!t.archived&&t.title.startsWith('[Перенос]')&&isToday(t,ds)&&!isDone(history[`${t.id}::${ds}`])),[tasks,history,ds]);
+  const todayHandoverNotes=handovers[ds]||[];
+  const showHandover=!loading&&!!who&&!handoverSeen[ds]&&(carryOverTasks.length>0||todayHandoverNotes.length>0);
+  const acceptHandover=()=>{setHandoverSeen(prev=>({...prev,[ds]:true}));logEvent('handover_accepted',`принято: ${carryOverTasks.length} задач перенесено`);sv('handover_seen:v1',{...handoverSeen,[ds]:true}).catch(()=>{});};
   const carryOver=(notDoneTasks)=>{
     const tomorrow=addDays(ds,1);
     setTasks(prev=>{
@@ -519,5 +526,6 @@ export default function App(){
       {modal?._handover&&<HandoverModal task={modal.task} ds={ds} onClose={()=>setModal(null)} onSubmit={(text,createTask)=>{addHandover(addDays(ds,1),text,createTask,modal.task?.title);setModal(null);}}/>}
       {modal?._inbox&&<InboxModal who={who} tasks={inboxItems} history={history} ds={ds} onClose={()=>setModal(null)} onToggle={toggle}/>}
       {modal?._closing&&<ClosingSummaryModal summary={modal.summary} auto={modal.auto} onClose={()=>setModal(null)} onCarryOver={carryOver}/>}
+        {showHandover&&<IncomingHandoverModal carryOverTasks={carryOverTasks} handoverNotes={todayHandoverNotes} ds={ds} onAccept={acceptHandover}/>}
     </div>);
 }
