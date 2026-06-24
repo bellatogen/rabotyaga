@@ -1,28 +1,49 @@
-// «Сэты дня» — фокус-блок в TodayTab: топ-3 пары напиток+закуска на смену.
+// «Сэты дня» — фокус-блок в TodayTab: пары «напиток + закуска» или топ маржинальных позиций.
 // Источник — GET /api/iiko/basket (кэш 20ч). При ошибке/отсутствии iiko блок скрыт.
-import { useState, useEffect } from 'react';
-import { Sparkles, Plus, Check, TrendingUp } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Sparkles, Plus, Check, TrendingUp, RefreshCw } from 'lucide-react';
 import { iikoBasket } from '../services/api.js';
-import { pickDailySets, topMarginKeys, pairKey, setGoText } from '../utils/setsUtils.js';
+import { drinkFoodPool, pickTopMarginItems, topMarginKeys, pairKey, setGoText } from '../utils/setsUtils.js';
+
+const PAGE = 3; // пар на страницу
 
 export function DailySets({ onGoAdd }) {
-  const [sets,  setSets]  = useState(null);  // null=загрузка, []=пусто
-  const [err,   setErr]   = useState(null);
-  const [added, setAdded] = useState(new Set());
+  const [raw,    setRaw]    = useState(null);  // сырой ответ API
+  const [err,    setErr]    = useState(null);
+  const [offset, setOffset] = useState(0);
+  const [added,  setAdded]  = useState(new Set());
 
-  useEffect(() => {
-    let alive = true;
-    iikoBasket(false)
-      .then(j => { if (alive) setSets(pickDailySets(j.pairs || [], 3, j.dishTypeMap || null)); })
-      .catch(e => { if (alive) setErr(e.message); });
-    return () => { alive = false; };
+  const load = useCallback((force = false) => {
+    setErr(null);
+    iikoBasket(force)
+      .then(j  => setRaw(j))
+      .catch(e => setErr(e.message));
   }, []);
 
-  // Тихо скрываем при ошибке (iiko не настроен) или при отсутствии данных
-  if (err || (sets && sets.length === 0)) return null;
-  if (!sets) return null; // короткая загрузка — без спиннера
+  useEffect(() => { load(false); }, [load]);
 
-  const marginTop = topMarginKeys(sets, 3);
+  // Тихо скрываем при ошибке (iiko не настроен)
+  if (err) return null;
+  if (!raw) return null;
+
+  const typeMap = raw.dishTypeMap || null;
+  const pool    = drinkFoodPool(raw.pairs || [], typeMap);  // только напиток+закуска
+  const hasPairs = pool.length > 0;
+
+  // Если пар нет — топ маржинальных позиций по отдельности
+  const soloItems = hasPairs ? [] : pickTopMarginItems(raw.pairs || [], PAGE, typeMap);
+
+  // Ничего показывать не можем
+  if (!hasPairs && soloItems.length === 0) return null;
+
+  const page   = pool.slice(offset, offset + PAGE);
+  const total  = pool.length;
+  const canNext = hasPairs && total > PAGE;
+
+  const nextPage = () => setOffset(o => (o + PAGE) >= total ? 0 : o + PAGE);
+
+  const marginTop = topMarginKeys(page, PAGE);
+
   const add = p => {
     onGoAdd && onGoAdd(setGoText(p));
     setAdded(prev => new Set([...prev, pairKey(p)]));
@@ -31,17 +52,36 @@ export function DailySets({ onGoAdd }) {
   return (
     <div className="sec">
       <div className="sec-head">
-        <span className="sec-lbl" style={{ color: 'var(--am)' }}><Sparkles size={12}/>Сэты дня</span>
-        <span className="sec-cnt">{sets.length}</span>
+        <span className="sec-lbl" style={{ color: 'var(--am)' }}>
+          <Sparkles size={12}/>{hasPairs ? 'Сэты дня' : 'Рекомендуй сегодня'}
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {hasPairs && <span style={{ fontSize: 11, color: 'var(--mt)', opacity: .6 }}>
+            {offset + 1}–{Math.min(offset + PAGE, total)} из {total}
+          </span>}
+          {canNext && (
+            <button onClick={nextPage}
+              title="Следующие варианты"
+              style={{ background: 'transparent', border: '1px solid var(--bd)', borderRadius: 6,
+                width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: 'var(--mt)', cursor: 'pointer', padding: 0, flexShrink: 0 }}>
+              <RefreshCw size={12}/>
+            </button>
+          )}
+        </div>
       </div>
       <div style={{ fontSize: 11, color: 'var(--mt)', marginBottom: 8, lineHeight: 1.45 }}>
-        Что предлагать гостям сегодня — пары «напиток + закуска», которые чаще берут вместе и дают маржу.
+        {hasPairs
+          ? 'Пары «напиток + закуска», которые чаще берут вместе и дают маржу.'
+          : 'Позиции с высокой маржой — предлагай гостям активно.'}
       </div>
-      {sets.map((p, i) => {
+
+      {/* Режим пар */}
+      {hasPairs && page.map((p, i) => {
         const key     = pairKey(p);
         const isAdded = added.has(key);
         const conf    = Math.max(p.confAB || 0, p.confBA || 0);
-        const isMargin = marginTop.has(key);
+        const isTop   = marginTop.has(key);
         return (
           <div key={i} style={{
             display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10,
@@ -53,13 +93,13 @@ export function DailySets({ onGoAdd }) {
                 {p.a}<span style={{ color: 'var(--mt)', fontWeight: 400, margin: '0 5px' }}>+</span>{p.b}
               </div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <span style={{ fontSize: 11, color: 'var(--mt)' }}>
+                {conf > 0 && <span style={{ fontSize: 11, color: 'var(--mt)' }}>
                   вместе в <span style={{ color: 'var(--am)', fontWeight: 700 }}>{conf}%</span> случаев
-                </span>
+                </span>}
                 {p.margin != null && (
-                  <span style={{ fontSize: 11, color: isMargin ? 'var(--cu)' : 'var(--mt)',
-                    fontWeight: isMargin ? 700 : 400, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                    {isMargin && <TrendingUp size={11}/>}маржа ~{p.margin}%
+                  <span style={{ fontSize: 11, color: isTop ? 'var(--cu)' : 'var(--mt)',
+                    fontWeight: isTop ? 700 : 400, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                    {isTop && <TrendingUp size={11}/>}маржа ~{p.margin}%
                   </span>
                 )}
               </div>
@@ -77,6 +117,33 @@ export function DailySets({ onGoAdd }) {
           </div>
         );
       })}
+
+      {/* Режим одиночных позиций (нет пар напиток+закуска) */}
+      {!hasPairs && soloItems.map((item, i) => (
+        <div key={i} style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '10px 12px', background: 'var(--sf)', border: '1px solid var(--am)',
+          borderRadius: 10, marginBottom: 8,
+        }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.35 }}>{item.name}</div>
+            {item.margin != null && (
+              <div style={{ fontSize: 11, color: 'var(--cu)', fontWeight: 700,
+                display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 3 }}>
+                <TrendingUp size={11}/>маржа ~{item.margin}%
+              </div>
+            )}
+          </div>
+          <button
+            onClick={() => { onGoAdd && onGoAdd(`${item.name} — рекомендуй гостям`); }}
+            style={{ flexShrink: 0, background: 'transparent', border: '1px solid var(--bd)',
+              borderRadius: 7, padding: '5px 8px', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 3,
+              color: 'var(--mt)', fontSize: 11, fontWeight: 600, fontFamily: 'inherit' }}>
+            <Plus size={12}/>GoList
+          </button>
+        </div>
+      ))}
     </div>
   );
 }

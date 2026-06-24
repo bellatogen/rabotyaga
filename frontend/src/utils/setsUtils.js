@@ -4,15 +4,24 @@
 export const pairKey = p => `${p.a}|||${p.b}`;
 
 // Убираем контейнерные суффиксы («с собой», объём) из имени перед матчингом —
-// iiko часто отдаёт «IPA 0,5л с собой», что мешает эвристике по названию.
+// iiko часто отдаёт «IPA 0,5л с собой» или «Лагер 1,0 с собой».
 function stripContainerSuffix(name) {
-  return (name || '').replace(/\s*(с\s+собой|навынос|0[,.]\d+\s*л|to go|\d+\s*мл)\s*/gi, ' ').trim();
+  return (name || '')
+    // объём с буквой л: «0,5л», «0.33л», «1л», «1,0л»
+    .replace(/\s*\d+[,.]\d*\s*л\b/gi, ' ')
+    // целый объём без запятой: «1л», «2л»
+    .replace(/\s*\d+\s*л\b/gi, ' ')
+    // только цифра+запятая без «л» в конце слова: «1,0» «0,5»
+    .replace(/\s+\d+[,.]\d+\s*/g, ' ')
+    // суффиксы «с собой», «навынос», «to go», «мл»
+    .replace(/\s*(с\s+собой|навынос|to go|\d+\s*мл)\s*/gi, ' ')
+    .replace(/\s+/g, ' ').trim();
 }
 
-// Эвристика по названию — fallback, когда iiko не отдаёт категории (catA/catB/typeA/typeB).
+// Эвристика по названию — fallback, когда iiko не отдаёт категории.
 function looksLikeDrink(name) {
   const n = stripContainerSuffix(name).toLowerCase();
-  return /пиво|пилс|лагер|эль|стаут|портер|вино|шампан|просекко|кава|виски|водк|джин|ром|текил|коньяк|бренди|сидр|медовух|квас|пунш|глинтвейн|напиток|коктейл|дра(ф|фт)|розлив|разлив|бокал|кружк|ale|ipa|lager|stout|porter|weizen|weiss|wit\b|saison|pilsner|pilsener|pils|gose|sour|cider|mead|craft|palm\b|chimay|duvel|leffe|hoeg|kriek/.test(n);
+  return /пиво|пилс|лагер|эль|стаут|портер|вино|шампан|просекко|кава|виски|водк|джин|ром|текил|коньяк|бренди|сидр|медовух|квас|пунш|глинтвейн|напиток|коктейл|дра(ф|фт)|розлив|разлив|бокал|кружк|ale|ipa|lager|stout|porter|weizen|weiss|wit\b|saison|pilsner|pilsener|pils|gose|sour\b|cider|mead|craft|крафт|palm\b|chimay|duvel|leffe|hoegaarden|hoeg|kriek|trappist|abbey|белое|тёмное|темное|светлое|нефильтр|фильтр|бочков|разлив|дримтим|dreamteam|lockdown|локдаун|on\s+the\s+bon|speckled\s+hen|speckled|спеклед|олд\s+спекл|hен/.test(n);
 }
 function looksLikeFood(name) {
   const n = stripContainerSuffix(name).toLowerCase();
@@ -61,16 +70,43 @@ export function filterDrinkSnack(pairs = [], dishTypeMap = null) {
   return pairs.filter(p => isDrinkSnack(p, dishTypeMap));
 }
 
-// Топ-N сэтов: приоритет напиток+закуска, сортировка по марже, затем по score.
-// Если явных пар нет — берём общий список, но отсеиваем «оба напитка / оба еда».
-export function pickDailySets(pairs = [], n = 3, dishTypeMap = null) {
-  let pool = pairs.filter(p => isDrinkSnack(p, dishTypeMap));
-  if (!pool.length) pool = pairs.filter(p => !looksLikeSameKind(p));
+// Отсортированный пул пар напиток+закуска (не ограниченный по n).
+// Не делает fallback на пиво+пиво — лучше вернуть пустой список.
+export function drinkFoodPool(pairs = [], dishTypeMap = null) {
+  const pool = pairs.filter(p => isDrinkSnack(p, dishTypeMap));
   return [...pool].sort((a, b) => {
     const ma = a.margin ?? -1, mb = b.margin ?? -1;
     if (mb !== ma) return mb - ma;
     return (b.score || 0) - (a.score || 0);
-  }).slice(0, n);
+  });
+}
+
+// Топ-N сэтов со смещением (для кнопки «ещё»).
+export function pickDailySets(pairs = [], n = 3, dishTypeMap = null, offset = 0) {
+  return drinkFoodPool(pairs, dishTypeMap).slice(offset, offset + n);
+}
+
+// Топ-N маржинальных позиций по отдельности (когда пар нет).
+// Из всех блюд в парах, которые выглядят как напитки — исключаем, берём только остальные;
+// если вообще нет закусок — берём маржинальные напитки (лучше что-то, чем ничего).
+export function pickTopMarginItems(pairs = [], n = 3, dishTypeMap = null) {
+  const seen = new Set();
+  const items = [];
+  for (const p of pairs) {
+    for (const [name, typeKey] of [[p.a, p.typeA], [p.b, p.typeB]]) {
+      if (seen.has(name)) continue;
+      seen.add(name);
+      const type = (dishTypeMap && dishTypeMap[name]) || typeKey;
+      const margin = name === p.a ? p.marginA : p.marginB;
+      items.push({ name, type, margin: margin ?? p.margin ?? null });
+    }
+  }
+  // Предпочитаем закуски, потом всё остальное
+  const food  = items.filter(i => i.type === 'food' || looksLikeFood(i.name));
+  const mixed = food.length >= n ? food : items;
+  return [...mixed]
+    .sort((a, b) => (b.margin ?? -1) - (a.margin ?? -1))
+    .slice(0, n);
 }
 
 // Ключи топ-N по марже среди переданных пар — для аннотации «маржинальная позиция».
