@@ -124,11 +124,13 @@ async function fetchOlapForDate(date, token) {
     throw new Error(`iiko OLAP HTTP ${res.status}: ${t.slice(0,200)}`);
   }
   const json = await res.json();
-  // Одна строка = один заказ (OrderNum): суммируем выручку, GuestNum без дублирования по блюдам
+  // Одна строка = один заказ (OrderNum): суммируем выручку, GuestNum без дублирования по блюдам.
+  // Заказы с нулевой выручкой (отменённые) исключаем из подсчёта гостей — иначе ~3% завышение.
   let fact = 0, guests = 0;
   for (const row of (json.data || [])) {
-    fact   += Number(row.DishDiscountSumInt || 0);
-    guests += Number(row.GuestNum           || 0);
+    const rowFact = Number(row.DishDiscountSumInt || 0);
+    fact += rowFact;
+    if (rowFact > 0) guests += Number(row.GuestNum || 0);
   }
   return { fact: Math.round(fact), guests };
 }
@@ -256,7 +258,8 @@ async function syncRevenueRange(from, to, data, saveData) {
     const iso    = String(row['OpenDate.Typed'] || '').slice(0, 10);
     if (!iso) continue;
     const rowFact   = Number(row.DishDiscountSumInt || 0);
-    const rowGuests = useGuests ? Number(row.GuestNum || 0) : 0;
+    // Гостей считаем только по заказам с ненулевой выручкой (исключаем отменённые)
+    const rowGuests = (useGuests && rowFact > 0) ? Number(row.GuestNum || 0) : 0;
     if (!acc[iso]) acc[iso] = { fact: 0, guests: 0 };
     acc[iso].fact   += rowFact;
     acc[iso].guests += rowGuests;
