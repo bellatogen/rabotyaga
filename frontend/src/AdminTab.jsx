@@ -9,7 +9,7 @@ const TEMPLATE_LABELS = {
 };
 
 // SECURITY: /api/admin/* не защищён backend-авторизацией — только frontend-gating через isManager
-export function AdminTab({ auth, members, ds }) {
+export function AdminTab({ auth, members, ds, onReloadData }) {
   const [sub, setSub]               = useState('templates');
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState(null);
@@ -123,6 +123,9 @@ export function AdminTab({ auth, members, ds }) {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
       setBackfillStatus(json);
+      // Перезагружаем revenue + schedule в React-стейте приложения —
+      // иначе UI показывает старые данные до следующей перезагрузки страницы
+      if (onReloadData) await onReloadData();
     } catch (e) {
       setBackfillStatus({ error: e.message });
     } finally {
@@ -395,16 +398,30 @@ export function AdminTab({ auth, members, ds }) {
 
             {backfillStatus && !backfillStatus.error && (
               <div style={{ background: 'var(--sf)', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 12 }}>
-                <div style={{ color: '#8bc47a', fontWeight: 600, marginBottom: 4 }}>
-                  ✓ Восстановление завершено ({backfillStatus.from} → {backfillStatus.to})
+                <div style={{ color: '#8bc47a', fontWeight: 600, marginBottom: 6 }}>
+                  ✓ Данные обновлены в интерфейсе ({backfillStatus.from} → {backfillStatus.to})
                 </div>
+                {/* Расписание */}
                 {backfillStatus.schedule?.error
-                  ? <div style={{ color: '#e07a60' }}>⚠ Расписание: {backfillStatus.schedule.error}</div>
-                  : <div style={{ color: 'var(--mt)' }}>📅 Расписание: {backfillStatus.schedule?.daysUpdated ?? 0} дней</div>
+                  ? <div style={{ color: '#e07a60', marginBottom: 4 }}>⚠ Расписание: {backfillStatus.schedule.error}</div>
+                  : <div style={{ color: backfillStatus.schedule?.daysUpdated > 0 ? '#8bc47a' : '#e0a41e', marginBottom: 4 }}>
+                      📅 Расписание: {backfillStatus.schedule?.daysUpdated ?? 0} дней
+                      {(backfillStatus.schedule?.daysUpdated ?? 0) === 0 &&
+                        <span style={{ color: 'var(--mt)', marginLeft: 6 }}>— Google Sheets не вернул данных</span>}
+                    </div>
                 }
+                {/* Выручка iiko */}
                 {backfillStatus.revenue?.error
-                  ? <div style={{ color: '#e07a60' }}>⚠ iiko выручка: {backfillStatus.revenue.error}</div>
-                  : <div style={{ color: 'var(--mt)' }}>💰 Выручка iiko: {backfillStatus.revenue?.updated ?? 0} дней</div>
+                  ? <div style={{ color: '#e07a60' }}>
+                      ⚠ iiko выручка: {backfillStatus.revenue.error}
+                    </div>
+                  : <div style={{ color: backfillStatus.revenue?.updated > 0 ? '#8bc47a' : '#e0a41e' }}>
+                      💰 Выручка iiko: {backfillStatus.revenue?.updated ?? 0} дней
+                      {(backfillStatus.revenue?.updated ?? 0) === 0 &&
+                        <span style={{ color: 'var(--mt)', marginLeft: 6 }}>
+                          — iiko не вернул данных. Проверьте IIKO_URL, IIKO_LOGIN, IIKO_PASSWORD в .env
+                        </span>}
+                    </div>
                 }
               </div>
             )}

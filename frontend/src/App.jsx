@@ -110,6 +110,15 @@ export default function App(){
     setLoading(false);
   })();},[]);
   const ready=!loading;
+  // Перезагружает revenue + schedule из KV после backfill (AdminTab вызывает после успеха)
+  async function reloadAfterBackfill(){
+    const[rev,sch]=await Promise.all([
+      ld("revenue:v1",{}),
+      ld("schedule:v1",EMBEDDED_SCHEDULE),
+    ]);
+    setRevenue(rev);
+    setSchedule(sch);
+  }
   usePersist("tasks:v4",tasks,ready);
   usePersist("done:hist:v2",history,ready);
   usePersist("profiles:v1",profiles,ready);
@@ -440,7 +449,7 @@ export default function App(){
         sectionsOpen={profiles.find(p=>p.name===who)?.sectionsOpen??false}
         tasksView={profiles.find(p=>p.name===who)?.tasksView??'list'}/>}
 
-      {tab==="admin"&&isManager&&<AdminTab auth={auth} members={members} ds={ds}/>}
+      {tab==="admin"&&isManager&&<AdminTab auth={auth} members={members} ds={ds} onReloadData={reloadAfterBackfill}/>}
       {tab==="settings"&&<PersonalCabinet name={who} account={who} isOwnCabinet={true} tasks={tasks} history={history}
         schedule={schedule} cards={cards} profiles={profiles} ds={ds} now={now} statusOverrides={statusOverrides}
         members={members} eventsLog={eventsLog}
@@ -448,7 +457,7 @@ export default function App(){
         onAddOverride={isManager?o=>setStatusOverrides(prev=>[...prev.filter(x=>x.name!==o.name),o]):null} setCardModal={v=>setModal(v)} onToggle={toggle}
         onChangePassword={(newPwd,curPwd)=>changePassword(who,newPwd,curPwd)}
         onLogout={handleLogout}
-        adminPanel={isManager?<AdminTab auth={auth} members={members} ds={ds}/>:null}
+        adminPanel={isManager?<AdminTab auth={auth} members={members} ds={ds} onReloadData={reloadAfterBackfill}/>:null}
         leaveRequests={leaveRequests}
         onLeaveRequest={isManager?null:onLeaveRequest}
         onLeaveDecide={isManager?onLeaveDecide:null}
