@@ -98,7 +98,7 @@ async function fetchOlapForDate(date, token) {
   const body = {
     reportType: 'SALES', buildSummary: 'false',
     // Order.Id в groupBy → одна строка на заказ → GuestNum без дублирования
-    groupByRowFields: ['OpenDate.Typed', 'Order.Id'],
+    groupByRowFields: ['OpenDate.Typed', 'OrderNum'],
     aggregateFields: ['DishDiscountSumInt', 'GuestNum'],
     filters: {
       'OpenDate.Typed': {
@@ -124,7 +124,7 @@ async function fetchOlapForDate(date, token) {
     throw new Error(`iiko OLAP HTTP ${res.status}: ${t.slice(0,200)}`);
   }
   const json = await res.json();
-  // Одна строка = один заказ: суммируем выручку, GuestNum берём без дублирования
+  // Одна строка = один заказ (OrderNum): суммируем выручку, GuestNum без дублирования по блюдам
   let fact = 0, guests = 0;
   for (const row of (json.data || [])) {
     fact   += Number(row.DishDiscountSumInt || 0);
@@ -213,10 +213,10 @@ async function syncRevenueRange(from, to, data, saveData) {
   const token = await getToken();
 
   // Запрос с GuestNum (полная версия).
-  // Order.Id в groupBy → одна строка на заказ → GuestNum не дублируется по блюдам.
+  // OrderNum в groupBy → одна строка на заказ → GuestNum не дублируется по блюдам.
   const bodyFull = {
     reportType: 'SALES', buildSummary: 'false',
-    groupByRowFields: ['OpenDate.Typed', 'Order.Id'],
+    groupByRowFields: ['OpenDate.Typed', 'OrderNum'],
     aggregateFields: ['DishDiscountSumInt', 'GuestNum'],
     filters: { 'OpenDate.Typed': { filterType:'DateRange', periodType:'CUSTOM', from, to, includeLow:true, includeHigh:true } },
   };
@@ -234,7 +234,7 @@ async function syncRevenueRange(from, to, data, saveData) {
       // Fallback — без GuestNum
       console.warn('[iiko/range] GuestNum не поддерживается, запрашиваем только выручку');
       useGuests = false;
-      const bodyPlain = { ...bodyFull, aggregateFields: ['DishDiscountSumInt'], groupByRowFields: ['OpenDate.Typed', 'Order.Id'] };
+      const bodyPlain = { ...bodyFull, aggregateFields: ['DishDiscountSumInt'], groupByRowFields: ['OpenDate.Typed', 'OrderNum'] };
       res = await fetch(url, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(bodyPlain), signal: AbortSignal.timeout(60_000),
