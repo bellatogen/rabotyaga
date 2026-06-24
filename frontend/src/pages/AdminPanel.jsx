@@ -27,12 +27,6 @@ export function AdminPanel({ token }) {
   const [expandedTpl, setExpandedTpl] = useState(null);
   const [pushSaveMsg, setPushSaveMsg] = useState('');
 
-  useEffect(() => {
-    loadAdminData();
-    loadBotData();
-    fetch('/api/sync/schedule/status').then(r=>r.json()).then(setSyncStatus).catch(()=>{});
-  }, [token, selectedDate]);
-
   const loadBotData = async () => {
     try { const c = await getBotChats();  setBotChats(c.chats || []); } catch { /* нет прав / нет связи */ }
     try { const m = await getBotMacros(); setBotMacros(m.macros || []); } catch { /* нет прав / нет связи */ }
@@ -68,6 +62,12 @@ export function AdminPanel({ token }) {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadAdminData();
+    loadBotData();
+    fetch('/api/sync/schedule/status').then(r=>r.json()).then(setSyncStatus).catch(()=>{});
+  }, [token, selectedDate]);
 
   const handleSaveSchedule = async () => {
     if (!newScheduleItem.time || !newScheduleItem.recipient || !newScheduleItem.text) {

@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import {
-  BarChart2, Users, FileText, AlertTriangle, CheckCircle, X,
+  BarChart2, Users, AlertTriangle, CheckCircle, X,
   TrendingUp, TrendingDown, Minus,
   Wine, Music, Brain, Target, Mic, Handshake, ClipboardList, CalendarDays,
 } from 'lucide-react';
@@ -218,7 +218,7 @@ function Sparkline({ days, revenue, events, monthShort }) {
 }
 
 // ── По дням недели — кликабельная диаграмма ──────────────────────────────────
-function WeekdayChart({ days, revenue, monthShort }) {
+function WeekdayChart({ days, revenue, monthShort, events }) {
   const [selDow, setSelDow] = useState(null);
   const fN    = d => Number(revenue[d]?.fact) || 0;
   const pN    = d => Number(revenue[d]?.plan) || 0;
