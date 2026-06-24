@@ -250,21 +250,28 @@ async function syncRevenueRange(from, to, data, saveData) {
   try { json = await res.json(); } catch { throw new Error('iiko syncRevenueRange вернул невалидный JSON'); }
 
   const revenue = JSON.parse(data.kv['revenue:v1'] || '{}');
-  let updated = 0;
+  // Промежуточный аккумулятор: OrderNum-группировка даёт несколько строк на дату
+  const acc = {}; // { iso: { fact, guests } }
   for (const row of (json.data || [])) {
     const iso    = String(row['OpenDate.Typed'] || '').slice(0, 10);
     if (!iso) continue;
-    const fact   = Math.round(Number(row.DishDiscountSumInt || 0));
-    const guests = useGuests ? Math.round(Number(row.GuestNum || 0)) : 0;
-    if (fact > 0) {
-      if (!revenue[iso]) revenue[iso] = {};
-      revenue[iso].fact = fact;
-      if (guests > 0) {
-        revenue[iso].guests   = guests;
-        revenue[iso].avgCheck = Math.round(fact / guests);
-      }
-      updated++;
+    const rowFact   = Number(row.DishDiscountSumInt || 0);
+    const rowGuests = useGuests ? Number(row.GuestNum || 0) : 0;
+    if (!acc[iso]) acc[iso] = { fact: 0, guests: 0 };
+    acc[iso].fact   += rowFact;
+    acc[iso].guests += rowGuests;
+  }
+  let updated = 0;
+  for (const [iso, { fact, guests }] of Object.entries(acc)) {
+    const f = Math.round(fact);
+    if (f <= 0) continue;
+    if (!revenue[iso]) revenue[iso] = {};
+    revenue[iso].fact = f;
+    if (guests > 0) {
+      revenue[iso].guests   = Math.round(guests);
+      revenue[iso].avgCheck = Math.round(f / guests);
     }
+    updated++;
   }
   data.kv['revenue:v1'] = JSON.stringify(revenue);
   saveData();
