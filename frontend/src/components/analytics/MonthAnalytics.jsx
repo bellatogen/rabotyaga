@@ -3,13 +3,29 @@
 // Ниже: единый вторичный блок со всеми метриками.
 
 import { useState } from 'react';
-import { BarChart2, Users, FileText, AlertTriangle, CheckCircle, X, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import {
+  BarChart2, Users, FileText, AlertTriangle, CheckCircle, X,
+  TrendingUp, TrendingDown, Minus,
+  Wine, Music, Brain, Target, Mic, Handshake, ClipboardList, CalendarDays,
+} from 'lucide-react';
 import { EVENT_TYPES, classifyEvent } from '../../constants/events.js';
 import { MONTHS_RU } from '../../constants/locale.js';
 import { revColor, kRub } from '../../utils/revenueUtils.js';
 
 const MAX_MONTHLY = 30_000_000;
 const DOW_LABELS  = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+const DOW_FULL    = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
+
+// Маппинг типов событий на lucide-иконки
+const EVENT_ICON_MAP = {
+  istoriya: Wine,
+  stereo:   Music,
+  pubquiz:  Brain,
+  darts:    Target,
+  guest:    Mic,
+  collab:   Handshake,
+  inventa:  ClipboardList,
+};
 
 // ── Утилиты ─────────────────────────────────────────────────────────────────
 
@@ -70,7 +86,8 @@ function MiniStat({ label, value, sub, delta, align = 'left' }) {
         letterSpacing: '.05em', marginBottom: 3, fontWeight: 600 }}>
         {label}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: align === 'right' ? 'flex-end' : 'flex-start' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5,
+        justifyContent: align === 'right' ? 'flex-end' : 'flex-start' }}>
         <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: -0.3 }}>{value}</span>
         {delta != null && (
           <span style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 11, fontWeight: 700, color: dColor }}>
@@ -85,13 +102,24 @@ function MiniStat({ label, value, sub, delta, align = 'left' }) {
   );
 }
 
-// ── Спарклайн ───────────────────────────────────────────────────────────────
-function Sparkline({ days, revenue, events }) {
+// ── Спарклайн с тапабельным тултипом ────────────────────────────────────────
+function Sparkline({ days, revenue, events, monthShort }) {
+  const [active, setActive] = useState(null); // index
   const fN    = d => Number(revenue[d]?.fact) || 0;
   const pN    = d => Number(revenue[d]?.plan) || 0;
   const facts = days.map(d => fN(d));
   const maxF  = Math.max(1, ...facts);
   if (!facts.some(f => f > 0)) return null;
+
+  const activeDay  = active != null ? days[active]    : null;
+  const activeFact = activeDay ? fN(activeDay) : 0;
+  const activePlan = activeDay ? pN(activeDay) : 0;
+  const activePct  = activePlan > 0 && activeFact > 0 ? Math.round(activeFact / activePlan * 100) : null;
+  const activeEv   = activeDay ? classifyEvent(events[activeDay]) : null;
+  const activeNum  = activeDay ? Number(activeDay.slice(8, 10)) : null;
+  const activeDow  = activeDay
+    ? DOW_LABELS[(new Date(activeDay + 'T00:00:00').getDay() + 6) % 7].toLowerCase()
+    : null;
 
   const activeTypes = EVENT_TYPES.filter(et =>
     days.some(d => classifyEvent(events[d])?.id === et.id)
@@ -99,7 +127,11 @@ function Sparkline({ days, revenue, events }) {
 
   return (
     <div style={{ marginBottom: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: 46, paddingBottom: 6 }}>
+      {/* Бары */}
+      <div
+        style={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: 46, paddingBottom: 6, cursor: 'pointer' }}
+        onMouseLeave={() => setActive(null)}
+      >
         {days.map((date, i) => {
           const fact  = facts[i];
           const plan  = pN(date);
@@ -107,41 +139,105 @@ function Sparkline({ days, revenue, events }) {
           const barH  = fact > 0 ? Math.max(2, (fact / maxF) * 38) : 1;
           const color = pct != null ? revColor(pct) : fact > 0 ? 'var(--cu)' : 'var(--bd)';
           const ev    = classifyEvent(events[date]);
+          const isAct = i === active;
           return (
-            <div key={date} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
-              <div style={{ width: '100%', height: barH, background: color, borderRadius: '2px 2px 0 0', opacity: fact > 0 ? .85 : .2 }} />
+            <div
+              key={date}
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}
+              onMouseEnter={() => setActive(i)}
+              onTouchStart={(e) => { e.preventDefault(); setActive(i); }}
+            >
+              <div style={{
+                width: '100%', height: barH, background: color, borderRadius: '2px 2px 0 0',
+                opacity: fact > 0 ? (isAct ? 1 : .75) : .15,
+                outline: isAct && fact > 0 ? `1.5px solid ${color}` : 'none',
+                transition: 'opacity .1s',
+              }} />
               <div style={{ width: 3, height: 3, borderRadius: '50%', flexShrink: 0, background: ev ? ev.color : 'transparent' }} />
             </div>
           );
         })}
       </div>
-      {activeTypes.length > 0 && (
-        <div style={{ display: 'flex', gap: 10, fontSize: 9, color: 'var(--mt)', flexWrap: 'wrap' }}>
-          {activeTypes.map(et => (
-            <span key={et.id} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-              <span style={{ width: 5, height: 5, borderRadius: '50%', background: et.color, display: 'inline-block' }} />
-              {et.shortName}
-            </span>
-          ))}
+
+      {/* Тултип — снизу, в дизайне интерфейса */}
+      {activeDay ? (
+        <div style={{
+          background: 'var(--bg)', border: '1px solid var(--bd)', borderRadius: 9,
+          padding: '8px 12px', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 10,
+          transition: 'opacity .15s',
+        }}>
+          {/* Дата */}
+          <div style={{ flexShrink: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>
+              {activeNum} {monthShort}
+            </div>
+            <div style={{ fontSize: 9, color: 'var(--mt)', marginTop: 1 }}>{activeDow}</div>
+          </div>
+          {/* Разделитель */}
+          <div style={{ width: 1, height: 30, background: 'var(--bd)', flexShrink: 0 }} />
+          {/* Факт */}
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>
+              {activeFact > 0 ? fmt(activeFact) + ' ₽' : '— нет данных'}
+            </div>
+            {activePlan > 0 && (
+              <div style={{ fontSize: 10, color: 'var(--mt)', marginTop: 1 }}>
+                план {fmt(activePlan)} ₽
+              </div>
+            )}
+          </div>
+          {/* % от плана */}
+          {activePct != null && <PctBadge pct={activePct} size={12} />}
+          {/* Событие */}
+          {activeEv && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10,
+              color: activeEv.color, fontWeight: 600, flexShrink: 0 }}>
+              {(() => { const Icon = EVENT_ICON_MAP[activeEv.id] || CalendarDays; return <Icon size={11} />; })()}
+              {activeEv.shortName}
+            </div>
+          )}
         </div>
+      ) : (
+        /* Легенда событий когда ничего не выбрано */
+        activeTypes.length > 0 && (
+          <div style={{ display: 'flex', gap: 10, fontSize: 9, color: 'var(--mt)', flexWrap: 'wrap', marginBottom: 2 }}>
+            {activeTypes.map(et => {
+              const Icon = EVENT_ICON_MAP[et.id] || CalendarDays;
+              return (
+                <span key={et.id} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                  <Icon size={9} color={et.color} />
+                  {et.shortName}
+                </span>
+              );
+            })}
+          </div>
+        )
       )}
     </div>
   );
 }
 
-// ── По дням недели ──────────────────────────────────────────────────────────
-function WeekdayChart({ days, revenue }) {
+// ── По дням недели — кликабельная диаграмма ──────────────────────────────────
+function WeekdayChart({ days, revenue, monthShort }) {
+  const [selDow, setSelDow] = useState(null);
   const fN    = d => Number(revenue[d]?.fact) || 0;
-  const byDow = Array(7).fill(null).map(() => ({ total: 0, count: 0 }));
+  const pN    = d => Number(revenue[d]?.plan) || 0;
+  const byDow = Array(7).fill(null).map(() => ({ total: 0, count: 0, days: [] }));
   days.filter(d => fN(d) > 0).forEach(d => {
     const dow = (new Date(d + 'T00:00:00').getDay() + 6) % 7;
     byDow[dow].total += fN(d);
     byDow[dow].count++;
+    byDow[dow].days.push(d);
   });
   const avgs    = byDow.map(x => x.count > 0 ? Math.round(x.total / x.count) : 0);
   const maxAvg  = Math.max(1, ...avgs);
   const bestDow = avgs.reduce((bi, a, i) => a > (avgs[bi] || 0) ? i : bi, 0);
   if (!avgs.some(a => a > 0)) return null;
+
+  // Детализация выбранного дня недели
+  const selDays  = selDow != null ? byDow[selDow].days : [];
+  const selMax   = selDays.length > 0 ? Math.max(...selDays.map(d => fN(d))) : 0;
+  const selAvg   = avgs[selDow];
 
   return (
     <div style={{ flex: 1, minWidth: 0 }}>
@@ -149,19 +245,29 @@ function WeekdayChart({ days, revenue }) {
         letterSpacing: '.06em', fontWeight: 600, marginBottom: 7 }}>
         Avg по дням недели
       </div>
+      {/* Бары — кликабельные */}
       <div style={{ display: 'flex', gap: 3, alignItems: 'flex-end', height: 44 }}>
         {avgs.map((avg, i) => {
           const h      = avg > 0 ? Math.max(4, (avg / maxAvg) * 36) : 2;
           const isBest = i === bestDow && avg > 0;
-          const color  = isBest ? '#8bc47a' : i >= 4 ? '#5b8b9b' : 'var(--cu)';
+          const isSel  = i === selDow;
+          const color  = isBest ? '#8bc47a' : i >= 5 ? '#5b8b9b' : 'var(--cu)';
           return (
-            <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+            <div
+              key={i}
+              style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, cursor: avg > 0 ? 'pointer' : 'default' }}
+              onClick={() => avg > 0 && setSelDow(isSel ? null : i)}
+            >
               <div style={{
                 width: '100%', height: h, borderRadius: '3px 3px 0 0',
-                background: avg > 0 ? color : 'var(--bd)', opacity: avg > 0 ? .85 : .2,
-                boxShadow: isBest ? `0 0 7px ${color}70` : 'none',
+                background: avg > 0 ? color : 'var(--bd)',
+                opacity: avg > 0 ? (isSel ? 1 : .75) : .2,
+                outline: isSel ? `2px solid ${color}` : 'none',
+                outlineOffset: 1,
+                boxShadow: isBest && !isSel ? `0 0 7px ${color}60` : 'none',
+                transition: 'opacity .1s',
               }} />
-              <span style={{ fontSize: 9, color: isBest ? '#8bc47a' : 'var(--mt)', fontWeight: isBest ? 700 : 400 }}>
+              <span style={{ fontSize: 9, color: isBest ? '#8bc47a' : isSel ? 'var(--pp)' : 'var(--mt)', fontWeight: isBest || isSel ? 700 : 400 }}>
                 {DOW_LABELS[i]}
               </span>
             </div>
@@ -175,42 +281,95 @@ function WeekdayChart({ days, revenue }) {
           </span>
         ))}
       </div>
+
+      {/* Детальная панель выбранного дня недели */}
+      {selDow != null && selDays.length > 0 && (
+        <div style={{ marginTop: 10, background: 'var(--bg)', border: '1px solid var(--bd)',
+          borderRadius: 9, overflow: 'hidden' }}>
+          {/* Шапка */}
+          <div style={{ padding: '8px 10px 6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            borderBottom: '1px solid var(--bd)' }}>
+            <span style={{ fontSize: 11, fontWeight: 700 }}>
+              {DOW_FULL[selDow]}
+              <span style={{ fontWeight: 400, color: 'var(--mt)', marginLeft: 6 }}>
+                {selDays.length} {plural(selDays.length,'день','дня','дней')} · avg {kRub(selAvg)} ₽
+              </span>
+            </span>
+            <button onClick={() => setSelDow(null)}
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)', padding: 0, display: 'flex' }}>
+              <X size={13} />
+            </button>
+          </div>
+          {/* Список дней */}
+          {selDays.map(d => {
+            const f   = fN(d);
+            const p   = pN(d);
+            const pct = p > 0 ? Math.round(f / p * 100) : null;
+            const barW = selMax > 0 ? Math.round(f / selMax * 100) : 0;
+            const isB  = f === selMax;
+            const ev   = classifyEvent(events ? events[d] : null);
+            const dayN = Number(d.slice(8, 10));
+            return (
+              <div key={d} style={{ padding: '6px 10px', display: 'flex', alignItems: 'center', gap: 8,
+                borderBottom: '1px solid var(--bd)', background: isB ? 'rgba(139,196,122,.05)' : 'transparent' }}>
+                <span style={{ fontSize: 11, color: 'var(--mt)', flexShrink: 0, width: 24 }}>
+                  {dayN} {monthShort}
+                </span>
+                {/* Мини-бар */}
+                <div style={{ flex: 1, height: 4, background: 'var(--bd)', borderRadius: 2, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: barW + '%', borderRadius: 2,
+                    background: pct != null ? revColor(pct) : 'var(--cu)' }} />
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 700, flexShrink: 0, minWidth: 60, textAlign: 'right' }}>
+                  {fmt(f)} ₽
+                </span>
+                {pct != null && <PctBadge pct={pct} size={10} />}
+                {ev && (() => { const Icon = EVENT_ICON_MAP[ev.id] || CalendarDays; return <Icon size={10} color={ev.color} style={{ flexShrink: 0 }} />; })()}
+                {isB && <span style={{ fontSize: 9, color: '#8bc47a', flexShrink: 0 }}>★</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
 
-// ── Кольца событий ──────────────────────────────────────────────────────────
-function EventRings({ rows }) {
+// ── Список событий (вместо колец) ───────────────────────────────────────────
+function EventList({ rows }) {
   if (!rows.length) return null;
-  const R = 14, C = 18, sw = 3;
-  const circ  = 2 * Math.PI * R;
-  const total = rows.reduce((s, r) => s + r.count, 0);
+  const maxAvg = Math.max(1, ...rows.map(r => r.avgFact ?? 0));
   return (
-    <div style={{ flexShrink: 0 }}>
+    <div style={{ flex: 1, minWidth: 0 }}>
       <div style={{ fontSize: 9, color: 'var(--mt)', textTransform: 'uppercase',
         letterSpacing: '.06em', fontWeight: 600, marginBottom: 7 }}>
-        События
+        Типы дней
       </div>
-      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
         {rows.map((row, i) => {
-          const dash = total > 0 ? (row.count / total) * circ : 0;
+          const barW = row.avgFact != null && maxAvg > 0 ? Math.round(row.avgFact / maxAvg * 100) : 0;
+          const Icon = row.Icon;
           return (
-            <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, minWidth: 36 }}>
-              <svg width={C * 2} height={C * 2} viewBox={`0 0 ${C * 2} ${C * 2}`}>
-                <circle cx={C} cy={C} r={R} fill="none" stroke="var(--bd)" strokeWidth={sw} />
-                {dash > 0.1 && (
-                  <circle cx={C} cy={C} r={R} fill="none" stroke={row.color} strokeWidth={sw}
-                    strokeDasharray={`${dash} ${circ - dash}`} strokeLinecap="round"
-                    transform={`rotate(-90 ${C} ${C})`} />
+            <div key={i}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                <Icon size={11} color={row.color} style={{ flexShrink: 0 }} />
+                <span style={{ fontSize: 11, fontWeight: 600, flex: 1, minWidth: 0,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {row.shortName}
+                </span>
+                <span style={{ fontSize: 10, color: 'var(--mt)', flexShrink: 0 }}>
+                  {row.count} {plural(row.count,'д','д','д')}
+                </span>
+                {row.avgFact != null && (
+                  <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--pp)', flexShrink: 0, minWidth: 34, textAlign: 'right' }}>
+                    {kRub(row.avgFact)}
+                  </span>
                 )}
-                <text x={C} y={C + 3.5} textAnchor="middle" fontSize={9}
-                  fill="var(--pp)" fontWeight={700} fontFamily="var(--font-mono, monospace)">
-                  {row.count}
-                </text>
-              </svg>
-              <span style={{ fontSize: 9, color: row.color }}>{row.emoji}</span>
+              </div>
               {row.avgFact != null && (
-                <span style={{ fontSize: 8, color: 'var(--mt)', opacity: .6 }}>{kRub(row.avgFact)}</span>
+                <div style={{ height: 3, background: 'var(--bd)', borderRadius: 2, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: barW + '%', background: row.color, borderRadius: 2, opacity: .75 }} />
+                </div>
               )}
             </div>
           );
@@ -243,6 +402,8 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
   const days = Array.from({ length: daysInMonth }, (_, i) =>
     `${ym}-${String(i + 1).padStart(2, '0')}`
   );
+  // Короткое название месяца (для тултипов): "июн", "янв" и т.д.
+  const monthShort = MONTHS_RU[m - 1].slice(0, 3).toLowerCase();
 
   const fN  = d => Number(revenue[d]?.fact)     || 0;
   const pN  = d => Number(revenue[d]?.plan)     || 0;
@@ -292,13 +453,14 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
   const daysWithBoth = days.filter(d => pN(d) > 0 && fN(d) > 0);
   const daysHitPlan  = daysWithBoth.filter(d => fN(d) >= pN(d));
 
-  // ── YoY (год динамически: y-1) ──
-  const prevYear  = y - 1;
-  const lyDays    = days.filter(d => lyN(d) > 0 && fN(d) > 0);
-  const totalLY   = lyDays.reduce((s, d) => s + lyN(d), 0);
-  const totalFLY  = lyDays.reduce((s, d) => s + fN(d), 0);
-  const lyDelta   = totalLY > 0 ? Math.round((totalFLY / totalLY - 1) * 100) : null;
-  const lyScaled  = lyDays.length > 0
+  // ── YoY (год динамически: y-1, не захардкоженный) ──
+  const prevYear = y - 1;
+  const lyDays   = days.filter(d => lyN(d) > 0 && fN(d) > 0);
+  const totalLY  = lyDays.reduce((s, d) => s + lyN(d), 0);
+  const totalFLY = lyDays.reduce((s, d) => s + fN(d), 0);
+  const lyDelta  = totalLY > 0 ? Math.round((totalFLY / totalLY - 1) * 100) : null;
+  // Экстраполяция прошлого года до сопоставимого числа дней
+  const lyScaled = lyDays.length > 0
     ? Math.round(totalLY / lyDays.length * daysWithFact.length)
     : 0;
 
@@ -314,21 +476,21 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
     : null;
 
   // ── A: Лучший день месяца ──
-  const bestDay      = daysWithFact.length > 0
+  const bestDay     = daysWithFact.length > 0
     ? daysWithFact.reduce((best, d) => fN(d) > fN(best) ? d : best, daysWithFact[0])
     : null;
-  const bestDayFact  = bestDay ? fN(bestDay) : 0;
-  const bestDayPlan  = bestDay ? pN(bestDay) : 0;
-  const bestDayPct   = bestDayPlan > 0 ? Math.round(bestDayFact / bestDayPlan * 100) : null;
-  const bestDayLabel = bestDay
-    ? `${Number(bestDay.slice(8, 10))} ${MONTHS_RU[m - 1].slice(0, 3).toLowerCase()}`
+  const bestDayFact = bestDay ? fN(bestDay) : 0;
+  const bestDayPlan = bestDay ? pN(bestDay) : 0;
+  const bestDayPct  = bestDayPlan > 0 ? Math.round(bestDayFact / bestDayPlan * 100) : null;
+  const bestDayLbl  = bestDay
+    ? `${Number(bestDay.slice(8, 10))} ${monthShort}`
     : null;
 
-  // ── B: Тренд последней недели (7 дн. с данными vs предыдущие 7) ──
-  const last7     = daysWithFact.slice(-7);
-  const prev7     = daysWithFact.slice(-14, -7);
-  const avgLast7  = last7.length  > 0 ? Math.round(last7.reduce((s, d) => s + fN(d), 0)  / last7.length)  : 0;
-  const avgPrev7  = prev7.length  > 0 ? Math.round(prev7.reduce((s, d) => s + fN(d), 0)  / prev7.length)  : 0;
+  // ── B: Тренд последней недели ──
+  const last7    = daysWithFact.slice(-7);
+  const prev7    = daysWithFact.slice(-14, -7);
+  const avgLast7 = last7.length > 0 ? Math.round(last7.reduce((s, d) => s + fN(d), 0) / last7.length) : 0;
+  const avgPrev7 = prev7.length > 0 ? Math.round(prev7.reduce((s, d) => s + fN(d), 0) / prev7.length) : 0;
   const weekTrend = avgPrev7 > 0 ? Math.round((avgLast7 / avgPrev7 - 1) * 100) : null;
 
   // ── C: Будни vs выходные ──
@@ -342,15 +504,34 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
   const halfIdx        = Math.floor(guestDays.length / 2);
   const checkFirst     = guestDays.slice(0, halfIdx);
   const checkSecond    = guestDays.slice(halfIdx);
-  const avgCheckFirst  = checkFirst.length  > 0 && checkFirst.reduce((s, d) => s + gN(d), 0) > 0
-    ? Math.round(checkFirst.reduce((s, d) => s + fN(d), 0)  / checkFirst.reduce((s, d) => s + gN(d), 0))  : null;
-  const avgCheckSecond = checkSecond.length > 0 && checkSecond.reduce((s, d) => s + gN(d), 0) > 0
-    ? Math.round(checkSecond.reduce((s, d) => s + fN(d), 0) / checkSecond.reduce((s, d) => s + gN(d), 0)) : null;
+  const gFirst  = checkFirst.reduce((s, d) => s + gN(d), 0);
+  const gSecond = checkSecond.reduce((s, d) => s + gN(d), 0);
+  const avgCheckFirst  = checkFirst.length > 0 && gFirst  > 0 ? Math.round(checkFirst.reduce((s, d) => s + fN(d), 0)  / gFirst)  : null;
+  const avgCheckSecond = checkSecond.length > 0 && gSecond > 0 ? Math.round(checkSecond.reduce((s, d) => s + fN(d), 0) / gSecond) : null;
   const checkTrend = avgCheckFirst && avgCheckSecond
     ? Math.round((avgCheckSecond / avgCheckFirst - 1) * 100) : null;
 
-  // ── G: Скользящий тренд (последние 14 дн. с данными) ──
+  // ── G: Скользящий тренд (последние ≤14 дн. с данными) ──
   const rollingValues = daysWithFact.slice(-14).map(d => fN(d));
+
+  // ── Аналитика событий ──
+  const eventRows = EVENT_TYPES.map(type => {
+    const td  = days.filter(d => classifyEvent(events[d])?.id === type.id);
+    const twf = td.filter(d => fN(d) > 0);
+    const tot = twf.reduce((s, d) => s + fN(d), 0);
+    return {
+      Icon: EVENT_ICON_MAP[type.id] || CalendarDays,
+      shortName: type.shortName, color: type.color,
+      count: td.length, avgFact: twf.length ? Math.round(tot / twf.length) : null,
+    };
+  }).filter(t => t.count > 0);
+  // Обычные дни (без события)
+  const regWF  = days.filter(d => !classifyEvent(events[d]) && fN(d) > 0);
+  const regAvg = regWF.length > 0 ? Math.round(regWF.reduce((s, d) => s + fN(d), 0) / regWF.length) : null;
+  if (regAvg != null) eventRows.push({
+    Icon: CalendarDays, shortName: 'Обычные', color: 'var(--mt)',
+    count: days.filter(d => !classifyEvent(events[d])).length, avgFact: regAvg,
+  });
 
   // ── Санитарный контроль ──
   const dataCorrupt = !isFinite(totalFact) || totalFact > MAX_MONTHLY;
@@ -387,21 +568,6 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
         </button>
       )
     : null;
-
-  // ── Аналитика событий ──
-  const eventRows = EVENT_TYPES.map(type => {
-    const td  = days.filter(d => classifyEvent(events[d])?.id === type.id);
-    const twf = td.filter(d => fN(d) > 0);
-    const tot = twf.reduce((s, d) => s + fN(d), 0);
-    return { emoji: type.emoji, shortName: type.shortName, color: type.color,
-      count: td.length, avgFact: twf.length ? Math.round(tot / twf.length) : null };
-  }).filter(t => t.count > 0);
-  const regWF  = days.filter(d => !classifyEvent(events[d]) && fN(d) > 0);
-  const regAvg = regWF.length > 0 ? Math.round(regWF.reduce((s, d) => s + fN(d), 0) / regWF.length) : null;
-  if (regAvg != null) eventRows.push({
-    emoji: '📅', shortName: 'Обычные', color: 'var(--mt)',
-    count: days.filter(d => !classifyEvent(events[d])).length, avgFact: regAvg,
-  });
 
   // ── Нет данных ──
   if (daysWithFact.length === 0) {
@@ -441,8 +607,8 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
         <span style={{ fontSize: 11, color: 'var(--mt)' }}>{daysWithFact.length}/{daysInMonth} дн.</span>
       </div>
 
-      {/* Спарклайн */}
-      <Sparkline days={days} revenue={revenue} events={events} />
+      {/* Спарклайн с тултипом */}
+      <Sparkline days={days} revenue={revenue} events={events} monthShort={monthShort} />
 
       {/* ════ ГЛАВНЫЙ БЛОК: ЦЕЛЬ МЕСЯЦА ════ */}
       <div style={{ background: 'var(--sf)', borderRadius: 12, padding: '14px 16px',
@@ -473,11 +639,13 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
           </div>
         )}
 
-        {/* Статусная строка */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--mt)', marginTop: 4, flexWrap: 'wrap', gap: 4 }}>
+        {/* Статусная строка — "к 24 июн" вместо "к 24-му" чтобы не путалось с годом */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--mt)',
+          marginTop: 4, flexWrap: 'wrap', gap: 4 }}>
           {isCurMonth && planToDate > 0 ? (
             <span>
-              к {elapsed}-му: <b style={{ color: revColor(pctToDate ?? 50), fontWeight: 700 }}>{pctToDate}%</b>
+              к {elapsed} {monthShort}:{' '}
+              <b style={{ color: revColor(pctToDate ?? 50), fontWeight: 700 }}>{pctToDate}%</b>
               {gapToDate   > 0 && <span style={{ opacity: .75 }}> · -{fmt(gapToDate)} ₽</span>}
               {aheadOfDate > 0 && <span style={{ color: '#8bc47a' }}> · +{fmt(aheadOfDate)} ₽</span>}
             </span>
@@ -534,7 +702,7 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
           </div>
         )}
 
-        {/* YoY — полупрозрачная строка, год динамически */}
+        {/* YoY — полупрозрачная строка, всегда предыдущий год (y-1) */}
         {lyDelta != null && (
           <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--bd)',
             fontSize: 11, color: 'var(--mt)', opacity: .55,
@@ -565,7 +733,9 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
                 <MiniStat
                   label="Средний чек"
                   value={`${fmt(avgCheck)} ₽`}
-                  sub={`${guestDays.length} дн. с данными`}
+                  sub={checkTrend != null
+                    ? `${avgCheckFirst && fmt(avgCheckFirst)} → ${avgCheckSecond && fmt(avgCheckSecond)} ₽`
+                    : `${guestDays.length} дн. с данными`}
                   delta={checkTrend}
                   align="right"
                 />
@@ -583,7 +753,7 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
                 <MiniStat
                   label="Лучший день"
                   value={kRub(bestDayFact) + ' ₽'}
-                  sub={[bestDayLabel, bestDayPct && `${bestDayPct}% от плана`].filter(Boolean).join(' · ')}
+                  sub={[bestDayLbl, bestDayPct && `${bestDayPct}% от плана`].filter(Boolean).join(' · ')}
                 />
               )}
               {avgWD && avgWE && (
@@ -633,10 +803,10 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
           </>
         )}
 
-        {/* ─ Ряд 4: По дням недели + кольца событий ─ */}
-        <div style={{ padding: '12px 14px', display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-          <WeekdayChart days={days} revenue={revenue} />
-          {eventRows.length > 0 && <EventRings rows={eventRows} />}
+        {/* ─ Ряд 4: По дням недели + список событий ─ */}
+        <div style={{ padding: '12px 14px', display: 'flex', gap: 18, alignItems: 'flex-start' }}>
+          <WeekdayChart days={days} revenue={revenue} monthShort={monthShort} events={events} />
+          {eventRows.length > 0 && <EventList rows={eventRows} />}
         </div>
 
       </div>
