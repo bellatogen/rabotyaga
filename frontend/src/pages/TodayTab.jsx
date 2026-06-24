@@ -1,4 +1,4 @@
-// Вкладка «Сегодня» — прогресс, выручка, гоу-лист, состав смены, задачи дня
+// Вкладка «Сегодня» — прогресс, события, задачи смены, выручка, гоу-лист, состав смены
 import { useState } from 'react';
 import { CheckCircle, Bell, Send, AlertTriangle, FileText, ChevronDown, ChevronUp, AlignJustify, Square, CalendarDays, MapPin, Clock, Users } from 'lucide-react';
 import { eventTypeById } from '../constants/events.js';
@@ -9,14 +9,13 @@ import { staffCheck, getShiftStatus } from '../utils/staffUtils.js';
 import { fmtDate } from '../utils/dateUtils.js';
 import { RevenueCard } from '../components/RevenueCard.jsx';
 import { GoListBlock } from '../components/GoList.jsx';
-import { BundleRecommendations } from '../components/BundleRecommendations.jsx';
 import { HoneycombGrid } from '../components/HoneycombGrid.jsx';
 import { DailySets } from '../components/DailySets.jsx';
 import { TaskCard } from '../components/TaskCard.jsx';
 import { DraggableTaskList } from '../components/DraggableTaskList.jsx';
 import { DoneAccordion } from '../components/DoneAccordion.jsx';
 
-export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,todayShifts,myStatus,myAssigned,schedule,events,todayEvents=[],statusOverrides,now,revenue,handovers,dayClosed,dayRegularCount,irregular,irregularDoneMap,pushGateOk,onSummary,taskOrder,onReorder,onDelete,onArchive,goList,onGoAdd,onGoToggle,onGoRemove,onToggle,onEdit,onViewEmployee,onHandover,onIikoLoad,sectionsOpen=false,tasksView='list'}){
+export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,todayShifts,myStatus,myAssigned,schedule,events,todayEvents=[],statusOverrides,now,revenue,handovers,dayClosed,dayRegularCount,irregular,irregularDoneMap,pushGateOk,onSummary,taskOrder,onReorder,onDelete,onArchive,goList,onGoAdd,onGoToggle,onGoRemove,onToggle,onEdit,onViewEmployee,onHandover,onIikoLoad,onEventClick,sectionsOpen=false,tasksView='list'}){
   // Гард: нет расписания на сегодня и нет выручки за месяц → подсказка менеджеру
   const month=ds.slice(0,7);
   const hasAnyRevenue=Object.keys(revenue||{}).some(d=>d.startsWith(month));
@@ -41,6 +40,7 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
       </div>
     </div>}
 
+    {/* 1. Прогресс-бар */}
     <div style={{padding:"12px 16px 0"}}>
       <div className="prog-bg"><div className="prog-fill" style={{width:`${pct}%`}}/></div>
       <div style={{display:"flex",justifyContent:"space-between",marginTop:6}}>
@@ -49,17 +49,20 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
       </div>
     </div>
 
+    {/* 2. Алерт закрытия смены */}
     {dayClosed&&<div className="sec"><div className="alert ok"><CheckCircle size={16} style={{flexShrink:0,marginTop:1}}/><span>
       {pushGateOk
         ?`Смена закрыта — все ${dayRegularCount} регулярных задач выполнены. Пуш отправлен управляющему.`
         :`Все ${dayRegularCount} регулярных задач выполнены ✅ Пуш о закрытии уйдёт после 23:30.`}
     </span></div></div>}
 
+    {/* 3. События сегодня (кликабельны → вкладка «События») */}
     {todayEvents.length>0&&<div className="sec">
       <div className="sec-head"><span className="sec-lbl" style={{color:'var(--cu)'}}><CalendarDays size={12}/>События сегодня</span><span className="sec-cnt">{todayEvents.length}</span></div>
       {todayEvents.map(ev=>{const t=eventTypeById(ev.type);return(
-        <div key={ev.id} style={{display:'flex',gap:10,padding:'10px 12px',background:'var(--sf)',
-          border:'1px solid var(--cu)',borderRadius:10,marginBottom:8}}>
+        <div key={ev.id} className="ev-clickable" onClick={()=>onEventClick&&onEventClick(ev)}
+          style={{display:'flex',gap:10,padding:'10px 12px',background:'var(--sf)',
+          border:'1px solid var(--cu)',borderRadius:10,marginBottom:8,cursor:onEventClick?'pointer':'default'}}>
           <div style={{fontSize:20,lineHeight:1,flexShrink:0}}>{t?t.emoji:'📅'}</div>
           <div style={{flex:1,minWidth:0}}>
             <div style={{fontWeight:600,fontSize:14}}>{ev.title}</div>
@@ -74,26 +77,69 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
       );})}
     </div>}
 
-    <div className="sec"><RevenueCard date={ds} revenue={revenue} onIikoLoad={onIikoLoad}/></div>
+    {/* 4. Задачи смены — главное содержимое */}
+    <div className="sec">
+      <div style={{border:'1px solid var(--bd)',borderRadius:10,overflow:'hidden',background:'var(--sf)'}}>
+        <button onClick={()=>setTasksOpen(o=>!o)} className="acc-head">
+          <span style={{display:'flex',alignItems:'center',gap:6}}>
+            <CheckCircle size={13} color="var(--hp)"/>Задачи смены
+          </span>
+          <div style={{display:'flex',alignItems:'center',gap:8}}>
+            <span className="mono" style={{fontSize:11,opacity:.55}}>{done.length}/{regularTasks.length}</span>
+            {tasksOpen&&(
+              <button onClick={e=>{e.stopPropagation();setViewMode(m=>m==='list'?'carousel':'list');}}
+                title={viewMode==='list'?'Режим карусели':'Режим списка'}
+                style={{background:'transparent',border:'1px solid var(--bd)',borderRadius:6,
+                  width:26,height:26,display:'flex',alignItems:'center',justifyContent:'center',
+                  color:'var(--mt)',cursor:'pointer',padding:0,flexShrink:0}}>
+                {viewMode==='list' ? <Square size={11}/> : <AlignJustify size={11}/>}
+              </button>
+            )}
+            {tasksOpen ? <ChevronUp size={15}/> : <ChevronDown size={15}/>}
+          </div>
+        </button>
+        {tasksOpen&&<div style={{padding:'0 12px 12px'}}>
+          {active.length===0&&regularTasks.length>0&&<div className="empty" style={{padding:'14px 0'}}>Все задачи выполнены 🎉</div>}
+          {regularTasks.length===0&&<div className="empty" style={{padding:'14px 0'}}>Задач на сегодня нет</div>}
+          {active.length>0&&viewMode==='list'&&(
+            <DraggableTaskList tasks={active} onReorder={ids=>onReorder(ids)}
+              onToggle={onToggle} onEdit={onEdit} onHandover={onHandover} doneMap={doneMap}
+              onDelete={onDelete} onArchive={onArchive}/>
+          )}
+          {active.length>0&&viewMode==='carousel'&&(
+            <TaskCarousel tasks={active} doneMap={doneMap}
+              onToggle={onToggle} onEdit={onEdit} onHandover={onHandover}/>
+          )}
+          {done.length>0&&<DoneAccordion compact tasks={done} onToggle={onToggle} onEdit={onEdit} onDelete={onDelete} onArchive={onArchive}/>}
+        </div>}
+      </div>
+    </div>
 
-    <DailySets onGoAdd={onGoAdd}/>
-
-    {goList&&<div className="sec"><GoListBlock items={goList} onAdd={onGoAdd} onToggle={onGoToggle} onRemove={onGoRemove} defaultOpen={sectionsOpen}/></div>}
-
-    <div className="sec"><BundleRecommendations onGoAdd={onGoAdd} defaultOpen={sectionsOpen}/></div>
-
-    <div className="sec"><HoneycombGrid onGoAdd={onGoAdd} defaultOpen={sectionsOpen}/></div>
-
+    {/* 5. Назначено вам */}
     {myAssigned&&myAssigned.length>0&&<div className="sec">
       <div className="sec-head"><span className="sec-lbl" style={{color:"var(--am)"}}><Bell size={12}/>Назначено вам</span><span className="sec-cnt">{myAssigned.filter(t=>doneMap[t.id]).length}/{myAssigned.length}</span></div>
       {myAssigned.map(t=><TaskCard key={t.id} task={t} done={!!doneMap[t.id]} onToggle={()=>onToggle(t.id)} onEdit={onEdit?()=>onEdit(t):null} highlight/>)}
     </div>}
 
+    {/* 6. Передано прошлой сменой */}
     {todayHandovers.length>0&&<div className="sec">
       <div className="sec-head"><span className="sec-lbl"><Send size={12}/>Передано прошлой сменой</span></div>
       {todayHandovers.map(h=><div className="handover" key={h.id}>{h.text}<div className="handover-by">— {h.by}, {fmtDate(h.ts.slice(0,10))}</div></div>)}
     </div>}
 
+    {/* 7. Выручка */}
+    <div className="sec"><RevenueCard date={ds} revenue={revenue} onIikoLoad={onIikoLoad}/></div>
+
+    {/* 8. Сэты дня */}
+    <DailySets onGoAdd={onGoAdd}/>
+
+    {/* 9. GoList */}
+    {goList&&<div className="sec"><GoListBlock items={goList} onAdd={onGoAdd} onToggle={onGoToggle} onRemove={onGoRemove} defaultOpen={sectionsOpen}/></div>}
+
+    {/* 10. Умные соты */}
+    <div className="sec"><HoneycombGrid onGoAdd={onGoAdd} defaultOpen={sectionsOpen}/></div>
+
+    {/* 11. Состав смены */}
     <div className="sec">
       <div style={{border:'1px solid var(--bd)',borderRadius:10,overflow:'hidden',background:'var(--sf)'}}>
         {/* Шапка-кнопка — всегда показывает аватары + имена */}
@@ -141,49 +187,14 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
       </div>
     </div>
 
-    <div className="sec">
-      <div style={{border:'1px solid var(--bd)',borderRadius:10,overflow:'hidden',background:'var(--sf)'}}>
-        <button onClick={()=>setTasksOpen(o=>!o)} className="acc-head">
-          <span style={{display:'flex',alignItems:'center',gap:6}}>
-            <CheckCircle size={13} color="var(--hp)"/>Задачи смены
-          </span>
-          <div style={{display:'flex',alignItems:'center',gap:8}}>
-            <span className="mono" style={{fontSize:11,opacity:.55}}>{done.length}/{regularTasks.length}</span>
-            {tasksOpen&&(
-              <button onClick={e=>{e.stopPropagation();setViewMode(m=>m==='list'?'carousel':'list');}}
-                title={viewMode==='list'?'Режим карусели':'Режим списка'}
-                style={{background:'transparent',border:'1px solid var(--bd)',borderRadius:6,
-                  width:26,height:26,display:'flex',alignItems:'center',justifyContent:'center',
-                  color:'var(--mt)',cursor:'pointer',padding:0,flexShrink:0}}>
-                {viewMode==='list' ? <Square size={11}/> : <AlignJustify size={11}/>}
-              </button>
-            )}
-            {tasksOpen ? <ChevronUp size={15}/> : <ChevronDown size={15}/>}
-          </div>
-        </button>
-        {tasksOpen&&<div style={{padding:'0 12px 12px'}}>
-          {active.length===0&&regularTasks.length>0&&<div className="empty" style={{padding:'14px 0'}}>Все задачи выполнены 🎉</div>}
-          {regularTasks.length===0&&<div className="empty" style={{padding:'14px 0'}}>Задач на сегодня нет</div>}
-          {active.length>0&&viewMode==='list'&&(
-            <DraggableTaskList tasks={active} onReorder={ids=>onReorder(ids)}
-              onToggle={onToggle} onEdit={onEdit} onHandover={onHandover} doneMap={doneMap}
-              onDelete={onDelete} onArchive={onArchive}/>
-          )}
-          {active.length>0&&viewMode==='carousel'&&(
-            <TaskCarousel tasks={active} doneMap={doneMap}
-              onToggle={onToggle} onEdit={onEdit} onHandover={onHandover}/>
-          )}
-          {done.length>0&&<DoneAccordion compact tasks={done} onToggle={onToggle} onEdit={onEdit} onDelete={onDelete} onArchive={onArchive}/>}
-        </div>}
-      </div>
-    </div>
-
+    {/* 12. Нерегулярные задачи */}
     {irregularOpen.length>0&&<div className="sec">
       <div className="sec-head"><span className="sec-lbl" style={{color:"#9bb0c4"}}><FileText size={12}/>Нерегулярные · требуют внимания</span><span className="sec-cnt">{irregularOpen.length}</span></div>
       <div style={{fontSize:11,color:"var(--mt)",marginBottom:8,lineHeight:1.5}}>Не влияют на закрытие смены. Остаются в списке, пока не выполнены.</div>
       {irregularOpen.map(t=><TaskCard key={t.id} task={t} done={false} onToggle={()=>onToggle(t.id,"irregular")} onEdit={onEdit?()=>onEdit(t):null}/>)}
     </div>}
 
+    {/* 13. Кнопка итогов */}
     {onSummary&&<div className="sec" style={{paddingBottom:8}}>
       <button className="btn btn-g" onClick={onSummary}><FileText size={15}/>Итоги дня</button>
     </div>}

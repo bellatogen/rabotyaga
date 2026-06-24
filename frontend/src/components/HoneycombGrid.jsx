@@ -118,7 +118,13 @@ export function HoneycombGrid({ onGoAdd, defaultOpen = false }) {
     if (open && !data && !loading && !err) load();
   }, [open, data, loading, err, load]);
 
-  const items = data?.items || [];
+  const rawItems = data?.items || [];
+  // Показываем только actionable соты: A (зелёные), маржинальные (жёлтые), застой C (красные).
+  // Серые (B/немаржинальные) — шум, убираем. Отсекаем баг данных (>500 шт/день). Максимум 12.
+  const items = rawItems
+    .filter(i => i.count <= 500)
+    .filter(i => i.status !== 'grey')
+    .slice(0, 12);
 
   // Строим строки по 4 сота с шахматным смещением
   const COLS = 4;
@@ -190,14 +196,16 @@ export function HoneycombGrid({ onGoAdd, defaultOpen = false }) {
             </div>
           )}
 
-          {!loading && !err && data && items.length === 0 && (
+          {!loading && !err && data && items.length < 3 && (
             <div style={{ fontSize: 12, color: 'var(--mt)', padding: '8px 0', lineHeight: 1.5 }}>
-              Продаж за сегодня нет — подождите, пока пройдут первые чеки.
+              {rawItems.length === 0
+                ? 'Продаж за сегодня нет — подождите, пока пройдут первые чеки.'
+                : 'Недостаточно ключевых позиций для анализа — нужно больше продаж за день.'}
             </div>
           )}
 
           {/* Шестиугольная сетка */}
-          {items.length > 0 && (
+          {items.length >= 3 && (
             <div style={{ position: 'relative' }}>
               {rows.map((row, ri) => (
                 <div
@@ -230,7 +238,7 @@ export function HoneycombGrid({ onGoAdd, defaultOpen = false }) {
             </div>
           )}
 
-          {items.length > 0 && <Legend/>}
+          {items.length >= 3 && <Legend/>}
         </div>
       )}
     </div>

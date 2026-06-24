@@ -466,6 +466,7 @@ export default function App(){
         goList={goList} onGoAdd={goAdd} onGoToggle={goToggle} onGoRemove={goRemove}
         onToggle={toggle} onEdit={isManager?t=>setModal(t):null} onViewEmployee={isManager?n=>setViewingEmployee(n):null}
         onHandover={t=>setModal({_handover:true,task:t})}
+        onEventClick={()=>setTab('events')}
         onIikoLoad={(date,json)=>setRevenue(prev=>({...prev,[date]:{...(prev[date]||{}),...(json.fact>0?{fact:json.fact}:{}),...(json.lastYear>0?{lastYear:json.lastYear}:{})}}))}  
         sectionsOpen={profiles.find(p=>p.name===who)?.sectionsOpen??false}
         tasksView={profiles.find(p=>p.name===who)?.tasksView??'list'}/>}

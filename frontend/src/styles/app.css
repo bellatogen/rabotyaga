@@ -207,3 +207,12 @@ body{background:var(--bg);color:var(--pp);transition:background .2s ease,color .
 :focus:not(:focus-visible) {
   outline: none;
 }
+
+/* Кликабельная карточка события на вкладке «Сегодня» */
+.ev-clickable {
+  transition: transform .08s ease, opacity .08s ease;
+}
+.ev-clickable:active {
+  transform: scale(.985);
+  opacity: .85;
+}
