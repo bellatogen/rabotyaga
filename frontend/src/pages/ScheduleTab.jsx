@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, AlertTriangle, CheckCircle, Send, User, Plus, Clock, Users, TrendingUp, Download, Pencil, X } from 'lucide-react';
 import { MONTHS_RU, DOW_FULL, REPEAT_OPTS } from '../constants/locale.js';
-import { hourNorm, DEFAULT_HOUR_NORM } from '../constants/staff.js';
+import { hourNorm } from '../constants/staff.js';
 import { staffCheck } from '../utils/staffUtils.js';
 import { isToday, isDone } from '../utils/taskUtils.js';
 import { hmm, rangeDays } from '../utils/dateUtils.js';
@@ -403,7 +403,7 @@ function DashboardTab({schedule,members,ds,isManager,hourNorms={},onSetHourNorm}
   const stats=members.map(n=>({name:n,hours:Math.round(memHours(n)*10)/10,shifts:memShifts(n),nrm:hourNorm(n,hourNorms)})).sort((a,b)=>b.hours-a.hours);
   const saveNorm=name=>{
     const mn=parseInt(normDraft.min),mx=parseInt(normDraft.max);
-    if(!isFinite(mn)||!isFinite(mx)||mn<0||mx<mn||mx>400)return;
+    if(!isFinite(mn)||!isFinite(mx)||mn<0||mx<=0||mx<mn||mx>400)return; // mx>0: нельзя делить на 0 в баре
     onSetHourNorm&&onSetHourNorm(name,mn,mx);
     setEditingNorm(null);
   };

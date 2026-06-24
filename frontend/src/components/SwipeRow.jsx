@@ -1,7 +1,7 @@
 // Свайп влево → открываются «Архив» и «Удалить». Тач + мышь, не мешает вертикальному скроллу.
 // UI-5: Вместо window.confirm (блокирует Telegram WebView) — inline-тоггл.
 import { useState, useRef } from 'react';
-import { Archive, Trash2, AlertTriangle, Check, X } from 'lucide-react';
+import { Archive, Trash2, Check, X } from 'lucide-react';
 
 export function SwipeRow({children,onArchive,onDelete}){
   const enabled=!!(onArchive||onDelete);
@@ -24,6 +24,8 @@ export function SwipeRow({children,onArchive,onDelete}){
   const up=()=>{
     const s=st.current;if(!s.down)return;s.down=false;
     const open=x<-W/2; const v=open?-W:0; setX(v); set(v,true);
+    // Сбрасываем подтверждение если свайп закрывается — иначе при следующем открытии сразу покажет Да/Нет.
+    if(!open) setConfirmDel(false);
   };
   return(<div className="swipe">
     <div className="swipe-actions">

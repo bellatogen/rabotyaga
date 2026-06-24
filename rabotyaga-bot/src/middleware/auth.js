@@ -34,7 +34,7 @@ function setAuthCookie(res, account) {
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: 'strict',
-    secure: process.env.NODE_ENV === 'production',
+    secure: IS_PROD, // согласован с IS_PROD, а не только с NODE_ENV
     maxAge: COOKIE_MAX_AGE,
     path: '/',
   });

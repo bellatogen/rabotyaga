@@ -23,8 +23,9 @@ export function BundleRecommendations({ onGoAdd, defaultOpen = false }) {
     finally { setLoading(false); }
   }, []); // iikoBasket — стабильная функция из модуля, не меняется
 
-  // Загружаем при первом раскрытии (один раз)
-  useEffect(() => { if (open && !data && !loading) load(); }, [open, data, loading, load]);
+  // Загружаем при первом раскрытии (один раз).
+  // !err важен: без него при ошибке (data=null, loading=false) эффект зацикливается.
+  useEffect(() => { if (open && !data && !loading && !err) load(); }, [open, data, loading, err, load]);
 
   const addToGoList = pair => {
     const text = `${pair.a} + ${pair.b} — предлагай сетом (${pair.confAB}% берут вместе)`;
