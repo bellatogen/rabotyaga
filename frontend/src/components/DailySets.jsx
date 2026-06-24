@@ -13,7 +13,7 @@ export function DailySets({ onGoAdd }) {
   useEffect(() => {
     let alive = true;
     iikoBasket(false)
-      .then(j => { if (alive) setSets(pickDailySets(j.pairs || [], 3)); })
+      .then(j => { if (alive) setSets(pickDailySets(j.pairs || [], 3, j.dishTypeMap || null)); })
       .catch(e => { if (alive) setErr(e.message); });
     return () => { alive = false; };
   }, []);

@@ -13,16 +13,22 @@ function readLog() {
 }
 
 // Подстановка переменных в шаблоне: {{имя}}, {{дата}}, {{день_недели}}.
+// Дата/день считаются в PUSH_TZ (дефолт Москва), а не в локали сервера (UTC на хостинге).
+const PUSH_TZ = process.env.PUSH_TZ || 'Europe/Moscow';
 const WEEKDAYS_RU = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+const WD_FROM_EN = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 function substVars(tpl, userName) {
-  const now = new Date();
-  const dd = String(now.getDate()).padStart(2, '0');
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  const yyyy = now.getFullYear();
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: PUSH_TZ,
+    year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short',
+  });
+  const p = {};
+  for (const part of fmt.formatToParts(new Date())) p[part.type] = part.value;
+  const wd = WEEKDAYS_RU[WD_FROM_EN[p.weekday] ?? 0];
   return String(tpl || '')
     .replace(/\{\{имя\}\}/g, userName || '')
-    .replace(/\{\{дата\}\}/g, `${dd}.${mm}.${yyyy}`)
-    .replace(/\{\{день_недели\}\}/g, WEEKDAYS_RU[now.getDay()]);
+    .replace(/\{\{дата\}\}/g, `${p.day}.${p.month}.${p.year}`)
+    .replace(/\{\{день_недели\}\}/g, wd);
 }
 
 module.exports = function makeSender(data, saveData) {

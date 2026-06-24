@@ -249,12 +249,25 @@ app.get('/api/iiko/margin-data', requireAuth, async (req, res) => {
 
 // ── iiko: ABC-анализ продаж за сегодня ──
 app.get('/api/iiko/sales-abc', requireAuth, async (req, res) => {
-  if (req.query.force === '1') delete data.kv['sales_abc:v1'];
+  if (req.query.force === '1') delete data.kv['sales_abc:v2'];
   try {
     const result = await iiko.getSalesABC(data, saveData);
     res.json(result);
   } catch (err) {
     console.error('[iiko/sales-abc]', err.message);
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// ── iiko: диагностика категорий блюд (менеджер-онли) ──
+// Показывает реальные DishCategory из iiko за 14 дней — для отладки классификации сэтов.
+app.get('/api/iiko/dish-categories', requireManager, async (req, res) => {
+  if (req.query.force === '1') delete data.kv['dish_cats:v1'];
+  try {
+    const result = await iiko.getDishCategories(data, saveData);
+    res.json(result);
+  } catch (err) {
+    console.error('[iiko/dish-categories]', err.message);
     res.status(err.status || 500).json({ error: err.message });
   }
 });

@@ -3,14 +3,20 @@
 
 export const pairKey = p => `${p.a}|||${p.b}`;
 
+// Убираем контейнерные суффиксы («с собой», объём) из имени перед матчингом —
+// iiko часто отдаёт «IPA 0,5л с собой», что мешает эвристике по названию.
+function stripContainerSuffix(name) {
+  return (name || '').replace(/\s*(с\s+собой|навынос|0[,.]\d+\s*л|to go|\d+\s*мл)\s*/gi, ' ').trim();
+}
+
 // Эвристика по названию — fallback, когда iiko не отдаёт категории (catA/catB/typeA/typeB).
 function looksLikeDrink(name) {
-  const n = (name || '').toLowerCase();
-  return /пиво|пилс|лагер|эль|стаут|портер|вино|шампан|просекко|кава|виски|водк|джин|ром|текил|коньяк|бренди|сидр|медовух|квас|пунш|глинтвейн|напиток|коктейл|дра(ф|фт)|розлив|бокал|кружк/.test(n);
+  const n = stripContainerSuffix(name).toLowerCase();
+  return /пиво|пилс|лагер|эль|стаут|портер|вино|шампан|просекко|кава|виски|водк|джин|ром|текил|коньяк|бренди|сидр|медовух|квас|пунш|глинтвейн|напиток|коктейл|дра(ф|фт)|розлив|разлив|бокал|кружк|ale|ipa|lager|stout|porter|weizen|weiss|wit\b|saison|pilsner|pilsener|pils|gose|sour|cider|mead|craft|palm\b|chimay|duvel|leffe|hoeg|kriek/.test(n);
 }
 function looksLikeFood(name) {
-  const n = (name || '').toLowerCase();
-  return /закус|снек|чипс|орех|сухар|мясн|колбас|сыр|хлеб|соус|дип|паст|пиц|бургер|сэндвич|ролл|суш|салат|суп|горяч|горячее|блюд|порци/.test(n);
+  const n = stripContainerSuffix(name).toLowerCase();
+  return /закус|снек|снэк|чипс|орех|сухар|мясн|колбас|сыр|хлеб|соус|дип|паст|пиц|бургер|сэндвич|сендвич|ролл|суш|салат|суп|горяч|горячее|блюд|порци|начос|тапас|гриль|перекус/.test(n);
 }
 
 // Пара «напиток+закуска» по названиям (когда категории недоступны).
@@ -26,27 +32,39 @@ function looksLikeSameKind(p) {
   return bothDrink || bothFood;
 }
 
-// Истинно «напиток+закуска». Предпочитаем категории iiko (typeA/typeB),
-// иначе — флаг drinkSnack, иначе — эвристика по названию.
-export function isDrinkSnack(p) {
-  const ta = p.typeA, tb = p.typeB;
-  const haveTypes = ta && tb && ta !== 'unknown' && tb !== 'unknown';
-  if (haveTypes) {
-    return (ta === 'drink' && tb === 'food') || (ta === 'food' && tb === 'drink');
+// Истинно «напиток+закуска». Порядок определения типа:
+//  1) категории iiko (typeA/typeB), если оба известны (не 'other'/'unknown');
+//  2) карта dishTypeMap из ABC (если передана) — переопределяет неизвестные типы;
+//  3) эвристика по названию (флаг drinkSnack / looksLikeDrink+looksLikeFood).
+export function isDrinkSnack(p, dishTypeMap = null) {
+  const known = t => t && t !== 'unknown' && t !== 'other';
+  const isDS  = (ta, tb) => (ta === 'drink' && tb === 'food') || (ta === 'food' && tb === 'drink');
+
+  let ta = p.typeA, tb = p.typeB;
+  // 1. Категории iiko
+  if (known(ta) && known(tb)) return isDS(ta, tb);
+
+  // 2. Карта типов из ABC
+  if (dishTypeMap) {
+    if (!known(ta)) ta = dishTypeMap[p.a] || ta;
+    if (!known(tb)) tb = dishTypeMap[p.b] || tb;
+    if (known(ta) && known(tb)) return isDS(ta, tb);
   }
+
+  // 3. Эвристика по названию
   if (p.drinkSnack) return true;
   return heuristicDrinkSnack(p);
 }
 
 // Только напиток+закуска. Если категорий нет — fallback по названию (см. isDrinkSnack).
-export function filterDrinkSnack(pairs = []) {
-  return pairs.filter(isDrinkSnack);
+export function filterDrinkSnack(pairs = [], dishTypeMap = null) {
+  return pairs.filter(p => isDrinkSnack(p, dishTypeMap));
 }
 
 // Топ-N сэтов: приоритет напиток+закуска, сортировка по марже, затем по score.
 // Если явных пар нет — берём общий список, но отсеиваем «оба напитка / оба еда».
-export function pickDailySets(pairs = [], n = 3) {
-  let pool = pairs.filter(isDrinkSnack);
+export function pickDailySets(pairs = [], n = 3, dishTypeMap = null) {
+  let pool = pairs.filter(p => isDrinkSnack(p, dishTypeMap));
   if (!pool.length) pool = pairs.filter(p => !looksLikeSameKind(p));
   return [...pool].sort((a, b) => {
     const ma = a.margin ?? -1, mb = b.margin ?? -1;

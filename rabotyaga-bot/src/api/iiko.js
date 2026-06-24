@@ -22,8 +22,8 @@ function sha1(str) {
 // ── Классификация категории блюда iiko → напиток / закуска / прочее ──
 // Правило сэтов: пара показывается только если это напиток + закуска.
 // Сопоставление по ключевым словам в названии категории (регистронезависимо).
-const DRINK_RE = /бар|напит|пиво|пив\b|пенн|коктейл|вино|виск|ром\b|водк|лимонад|\bчай|кофе|сидр|\bэль|лагер|безалког|морс|\bсок|тоник|джин|текил|ликёр|ликер|\bшот|настойк|drink/i;
-const FOOD_RE  = /кухн|закус|\bеда|бургер|пицц|салат|снэк|снек|тапас|гриль|горяч|блюд|паст\b|\bсыр|мяс|\bфри|начос|сухар|food|стартер|основ|десерт|десерт|брускет|сэндвич|сендвич|хот-?дог/i;
+const DRINK_RE = /бар|напит|пиво|пив\b|пенн|коктейл|вино|виск|ром\b|водк|лимонад|\bчай|кофе|сидр|\bэль|лагер|безалког|морс|\bсок|тоник|джин|текил|ликёр|ликер|\bшот|настойк|drink|craft|крафт|разлив|draft|драфт|бутылочн/i;
+const FOOD_RE  = /кухн|закус|\bеда|бургер|пицц|салат|снэк|снек|тапас|гриль|горяч|блюд|паст\b|\bсыр|мяс|\bфри|начос|сухар|food|стартер|основ|десерт|брускет|сэндвич|сендвич|хот-?дог|кухня|перекус|кулинар/i;
 
 function classifyCat(cat) {
   if (!cat) return 'other';
@@ -246,6 +246,34 @@ async function syncRevenueRevenueOnly(data, saveData) {
   return syncRevenueRange(from, to, data, saveData);
 }
 
+// Карта dish → 'drink'|'food'|'other' из закэшированных источников (без запроса в iiko).
+// Источники по приоритету: sales_abc:v2.dishTypeMap, затем dish_cats:v1 (классифицируем категории).
+// Нужна basket-анализу когда iiko вернул контейнерную категорию («с собой») вместо реальной.
+function loadDishTypeMap(data) {
+  const map = {};
+  try {
+    const abc = data?.kv?.['sales_abc:v2'];
+    if (abc) {
+      const parsed = JSON.parse(abc);
+      for (const [name, t] of Object.entries(parsed.dishTypeMap || {})) {
+        if (t && t !== 'other') map[name] = t;
+      }
+    }
+  } catch { /* кэш повреждён — игнорируем */ }
+  try {
+    const dc = data?.kv?.['dish_cats:v1'];
+    if (dc) {
+      const parsed = JSON.parse(dc);
+      for (const { dish, cat } of (parsed.categories || [])) {
+        if (!dish || map[dish]) continue;
+        const t = classifyCat(cat);
+        if (t !== 'other') map[dish] = t;
+      }
+    }
+  } catch { /* кэш повреждён — игнорируем */ }
+  return map;
+}
+
 // Анализ корзины (маркет баскет) — пары блюд, которые часто берут вместе.
 // Результат кэшируется в KV (обновляется раз в 20 часов).
 async function getBasketPairs(data, saveData) {
@@ -255,8 +283,8 @@ async function getBasketPairs(data, saveData) {
   if (cached) {
     const parsed = JSON.parse(cached);
     const ageH = (Date.now() - new Date(parsed.ts).getTime()) / 3_600_000;
-    // v<2 — старая схема без категорий/маржи, пересчитываем
-    if (ageH < 20 && parsed.v === 2) return parsed;
+      // v<3 — старая схема без кросс-референса типов/dishTypeMap, пересчитываем
+      if (ageH < 20 && parsed.v === 3) return parsed;
   }
 
   if (!IIKO_URL || !IIKO_LOGIN) {
@@ -346,7 +374,7 @@ async function getBasketPairs(data, saveData) {
   if (totalOrders < 10) {
     // Кэшируем даже пустой результат — иначе каждый вызов без данных бьёт в iiko.
     // Пользователь может сбросить кэш кнопкой «Обновить» (force=1).
-    const result = { pairs: [], totalChecks, from, to, hasCategories: hasExtra, v: 2, ts: new Date().toISOString() };
+      const result = { pairs: [], totalChecks, from, to, hasCategories: hasExtra, dishTypeMap: {}, v: 3, ts: new Date().toISOString() };
     if (data && saveData) { data.kv[CACHE_KEY] = JSON.stringify(result); saveData(); }
     return result;
   }
@@ -365,6 +393,13 @@ async function getBasketPairs(data, saveData) {
     }
   }
 
+  // Кросс-референс типов: iiko часто отдаёт контейнерную категорию («с собой»),
+  // из-за чего typeA/typeB = 'other' и пара пиво+пиво проходит фильтр сэтов.
+  // Подменяем тип из закэшированной карты (sales_abc:v2 / dish_cats:v1) когда:
+  //  — нет расширенных полей в basket-ответе (hasExtra=false), либо
+  //  — тип получился 'other'.
+  const fallbackTypeMap = loadDishTypeMap(data);
+
   // Ассоциативные правила: support, confidence, lift
   const pairs = Object.entries(coOccur)
     .filter(([, cnt]) => cnt >= 3)
@@ -377,7 +412,10 @@ async function getBasketPairs(data, saveData) {
       const score   = lift * support * Math.sqrt(count);
       // Категории + маржа для правила «напиток+закуска» и ранжирования
       const catA = dishCat[a] || '', catB = dishCat[b] || '';
-      const typeA = classifyCat(catA), typeB = classifyCat(catB);
+      let typeA = classifyCat(catA), typeB = classifyCat(catB);
+      // Кросс-референс: если категория контейнерная/неизвестная — берём тип из ABC/dish_cats
+      if (!hasExtra || typeA === 'other') typeA = fallbackTypeMap[a] || typeA;
+      if (!hasExtra || typeB === 'other') typeB = fallbackTypeMap[b] || typeB;
       const drinkSnack = (typeA === 'drink' && typeB === 'food') ||
                          (typeA === 'food'  && typeB === 'drink');
       const marginA = dishMargin(a), marginB = dishMargin(b);
@@ -398,8 +436,14 @@ async function getBasketPairs(data, saveData) {
     .sort((a, b) => b.score - a.score)
     .slice(0, 30);
 
+  // Карта типов по блюдам из пар (для фронта: эвристика isDrinkSnack как доп. fallback)
+  const dishTypeMap = {};
+  for (const p of pairs) {
+    if (p.typeA && p.typeA !== 'other') dishTypeMap[p.a] = p.typeA;
+    if (p.typeB && p.typeB !== 'other') dishTypeMap[p.b] = p.typeB;
+  }
   // totalChecks — полное кол-во чеков за период (для UI); totalOrders — только чеки с 2+ блюдами (для алгоритма)
-  const result = { pairs, totalChecks, from, to, hasCategories: hasExtra, v: 2, ts: new Date().toISOString() };
+  const result = { pairs, totalChecks, from, to, hasCategories: hasExtra, dishTypeMap, v: 3, ts: new Date().toISOString() };
   if (data && saveData) { data.kv[CACHE_KEY] = JSON.stringify(result); saveData(); }
   console.log(`[iiko/basket] пар найдено: ${pairs.length} (категории: ${hasExtra ? 'да' : 'нет'})`);
   return result;
@@ -504,39 +548,58 @@ async function getMarginData(data, saveData) {
   return result;
 }
 
-// Вспомогательная функция: OLAP-запрос количества блюд за период
+// Вспомогательная функция: OLAP-запрос количества блюд за период.
+// Возвращает { counts: {dish:count}, cats: {dish:catName} }.
+// DishCategory запрашивается с fallback (старый iiko может не поддерживать поле).
 async function fetchDishCounts(from, to, token) {
-  const body = {
+  const url = `${IIKO_URL}/resto/api/v2/reports/olap?key=${token}`;
+  const mkBody = withCat => ({
     reportType: 'SALES', buildSummary: 'false',
-    groupByRowFields: ['DishName'],
+    groupByRowFields: withCat ? ['DishName', 'DishCategory'] : ['DishName'],
     aggregateFields: ['DishAmountInt'],
     filters: {
       'OpenDate.Typed': { filterType:'DateRange', periodType:'CUSTOM', from, to, includeLow:true, includeHigh:true },
     },
-  };
-  const url = `${IIKO_URL}/resto/api/v2/reports/olap?key=${token}`;
-  const res = await fetch(url, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body), signal: AbortSignal.timeout(15_000),
   });
+  const post = b => fetch(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(b), signal: AbortSignal.timeout(15_000),
+  });
+
+  let res = await post(mkBody(true));
+  let hasCat = true;
   if (res.status === 401) { invalidateToken(); throw Object.assign(new Error('iiko: сессия истекла'), { status: 401 }); }
-  if (!res.ok) { const t = await res.text().catch(() => ''); throw new Error(`iiko OLAP ${res.status}: ${t.slice(0, 200)}`); }
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    if (t.includes('DishCategory') || t.includes('Unknown OLAP field')) {
+      hasCat = false;
+      res = await post(mkBody(false));
+      if (res.status === 401) { invalidateToken(); throw Object.assign(new Error('iiko: сессия истекла'), { status: 401 }); }
+      if (!res.ok) { const t2 = await res.text().catch(() => ''); throw new Error(`iiko OLAP ${res.status}: ${t2.slice(0, 200)}`); }
+    } else {
+      throw new Error(`iiko OLAP ${res.status}: ${t.slice(0, 200)}`);
+    }
+  }
   let json; try { json = await res.json(); } catch { throw new Error('iiko вернул невалидный JSON (sales-abc)'); }
-  const map = {};
+  const counts = {}, cats = {};
   for (const row of (json.data || [])) {
     const name  = (row['DishName'] || '').trim();
     const count = Math.round(Number(row['DishAmountInt'] || 0));
     if (!name || count <= 0) continue;
-    map[name] = (map[name] || 0) + count;
+    counts[name] = (counts[name] || 0) + count;
+    if (hasCat) {
+      const cat = (row['DishCategory'] || '').trim();
+      if (cat && !cats[name]) cats[name] = cat;
+    }
   }
-  return map;
+  return { counts, cats };
 }
 
 // ABC-анализ продаж: DishName + DishAmountInt.
 // Fallback: сегодня → вчера → последние 3 дня (если < MIN_ITEMS позиций).
 // isMargin из margin_data:v1 (авто) или margin_items:v1 (ручной fallback).
 async function getSalesABC(data, saveData) {
-  const CACHE_KEY = 'sales_abc:v1';
+  const CACHE_KEY = 'sales_abc:v2'; // v2 — добавлен dishTypeMap (drink/food/other по DishCategory)
   const CACHE_TTL = 30 * 60 * 1000; // 30 минут
   const MIN_ITEMS = 5; // минимум позиций для показа сот
 
@@ -557,22 +620,29 @@ async function getSalesABC(data, saveData) {
   const d3     = new Date(nowMs - 3 * 86_400_000).toISOString().slice(0, 10); // 3 дня назад
 
   // Сегодня
-  let dishMap     = await fetchDishCounts(d0, d0, token);
+  let { counts: dishMap, cats: dishCats } = await fetchDishCounts(d0, d0, token);
   let periodLabel = 'сегодня';
   let from = d0, to = d0;
 
   // Если мало данных — вчера
   if (Object.keys(dishMap).length < MIN_ITEMS) {
-    dishMap     = await fetchDishCounts(d1, d1, token);
+    ({ counts: dishMap, cats: dishCats } = await fetchDishCounts(d1, d1, token));
     periodLabel = 'вчера';
     from = to   = d1;
   }
 
   // Если мало — последние 3 дня
   if (Object.keys(dishMap).length < MIN_ITEMS) {
-    dishMap     = await fetchDishCounts(d3, d0, token);
+    ({ counts: dishMap, cats: dishCats } = await fetchDishCounts(d3, d0, token));
     periodLabel = 'за 3 дня';
     from = d3; to = d0;
+  }
+
+  // Карта dish → 'drink'|'food'|'other' по реальной категории iiko.
+  // Используется basket-анализом как кросс-референс (контейнерные категории «с собой» ломают фильтр сэтов).
+  const dishTypeMap = {};
+  for (const [name, cat] of Object.entries(dishCats || {})) {
+    dishTypeMap[name] = classifyCat(cat);
   }
 
   // Сортируем по убыванию продаж для ABC
@@ -627,10 +697,72 @@ async function getSalesABC(data, saveData) {
 
   // Если данные не за сегодня — сокращаем TTL до 5 мин, чтобы не пропустить открытие смены
   const ttlOverride = periodLabel !== 'сегодня' ? 5 * 60 * 1000 : null;
-  const result = { ts: Date.now(), date: to, from, to, periodLabel, items, ttl: ttlOverride || CACHE_TTL };
+  const result = { ts: Date.now(), date: to, from, to, periodLabel, items, dishTypeMap, ttl: ttlOverride || CACHE_TTL };
   if (data && saveData) { data.kv[CACHE_KEY] = JSON.stringify(result); saveData(); }
   console.log(`[iiko/sales-abc] ${periodLabel} (${from}–${to}): ${items.length} позиций (A:${items.filter(i=>i.abcGroup==='A').length}, B:${items.filter(i=>i.abcGroup==='B').length}, C:${items.filter(i=>i.abcGroup==='C').length})`);
   return result;
 }
 
-module.exports = { getDayRevenue, syncRevenue, syncRevenueRange, getBasketPairs, getSalesABC, getMarginData };
+// Диагностика: все уникальные пары DishName + DishCategory за 14 дней.
+// Нужна чтобы увидеть реальные категории конкретного iiko (контейнерные «с собой»
+// vs продуктовые «Пиво»/«Бар») и отладить классификацию. Кэш 2 часа в dish_cats:v1.
+async function getDishCategories(data, saveData) {
+  const CACHE_KEY = 'dish_cats:v1';
+  const CACHE_TTL = 2 * 60 * 60 * 1000; // 2 часа
+
+  if (data?.kv?.[CACHE_KEY]) {
+    const cached = JSON.parse(data.kv[CACHE_KEY]);
+    if (Date.now() - new Date(cached.ts).getTime() < CACHE_TTL) return cached;
+  }
+
+  if (!IIKO_URL || !IIKO_LOGIN) {
+    throw Object.assign(new Error('iiko не настроен: задайте IIKO_URL и IIKO_LOGIN в .env'), { status: 503 });
+  }
+
+  const token = await getToken();
+  const to    = new Date().toISOString().slice(0, 10);
+  const from  = new Date(Date.now() - 14 * 86_400_000).toISOString().slice(0, 10);
+
+  const url = `${IIKO_URL}/resto/api/v2/reports/olap?key=${token}`;
+  const body = {
+    reportType: 'SALES', buildSummary: 'false',
+    groupByRowFields: ['DishName', 'DishCategory'],
+    aggregateFields: ['DishAmountInt'],
+    filters: { 'OpenDate.Typed': { filterType:'DateRange', periodType:'CUSTOM', from, to, includeLow:true, includeHigh:true } },
+  };
+  const res = await fetch(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body), signal: AbortSignal.timeout(30_000),
+  });
+  if (res.status === 401) { invalidateToken(); throw Object.assign(new Error('iiko: сессия истекла'), { status: 401 }); }
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    if (t.includes('DishCategory') || t.includes('Unknown OLAP field')) {
+      throw Object.assign(new Error('iiko не поддерживает поле DishCategory в OLAP'), { status: 422 });
+    }
+    throw new Error(`iiko dish-categories OLAP ${res.status}: ${t.slice(0, 200)}`);
+  }
+  let json; try { json = await res.json(); } catch { throw new Error('iiko вернул невалидный JSON (dish-categories)'); }
+
+  const seen = new Set();
+  const categories = [];
+  const distinct = new Set();
+  for (const row of (json.data || [])) {
+    const dish = (row['DishName'] || '').trim();
+    const cat  = (row['DishCategory'] || '').trim();
+    if (!dish) continue;
+    const k = `${dish}\x00${cat}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    categories.push({ dish, cat, type: classifyCat(cat) });
+    if (cat) distinct.add(cat);
+  }
+  categories.sort((x, y) => (x.cat || '').localeCompare(y.cat || '') || x.dish.localeCompare(y.dish));
+
+  const result = { categories, distinctCats: [...distinct].sort(), from, to, ts: new Date().toISOString() };
+  if (data && saveData) { data.kv[CACHE_KEY] = JSON.stringify(result); saveData(); }
+  console.log(`[iiko/dish-cats] ${categories.length} пар dish+cat, уникальных категорий: ${distinct.size}`);
+  return result;
+}
+
+module.exports = { getDayRevenue, syncRevenue, syncRevenueRange, getBasketPairs, getSalesABC, getMarginData, getDishCategories };

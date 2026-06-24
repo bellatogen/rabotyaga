@@ -12,6 +12,34 @@ function tomorrowStr() {
   return d.toISOString().slice(0, 10);
 }
 
+// ── Часовой пояс расписания пушей ──
+// Хостинг часто в UTC — без явного TZ «23:00» в настройках уходило бы в 02:00 МСК.
+// Время в редакторе пушей трактуется в этом поясе. Дефолт — Москва.
+const PUSH_TZ = process.env.PUSH_TZ || 'Europe/Moscow';
+
+// Текущие дата и минуты-от-полуночи в PUSH_TZ.
+function tzNow(date = new Date()) {
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: PUSH_TZ,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+  const p = {};
+  for (const part of fmt.formatToParts(date)) p[part.type] = part.value;
+  const hour = parseInt(p.hour, 10) % 24; // '24:00' на полуночь в некоторых рантаймах → 0
+  return {
+    dateStr: `${p.year}-${p.month}-${p.day}`,
+    minutes: hour * 60 + parseInt(p.minute, 10),
+  };
+}
+
+// Завтрашняя дата (YYYY-MM-DD) в PUSH_TZ. Полдень UTC — чтобы +сутки не задело DST-сдвиги.
+function tomorrowTz() {
+  const d = new Date(tzNow().dateStr + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 function isToday(task, ds) {
   if (task.kind === 'irregular') return false;
   if (task.from  && ds < task.from)  return false;
@@ -145,7 +173,7 @@ function getPushSettings(data) {
 
 async function sendDayBeforeShiftPushes(bot, data, sender, template) {
   const tasks = JSON.parse(data.kv?.['tasks:v4'] || '[]');
-  const tomorrow = tomorrowStr();
+  const tomorrow = tomorrowTz();
   const tomorrowTasks = tasks.filter(t => !t.archived && isToday(t, tomorrow));
   if (!tomorrowTasks.length) return;
   const taskTitles = tomorrowTasks.map(t => t.title);
@@ -157,7 +185,7 @@ async function sendDayBeforeShiftPushes(bot, data, sender, template) {
 
 async function sendPersonalTasksPushes(bot, data, sender, template) {
   const tasks = JSON.parse(data.kv?.['tasks:v4'] || '[]');
-  const today = todayStr();
+  const today = tzNow().dateStr;
   // Ключ — имя пользователя (assignedTo), значение — массив задач
   const userTasks = {};
   tasks.forEach(t => {
@@ -218,8 +246,7 @@ function startScheduler(bot, data, sender, saveData) {
 
   setInterval(async () => {
     const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    const today = todayStr();
+    const { minutes: currentMinutes, dateStr: today } = tzNow(now);
     const { jobs, templates } = getPushSettings(data);
 
     // Сбрасываем счётчик в полночь

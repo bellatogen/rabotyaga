@@ -585,7 +585,7 @@ export function AdminPanel({ token }) {
         <div>
           <h2 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '8px', display:'flex', alignItems:'center', gap:7 }}><Clock size={14}/>Расписание и шаблоны пушей</h2>
           <div style={{ fontSize: 12, color: 'var(--mt)', marginBottom: 14, lineHeight: 1.6, background:'var(--sf)', borderRadius:8, padding:'10px 12px' }}>
-            Время задаётся в часовом поясе сервера. Выключенные пуши не отправляются.<br/>
+            Время задаётся по Москве (часовой пояс <code>PUSH_TZ</code>, дефолт Europe/Moscow). Выключенные пуши не отправляются.<br/>
             Если шаблон пуст — используется встроенный текст. Плейсхолдеры <code>{'{tasks}'}</code>/<code>{'{sets}'}</code> подставляют список.
           </div>
 
