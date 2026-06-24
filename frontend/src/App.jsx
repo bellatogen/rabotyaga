@@ -482,7 +482,7 @@ export default function App(){
       {tab==="today"&&<TodayTab who={who} isManager={isManager} ds={ds} todayTasks={todayTasks} doneMap={doneToday}
         pct={pct} doneTodayCount={doneTodayCount} todayShifts={todayShifts} myStatus={myStatus} myAssigned={myAssigned}
         schedule={schedule} events={events} todayEvents={todayEvents} statusOverrides={statusOverrides} now={now} revenue={revenue} handovers={handovers}
-        dayClosed={dayClosed} dayRegularCount={dayRegular.length} irregular={irregularTasks} irregularDoneMap={irregularDoneMap}
+        dayClosed={dayClosed} dayRegularCount={dayRegular.length} irregular={irregularTasks} irregularDoneMap={irregularDoneMap} cards={cards}
         pushGateOk={afterPushGate(now)} onSummary={openSummary} taskOrder={taskOrder} onReorder={setTaskOrder}
         canManage={canAddTasks} onDelete={canAddTasks?delTask:null} onArchive={canAddTasks?archiveTask:null}
         goList={goList} onGoAdd={goAdd} onGoToggle={goToggle} onGoRemove={goRemove}
