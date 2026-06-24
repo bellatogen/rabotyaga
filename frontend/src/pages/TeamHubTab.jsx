@@ -127,7 +127,7 @@ function CardsTab({cards,members,setCardModal,onRevoke}){
     {[...cards].reverse().map(c=><div key={c.id} className={`dc ${c.type}`}>
       <div className="dc-head"><span className="dc-type">{c.type==="yellow"?"🟡":c.type==="orange"?"🟠":"🔴"} {c.name} · {c.active?"активна":"снята"}</span>
         <div style={{display:"flex",gap:8,alignItems:"center"}}><span className="dc-date">{fmtDate(c.date)}</span>{c.active&&<button onClick={()=>onRevoke(c.id)} style={{background:"transparent",border:"none",color:"var(--mt)",cursor:"pointer",fontSize:12}}>снять</button>}</div></div>
-      {c.comment&&<div className="dc-comment">{c.comment}</div>}{c.isPrivate&&<div style={{fontSize:11,color:"var(--mt)",marginTop:4,display:"flex",alignItems:"center",gap:3}}><Lock size={11}/>Конфиденциально</div>}</div>)}
+      {c.comment&&<div className="dc-comment">{c.comment}</div>}{c.notDoneTasks?.length>0&&<div className="dc-comment" style={{marginTop:4,fontSize:12,opacity:.8}}><span style={{opacity:.7}}>Не выполнено в тот день: </span>{c.notDoneTasks.join(', ')}</div>}{c.isPrivate&&<div style={{fontSize:11,color:"var(--mt)",marginTop:4,display:"flex",alignItems:"center",gap:3}}><Lock size={11}/>Конфиденциально</div>}</div>)}
   </div>);
 }
 

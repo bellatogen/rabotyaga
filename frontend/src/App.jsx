@@ -304,7 +304,10 @@ export default function App(){
   const onAddComment=(taskId,comment)=>setTaskComments(prev=>({...prev,[taskId]:[...(prev[taskId]||[]),comment]}));
   const delTask=id=>{const t=tasks.find(x=>x.id===id);setTasks(p=>p.filter(x=>x.id!==id));logEvent("task_deleted",t?.title||id);setModal(null);};
   const archiveTask=(id,val=true)=>{const t=tasks.find(x=>x.id===id);setTasks(p=>p.map(x=>x.id===id?{...x,archived:val}:x));logEvent(val?"task_archived":"task_restored",t?.title||id);};
-  const issueCard=(name,type,comment,isPrivate)=>{setCards(prev=>{const r=processCard(prev,name,type,comment,isPrivate,accountLabel(who));logEvent("card_issued",`${name}: ${r.finalType}${isPrivate?" (конфид.)":""}`);return r.cards;});};
+  const issueCard=(name,type,comment,isPrivate)=>{
+    const notDoneTasks=tasks.filter(t=>!t.archived&&isToday(t,ds)&&!isDone(history[`${t.id}::${ds}`])).map(t=>t.title);
+    setCards(prev=>{const r=processCard(prev,name,type,comment,isPrivate,accountLabel(who),notDoneTasks);logEvent("card_issued",`${name}: ${r.finalType}${isPrivate?" (конфид.)":""}`);return r.cards;});
+  };
   const addHandover=(forDate,text,createTask,taskTitle)=>{
     setHandovers(prev=>({...prev,[forDate]:[...(prev[forDate]||[]),{id:uid(),text,by:accountLabel(who),ts:nowISO()}]}));
     if(createTask&&taskTitle){const nt={id:uid(),title:`[Перенос] ${taskTitle}`,repeat:"once",date:forDate,time:"",assignee:"смена",notes:text,isReport:false};setTasks(p=>[...p,nt]);}

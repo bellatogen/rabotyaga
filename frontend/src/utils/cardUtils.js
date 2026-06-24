@@ -12,7 +12,7 @@ export function getActiveCards(cards, name) {
  * Обрабатывает выдачу новой карточки с учётом истории:
  * жёлтая + жёлтая → оранжевая; оранжевая → красная.
  */
-export function processCard(cards, name, type, comment, isPrivate, issuedBy) {
+export function processCard(cards, name, type, comment, isPrivate, issuedBy, notDoneTasks = []) {
   const active = getActiveCards(cards, name);
   const yellows = active.filter(c => c.type === "yellow");
   const oranges = active.filter(c => c.type === "orange");
@@ -27,7 +27,7 @@ export function processCard(cards, name, type, comment, isPrivate, issuedBy) {
     }
   }
   return {
-    cards: [...updated, {id:uid(), name, type:finalType, date:todayStr(), comment, isPrivate, issuedBy, active:true}],
+    cards: [...updated, {id:uid(), name, type:finalType, date:todayStr(), comment, isPrivate, issuedBy, active:true, notDoneTasks: Array.isArray(notDoneTasks) ? notDoneTasks : []}],
     finalType,
   };
 }
