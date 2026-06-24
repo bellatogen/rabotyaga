@@ -38,24 +38,26 @@ export function BundleRecommendations({ onGoAdd, defaultOpen = false }) {
 
   return (
     <div style={{border:'1px solid var(--bd)',borderRadius:10,overflow:'hidden',background:'var(--sf)'}}>
-      <button onClick={() => setOpen(o => !o)} className="acc-head">
-        <span style={{display:'flex',alignItems:'center',gap:6}}>
-          <Zap size={13} color="var(--am)"/>
-          <span>Сэты · часто берут вместе</span>
-          {top.length > 0 && <span className="mono" style={{opacity:.5,fontSize:10}}>{top.length}</span>}
-        </span>
-        <div style={{display:'flex',alignItems:'center',gap:6}}>
-          {open && (
-            <button onClick={e=>{e.stopPropagation();load(true);}}
-              title="Обновить"
-              style={{background:'transparent',border:'none',color:'var(--mt)',cursor:'pointer',
-                padding:3,display:'flex',lineHeight:0,opacity:.7}}>
-              <RefreshCw size={12} style={{animation:loading?'spin 1s linear infinite':undefined}}/>
-            </button>
-          )}
-          {open ? <ChevronUp size={15}/> : <ChevronDown size={15}/>}
-        </div>
-      </button>
+      <div style={{display:'flex',alignItems:'center'}}>
+        <button onClick={() => setOpen(o => !o)} className="acc-head" style={{flex:1}}>
+          <span style={{display:'flex',alignItems:'center',gap:6}}>
+            <Zap size={13} color="var(--am)"/>
+            <span>Сэты · часто берут вместе</span>
+            {top.length > 0 && <span className="mono" style={{opacity:.5,fontSize:10}}>{top.length}</span>}
+          </span>
+          <div style={{display:'flex',alignItems:'center',gap:6}}>
+            {open ? <ChevronUp size={15}/> : <ChevronDown size={15}/>}
+          </div>
+        </button>
+        {open && (
+          <button onClick={()=>load(true)}
+            title="Обновить"
+            style={{background:'transparent',border:'none',color:'var(--mt)',cursor:'pointer',
+              padding:'8px 10px',display:'flex',lineHeight:0,opacity:.7,flexShrink:0}}>
+            <RefreshCw size={12} style={{animation:loading?'spin 1s linear infinite':undefined}}/>
+          </button>
+        )}
+      </div>
 
       {open && (
         <div style={{padding:'4px 12px 12px'}}>

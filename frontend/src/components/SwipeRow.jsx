@@ -1,11 +1,13 @@
 // Свайп влево → открываются «Архив» и «Удалить». Тач + мышь, не мешает вертикальному скроллу.
+// UI-5: Вместо window.confirm (блокирует Telegram WebView) — inline-тоггл.
 import { useState, useRef } from 'react';
-import { Archive, Trash2 } from 'lucide-react';
+import { Archive, Trash2, AlertTriangle, Check, X } from 'lucide-react';
 
 export function SwipeRow({children,onArchive,onDelete}){
   const enabled=!!(onArchive||onDelete);
   const W=(onArchive?78:0)+(onDelete?78:0);
   const [x,setX]=useState(0);
+  const [confirmDel,setConfirmDel]=useState(false);
   const fg=useRef(null);
   const st=useRef({down:false,sx:0,sy:0,base:0,axis:null});
   if(!enabled)return children;
@@ -26,11 +28,14 @@ export function SwipeRow({children,onArchive,onDelete}){
   return(<div className="swipe">
     <div className="swipe-actions">
       {onArchive&&<button className="sw-arch" onClick={()=>{set(0,true);setX(0);onArchive();}}><Archive size={16}/>Архив</button>}
-      {onDelete&&<button className="sw-del" onClick={()=>{
-        // UI-5: Подтверждение перед удалением — свайп может быть случайным
-        if(!window.confirm('Удалить задачу? Это действие нельзя отменить.'))return;
-        set(0,true);setX(0);onDelete();
-      }}><Trash2 size={16}/>Удалить</button>}
+      {onDelete&&(
+        !confirmDel
+          ?<button className="sw-del" onClick={()=>setConfirmDel(true)}><Trash2 size={16}/>Удалить</button>
+          :<div style={{display:'flex',flexDirection:'column',width:78,gap:2,padding:'4px 2px'}}>
+            <button className="sw-del" style={{flex:1,fontSize:10,gap:2}} onClick={()=>{setConfirmDel(false);set(0,true);setX(0);onDelete();}}><Check size={13}/>Да</button>
+            <button className="sw-arch" style={{flex:1,fontSize:10,gap:2}} onClick={()=>{setConfirmDel(false);set(0,true);setX(0);}}><X size={13}/>Нет</button>
+          </div>
+      )}
     </div>
     <div className="swipe-fg" ref={fg} onPointerDown={down} onPointerMove={moveH} onPointerUp={up} onPointerCancel={up}>
       {children}

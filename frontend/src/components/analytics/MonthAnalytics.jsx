@@ -264,7 +264,7 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
             {fmt(totalFact)} ₽
           </span>
           {factPct != null && (
-            <span style={{
+            <span title="Факт ÷ план только за дни где есть оба значения" style={{
               fontSize: 16, fontWeight: 700,
               color: revColor(factPct),
               background: revColor(factPct) + '22',
@@ -315,13 +315,13 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
                 </span>
                 {/* % от цели — отдельно от светофора */}
                 {goalPct != null && (
-                  <span style={{
+                  <span title="Факт ÷ полный месячный план (все дни месяца)" style={{
                     fontSize: 11, fontWeight: 700,
                     color: revColor(goalPct),
                     background: revColor(goalPct) + '22',
                     padding: '1px 6px', borderRadius: 6,
                   }}>
-                    {goalPct}% от цели
+                    {goalPct}% за месяц
                   </span>
                 )}
                 {isManager && onSetMonthPlan && (
