@@ -148,49 +148,66 @@ async function getDayRevenue(date, data, saveData) {
   return { fact, lastYear, guests };
 }
 
-// Синхронизация выручки за текущий месяц — для кнопки в админке
+// Синхронизация выручки за текущий месяц — обёртка для кнопки в админке
 async function syncRevenue(data, saveData) {
-  if (!IIKO_URL || !IIKO_LOGIN) {
-    throw Object.assign(new Error('iiko не настроен: задайте IIKO_URL и IIKO_LOGIN в .env'), { status: 503 });
-  }
-
   const now  = new Date();
   const from = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
   const to   = now.toISOString().slice(0, 10);
+  return syncRevenueRange(from, to, data, saveData);
+}
 
+// ── Универсальный диапазонный sync выручки (основной + fallback) ──────────────
+// Используется как обычным syncRevenue (текущий месяц), так и backfill (с января).
+// timeout увеличен до 60с для широких диапазонов.
+async function syncRevenueRange(from, to, data, saveData) {
+  if (!IIKO_URL || !IIKO_LOGIN) {
+    throw Object.assign(new Error('iiko не настроен: задайте IIKO_URL и IIKO_LOGIN в .env'), { status: 503 });
+  }
   const token = await getToken();
-  const body = {
+
+  // Запрос с GuestNum (полная версия)
+  const bodyFull = {
     reportType: 'SALES', buildSummary: 'false',
     groupByRowFields: ['OpenDate.Typed'],
     aggregateFields: ['DishDiscountSumInt', 'GuestNum'],
     filters: { 'OpenDate.Typed': { filterType:'DateRange', periodType:'CUSTOM', from, to, includeLow:true, includeHigh:true } },
   };
-
   const url = `${IIKO_URL}/resto/api/v2/reports/olap?key=${token}`;
-  const res = await fetch(url, {
+  let res = await fetch(url, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body), signal: AbortSignal.timeout(20000),
+    body: JSON.stringify(bodyFull), signal: AbortSignal.timeout(60_000),
   });
+
+  let useGuests = true;
   if (res.status === 401) { invalidateToken(); throw Object.assign(new Error('iiko: сессия истекла'), { status: 401 }); }
   if (!res.ok) {
-    const t = await res.text().catch(()=>'');
-    // Если GuestNum неизвестен — повторяем без него
+    const t = await res.text().catch(() => '');
     if (t.includes('GuestNum') || t.includes('Unknown OLAP field')) {
-      console.warn('[iiko/sync] GuestNum не поддерживается, синхронизируем только выручку');
-      return syncRevenueRevenueOnly(data, saveData);
+      // Fallback — без GuestNum
+      console.warn('[iiko/range] GuestNum не поддерживается, запрашиваем только выручку');
+      useGuests = false;
+      const bodyPlain = { ...bodyFull, aggregateFields: ['DishDiscountSumInt'] };
+      res = await fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bodyPlain), signal: AbortSignal.timeout(60_000),
+      });
+      if (res.status === 401) { invalidateToken(); throw Object.assign(new Error('iiko: сессия истекла'), { status: 401 }); }
+      if (!res.ok) { const t2 = await res.text().catch(() => ''); throw new Error(`iiko OLAP ${res.status}: ${t2.slice(0,200)}`); }
+    } else {
+      throw new Error(`iiko OLAP ${res.status}: ${t.slice(0,200)}`);
     }
-    throw new Error(`iiko OLAP ${res.status}: ${t.slice(0,200)}`);
   }
+
   let json;
-  try { json = await res.json(); } catch { throw new Error('iiko syncRevenue вернул невалидный JSON'); }
+  try { json = await res.json(); } catch { throw new Error('iiko syncRevenueRange вернул невалидный JSON'); }
+
   const revenue = JSON.parse(data.kv['revenue:v1'] || '{}');
   let updated = 0;
-
   for (const row of (json.data || [])) {
     const iso    = String(row['OpenDate.Typed'] || '').slice(0, 10);
     if (!iso) continue;
     const fact   = Math.round(Number(row.DishDiscountSumInt || 0));
-    const guests = Math.round(Number(row.GuestNum           || 0));
+    const guests = useGuests ? Math.round(Number(row.GuestNum || 0)) : 0;
     if (fact > 0) {
       if (!revenue[iso]) revenue[iso] = {};
       revenue[iso].fact = fact;
@@ -201,47 +218,18 @@ async function syncRevenue(data, saveData) {
       updated++;
     }
   }
-
   data.kv['revenue:v1'] = JSON.stringify(revenue);
   saveData();
-  console.log(`[iiko] syncRevenue: обновлено ${updated} дней (${from}–${to})`);
+  console.log(`[iiko] syncRevenueRange: обновлено ${updated} дней (${from}–${to})`);
   return { updated, from, to };
 }
 
-// Fallback для syncRevenue: только выручка без GuestNum
+// Fallback для syncRevenue: только выручка без GuestNum (legacy, оставлен для совместимости)
 async function syncRevenueRevenueOnly(data, saveData) {
   const now  = new Date();
   const from = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
   const to   = now.toISOString().slice(0, 10);
-  const token = await getToken();
-  const body = {
-    reportType: 'SALES', buildSummary: 'false',
-    groupByRowFields: ['OpenDate.Typed'],
-    aggregateFields: ['DishDiscountSumInt'],
-    filters: { 'OpenDate.Typed': { filterType:'DateRange', periodType:'CUSTOM', from, to, includeLow:true, includeHigh:true } },
-  };
-  const url = `${IIKO_URL}/resto/api/v2/reports/olap?key=${token}`;
-  const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body), signal:AbortSignal.timeout(20000) });
-  if (res.status === 401) { invalidateToken(); throw Object.assign(new Error('iiko: сессия истекла'), { status: 401 }); }
-  if (!res.ok) { const t = await res.text().catch(()=>''); throw new Error(`iiko OLAP ${res.status}: ${t.slice(0,200)}`); }
-  let json;
-  try { json = await res.json(); } catch { throw new Error('iiko syncRevenue невалидный JSON'); }
-  const revenue = JSON.parse(data.kv['revenue:v1'] || '{}');
-  let updated = 0;
-  for (const row of (json.data || [])) {
-    const iso  = String(row['OpenDate.Typed'] || '').slice(0, 10);
-    if (!iso) continue;
-    const fact = Math.round(Number(row.DishDiscountSumInt || 0));
-    if (fact > 0) {
-      if (!revenue[iso]) revenue[iso] = {};
-      revenue[iso].fact = fact;
-      updated++;
-    }
-  }
-  data.kv['revenue:v1'] = JSON.stringify(revenue);
-  saveData();
-  console.log(`[iiko] syncRevenue (fallback): обновлено ${updated} дней (${from}–${to})`);
-  return { updated, from, to };
+  return syncRevenueRange(from, to, data, saveData);
 }
 
 // Анализ корзины (маркет баскет) — пары блюд, которые часто берут вместе.
@@ -353,4 +341,4 @@ async function getBasketPairs(data, saveData) {
   return result;
 }
 
-module.exports = { getDayRevenue, syncRevenue, getBasketPairs };
+module.exports = { getDayRevenue, syncRevenue, syncRevenueRange, getBasketPairs };

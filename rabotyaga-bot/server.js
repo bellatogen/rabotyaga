@@ -360,6 +360,41 @@ bot.on('callback_query', ctx => {
   ctx.answerCbQuery();
 });
 
+// ── Backfill: исторические данные расписания + выручки с заданной даты ──
+// Только менеджер. Синхронизирует все листы Google Sheets и iiko за период.
+// Body: { from: 'YYYY-MM-DD' } — по умолчанию с 1 января текущего года.
+app.post('/api/admin/backfill', requireManager, async (req, res) => {
+  const year = new Date().getFullYear();
+  const from = req.body?.from || `${year}-01-01`;
+  const to   = new Date().toISOString().slice(0, 10);
+
+  // Валидация
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) {
+    return res.status(400).json({ error: 'from должно быть в формате YYYY-MM-DD' });
+  }
+  if (from > to) {
+    return res.status(400).json({ error: 'from не может быть позже сегодняшней даты' });
+  }
+
+  console.log(`[backfill] запуск: ${from} → ${to}`);
+
+  const [schedResult, revResult] = await Promise.allSettled([
+    syncSchedule(data, saveData, { backfill: true, fromDate: from }),
+    iiko.syncRevenueRange(from, to, data, saveData),
+  ]);
+
+  const schedule = schedResult.status === 'fulfilled'
+    ? schedResult.value
+    : { error: schedResult.reason?.message || 'Ошибка расписания' };
+
+  const revenue = revResult.status === 'fulfilled'
+    ? revResult.value
+    : { error: revResult.reason?.message || 'Ошибка выручки iiko' };
+
+  console.log(`[backfill] расписание: ${schedule.error || `${schedule.daysUpdated} дней`}, выручка: ${revenue.error || `${revenue.updated} дней`}`);
+  res.json({ ok: true, from, to, schedule, revenue });
+});
+
 // ── SPA fallback ──
 app.use((req, res, next) => {
   if (req.method !== 'GET' || req.path.startsWith('/api') || req.path === '/admin') return next();

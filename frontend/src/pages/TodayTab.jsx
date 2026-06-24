@@ -14,6 +14,11 @@ import { DraggableTaskList } from '../components/DraggableTaskList.jsx';
 import { DoneAccordion } from '../components/DoneAccordion.jsx';
 
 export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,todayShifts,myStatus,myAssigned,schedule,events,statusOverrides,now,revenue,handovers,dayClosed,dayRegularCount,irregular,irregularDoneMap,pushGateOk,onSummary,taskOrder,onReorder,onDelete,onArchive,goList,onGoAdd,onGoToggle,onGoRemove,onToggle,onEdit,onViewEmployee,onHandover,onIikoLoad,sectionsOpen=false,tasksView='list'}){
+  // Гард: нет расписания на сегодня и нет выручки за месяц → подсказка менеджеру
+  const month=ds.slice(0,7);
+  const hasAnyRevenue=Object.keys(revenue||{}).some(d=>d.startsWith(month));
+  const hasAnySchedule=Object.keys(schedule||{}).some(d=>d.startsWith(month));
+  const showDataBanner=isManager&&!hasAnyRevenue&&!hasAnySchedule;
   const [shiftOpen, setShiftOpen] = useState(sectionsOpen);
   const [tasksOpen, setTasksOpen] = useState(sectionsOpen);
   const [viewMode,  setViewMode]  = useState(tasksView);
@@ -26,6 +31,13 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
   const active=regularTasks.filter(t=>!doneMap[t.id]).sort((a,b)=>orderIdx(a.id)-orderIdx(b.id));
   const done=regularTasks.filter(t=>doneMap[t.id]);
   return(<>
+    {showDataBanner&&<div className="sec" style={{paddingBottom:4}}>
+      <div className="alert warn" style={{fontSize:12,lineHeight:1.5}}>
+        <AlertTriangle size={14} style={{flexShrink:0,marginTop:1}}/>
+        <span>Данные за этот месяц не загружены. Перейдите в <b>Кабинет → Управление → Синхронизация</b> и нажмите <b>«Восстановить данные»</b>.</span>
+      </div>
+    </div>}
+
     <div style={{padding:"12px 16px 0"}}>
       <div className="prog-bg"><div className="prog-fill" style={{width:`${pct}%`}}/></div>
       <div style={{display:"flex",justifyContent:"space-between",marginTop:6}}>

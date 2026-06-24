@@ -13,6 +13,12 @@ import { MonthAnalytics } from '../components/analytics/MonthAnalytics.jsx';
 
 export function ScheduleTab({schedule,events,revenue,ds,members,onOpenDay}){
   const[sub,setSub]=useState("calendar");
+
+  // Гард: проверяем наличие данных за текущий месяц
+  const month=ds.slice(0,7);
+  const hasSchedule=Object.keys(schedule).some(d=>d.startsWith(month));
+  const hasRevenue=Object.values(revenue).some(r=>r&&(r.fact||r.plan));
+
   return(<>
     <div className="sec" style={{paddingBottom:0}}>
       <div style={{display:"flex",gap:4,marginBottom:4}}>
@@ -20,6 +26,17 @@ export function ScheduleTab({schedule,events,revenue,ds,members,onOpenDay}){
             <button key={id} className={`tab${sub===id?" on":""}`} onClick={()=>setSub(id)} style={{flex:1,textAlign:"center"}}>{label}</button>)}
       </div>
     </div>
+    {/* Предупреждение об отсутствии данных — подсказка менеджеру */}
+    {(!hasSchedule||!hasRevenue)&&<div className="sec" style={{paddingBottom:0}}>
+      <div className="alert warn" style={{fontSize:12,lineHeight:1.5}}>
+        <AlertTriangle size={14} style={{flexShrink:0,marginTop:1}}/>
+        <span>
+          {!hasSchedule&&'Расписание на этот месяц не загружено. '}
+          {!hasRevenue&&'Данные выручки отсутствуют. '}
+          Восстановите через <b>Кабинет → Управление → Синхронизация → Восстановить историю</b>.
+        </span>
+      </div>
+    </div>}
     {sub==="calendar"&&<CalendarTab schedule={schedule} events={events} revenue={revenue} ds={ds} onOpenDay={onOpenDay}/>}
     {sub==="dashboard"&&<DashboardTab schedule={schedule} members={members} ds={ds}/>}
   </>);

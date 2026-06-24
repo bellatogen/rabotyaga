@@ -31,8 +31,12 @@ export function AdminTab({ auth, members, ds }) {
   const [statsLoading, setStatsLoading] = useState(false);
 
   // Синхронизация
-  const [syncStatus, setSyncStatus]   = useState(null);
-  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncStatus,    setSyncStatus]    = useState(null);
+  const [syncLoading,   setSyncLoading]   = useState(false);
+  // Бэкфилл (историческое восстановление)
+  const [backfillFrom,  setBackfillFrom]  = useState(`${new Date().getFullYear()}-01-01`);
+  const [backfillStatus, setBackfillStatus] = useState(null);
+  const [backfillLoading, setBackfillLoading] = useState(false);
 
   // ── Загрузка при монтировании ──
   useEffect(() => { loadBase(); }, []);
@@ -89,8 +93,8 @@ export function AdminTab({ auth, members, ds }) {
     setSyncLoading(true);
     try {
       const [schedRes, revenueRes] = await Promise.all([
-        fetch('/api/sync/schedule', { method: 'POST' }),
-        fetch('/api/iiko/revenue/sync', { method: 'POST' }),
+        fetch('/api/sync/schedule', { method: 'POST', credentials: 'include' }),
+        fetch('/api/iiko/revenue/sync', { method: 'POST', credentials: 'include' }),
       ]);
       const sched   = await schedRes.json();
       const revenue = await revenueRes.json().catch(() => ({}));
@@ -103,6 +107,26 @@ export function AdminTab({ auth, members, ds }) {
       setSyncStatus({ lastRun: new Date().toISOString(), daysUpdated: 0, error: e.message });
     } finally {
       setSyncLoading(false);
+    }
+  }
+
+  async function runBackfill() {
+    setBackfillLoading(true);
+    setBackfillStatus(null);
+    try {
+      const res  = await fetch('/api/admin/backfill', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: backfillFrom }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setBackfillStatus(json);
+    } catch (e) {
+      setBackfillStatus({ error: e.message });
+    } finally {
+      setBackfillLoading(false);
     }
   }
 
@@ -344,6 +368,59 @@ export function AdminTab({ auth, members, ds }) {
           >
             {syncLoading ? '⏳ Синхронизация...' : '🔄 Синхронизировать сейчас'}
           </button>
+
+          {/* ── Восстановление истории ── */}
+          <div style={{ marginTop: 24, borderTop: '1px solid var(--bd)', paddingTop: 16 }}>
+            <div className="sec-lbl" style={{ marginBottom: 6 }}>Восстановить историю</div>
+            <div className="info-box" style={{ marginBottom: 12, fontSize: 12 }}>
+              Загружает расписание и факт выручки из iiko за выбранный период.
+              Существующие данные не удаляются — только дополняются.
+              Занимает до 60 секунд.
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+              <label style={{ fontSize: 12, color: 'var(--mt)', flexShrink: 0 }}>С даты:</label>
+              <input
+                type="date"
+                value={backfillFrom}
+                max={new Date().toISOString().slice(0, 10)}
+                onChange={e => setBackfillFrom(e.target.value)}
+                style={{ background: 'var(--bg)', border: '1px solid var(--bd)', borderRadius: 7,
+                  padding: '6px 10px', color: 'var(--pp)', fontSize: 13, fontFamily: 'inherit' }}
+              />
+              <span style={{ fontSize: 12, color: 'var(--mt)' }}>
+                → {new Date().toLocaleDateString('ru-RU')}
+              </span>
+            </div>
+
+            {backfillStatus && !backfillStatus.error && (
+              <div style={{ background: 'var(--sf)', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 12 }}>
+                <div style={{ color: '#8bc47a', fontWeight: 600, marginBottom: 4 }}>
+                  ✓ Восстановление завершено ({backfillStatus.from} → {backfillStatus.to})
+                </div>
+                {backfillStatus.schedule?.error
+                  ? <div style={{ color: '#e07a60' }}>⚠ Расписание: {backfillStatus.schedule.error}</div>
+                  : <div style={{ color: 'var(--mt)' }}>📅 Расписание: {backfillStatus.schedule?.daysUpdated ?? 0} дней</div>
+                }
+                {backfillStatus.revenue?.error
+                  ? <div style={{ color: '#e07a60' }}>⚠ iiko выручка: {backfillStatus.revenue.error}</div>
+                  : <div style={{ color: 'var(--mt)' }}>💰 Выручка iiko: {backfillStatus.revenue?.updated ?? 0} дней</div>
+                }
+              </div>
+            )}
+            {backfillStatus?.error && (
+              <div style={{ color: '#e07a60', fontSize: 12, marginBottom: 12 }}>⚠ {backfillStatus.error}</div>
+            )}
+
+            <button
+              className="btn"
+              onClick={runBackfill}
+              disabled={backfillLoading || !backfillFrom}
+              style={{ opacity: backfillLoading ? 0.6 : 1 }}
+            >
+              {backfillLoading ? '⏳ Загружаю историю...' : '📥 Восстановить данные'}
+            </button>
+          </div>
         </div>
       )}
     </div>

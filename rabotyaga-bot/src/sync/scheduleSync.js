@@ -13,15 +13,32 @@ const RU_MONTHS = {
   'июля':7,'августа':8,'сентября':9,'октября':10,'ноября':11,'декабря':12,
 };
 
-// Названия листов — строим динамически из текущей даты (+1 месяц вперёд)
+const RU_MONTHS_NAME = ['','Январь','Февраль','Март','Апрель','Май','Июнь',
+                        'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+
+// Стандартный режим: текущий месяц + следующий
 function sheetsToFetch() {
-  const RU = ['','Январь','Февраль','Март','Апрель','Май','Июнь',
-               'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
   const now = new Date();
-  const sheets = [];
-  for (let delta = 0; delta <= 1; delta++) {
+  return [0, 1].map(delta => {
     const d = new Date(now.getFullYear(), now.getMonth() + delta, 1);
-    sheets.push({ name: `${RU[d.getMonth()+1]} ${d.getFullYear()}`, year: d.getFullYear() });
+    return { name: `${RU_MONTHS_NAME[d.getMonth()+1]} ${d.getFullYear()}`, year: d.getFullYear() };
+  });
+}
+
+// Бэкфилл: все месяцы с fromDate по следующий месяц включительно.
+// Пример: fromDate='2026-01-01' → Январь 2026 … Июль 2026 (если сейчас июнь)
+function sheetsForRange(fromDate) {
+  const from = new Date(fromDate + 'T00:00:00');
+  const now  = new Date();
+  // До следующего месяца включительно
+  const endY = now.getMonth() === 11 ? now.getFullYear() + 1 : now.getFullYear();
+  const endM = (now.getMonth() + 1) % 12; // 0-based
+  const sheets = [];
+  let y = from.getFullYear(), m = from.getMonth(); // 0-based
+  while (y < endY || (y === endY && m <= endM)) {
+    sheets.push({ name: `${RU_MONTHS_NAME[m+1]} ${y}`, year: y });
+    m++;
+    if (m > 11) { m = 0; y++; }
   }
   return sheets;
 }
@@ -67,9 +84,12 @@ async function fetchSheet(sheetName) {
 }
 
 // data и saveData — ссылки из server.js (in-memory KV store)
-async function syncSchedule(data, saveData) {
+// opts.backfill = true  → синхронизировать прошлые даты (не только >= today)
+// opts.fromDate         → точка старта для бэкфилла, напр. '2026-01-01'
+async function syncSchedule(data, saveData, opts = {}) {
+  const { backfill = false, fromDate = null } = opts;
   const today = new Date().toISOString().slice(0, 10);
-  const sheets = sheetsToFetch();
+  const sheets = fromDate ? sheetsForRange(fromDate) : sheetsToFetch();
 
   let daysUpdated = 0;
   const schedule = JSON.parse(data.kv['schedule:v1'] || '{}');
@@ -89,7 +109,8 @@ async function syncSchedule(data, saveData) {
     for (let ri = 2; ri < rows.length; ri++) {
       const row = rows[ri];
       const iso = parseDate(row[0], year);
-      if (!iso || iso < today) continue; // только будущее
+      if (!iso) continue;
+      if (!backfill && iso < today) continue; // обычный режим: только будущее
 
       const event = (row[2] || '').trim();
       if (event) events[iso] = event;
