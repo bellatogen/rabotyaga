@@ -42,6 +42,7 @@ export default function App(){
   const[cards,setCards]=useState([]);
   const[statusOverrides,setStatusOverrides]=useState([]);
   const[revenue,setRevenue]=useState({});
+  const[monthPlan,setMonthPlan]=useState({}); // { "YYYY-MM": число } — месячный план выручки
   const[handovers,setHandovers]=useState({});
   const[eventsLog,setEventsLog]=useState([]);
   const[leaveRequests,setLeaveRequests]=useState([]);
@@ -93,12 +94,12 @@ export default function App(){
   useEffect(()=>{(async()=>{
   const _loaded=await Promise.all([
       ld("tasks:v4",defaultTasks()),ld("done:hist:v2",{}),ld("profiles:v1",DEFAULT_PROFILES),
-      ld("cards:v1",[]),ld("status_overrides:v1",[]),ld("revenue:v1",{}),
+      ld("cards:v1",[]),ld("status_overrides:v1",[]),ld("revenue:v1",{}),ld("month_plan:v1",{}),
       ld("handovers:v1",{}),ld("events_log:v1",[]),ld("inbox_seen:v1",{}),ld("shift_closed:v1",{}),ld("close_notified:v1",{}),ld("acl:v1",{}),ld("task_order:v1",[]),ld("members:v1",DEFAULT_MEMBERS),ld("schedule:v1",EMBEDDED_SCHEDULE),ld("events:v1",EMBEDDED_EVENTS),ld("golist:v1",[]),ld("leave_requests:v1",[]),ld("task_comments:v1",{}),
     ]);
-    const[t,hist,profs,cds,so,rev,ho,ev,seen,sc,cn,ac,tord,mem,sch,evKV,gl,lr,tc]=_loaded;
+    const[t,hist,profs,cds,so,rev,mp,ho,ev,seen,sc,cn,ac,tord,mem,sch,evKV,gl,lr,tc]=_loaded;
     setTasks(mergeSeeds(t));setHistory(hist);setProfiles(profs);setCards(cds);setStatusOverrides(so);
-    setRevenue(rev);setHandovers(ho);setEventsLog(ev);setInboxSeen(seen);setShiftClosed(sc);setCloseNotified(cn);setAcl(ac);setTaskOrder(tord);setMembers(mem);setSchedule(sch);if(evKV&&Object.keys(evKV).length)setEventsData(evKV);setGoList(gl);if(lr&&lr.length)setLeaveRequests(lr);if(tc&&Object.keys(tc).length)setTaskComments(tc);
+    setRevenue(rev);setMonthPlan(mp||{});setHandovers(ho);setEventsLog(ev);setInboxSeen(seen);setShiftClosed(sc);setCloseNotified(cn);setAcl(ac);setTaskOrder(tord);setMembers(mem);setSchedule(sch);if(evKV&&Object.keys(evKV).length)setEventsData(evKV);setGoList(gl);if(lr&&lr.length)setLeaveRequests(lr);if(tc&&Object.keys(tc).length)setTaskComments(tc);
     // Восстанавливаем сессию по httpOnly cookie (серверная авторизация)
     const restoredAccount = await authMe();
     if(restoredAccount){setWho(restoredAccount);}else{setPicking(true);}
@@ -119,12 +120,15 @@ export default function App(){
     setRevenue(rev);
     setSchedule(sch);
   }
+  // Спред-сеттер месячного плана — не затираем другие месяцы
+  const setMonthPlanFor=(ym,n)=>setMonthPlan(p=>({...p,[ym]:n}));
   usePersist("tasks:v4",tasks,ready);
   usePersist("done:hist:v2",history,ready);
   usePersist("profiles:v1",profiles,ready);
   usePersist("cards:v1",cards,ready);
   usePersist("status_overrides:v1",statusOverrides,ready);
   usePersist("revenue:v1",revenue,ready);
+  usePersist("month_plan:v1",monthPlan,ready);
   usePersist("handovers:v1",handovers,ready);
   usePersist("events_log:v1",eventsLog,ready);
   usePersist("inbox_seen:v1",inboxSeen,ready);
@@ -464,7 +468,7 @@ export default function App(){
         onUpdateProfile={p=>setProfiles(prev=>prev.map(x=>x.name===p.name?p:x))}/>}
 
       {tab==="tasks"&&<TasksTab tasks={tasks} doneMap={doneToday} onToggle={toggle} onEdit={isManager?t=>setModal(t):null} onArchive={canAddTasks?archiveTask:null}/>}
-        {tab==="schedule"&&<ScheduleTab schedule={schedule} events={events} revenue={revenue} ds={ds} members={members} onOpenDay={d=>setViewingDay(d)}/>}
+        {tab==="schedule"&&<ScheduleTab schedule={schedule} events={events} revenue={revenue} ds={ds} members={members} onOpenDay={d=>setViewingDay(d)} isManager={isManager} monthPlan={monthPlan} onSetMonthPlan={isManager?setMonthPlanFor:null}/>}
         {tab==="events"&&<EventsTab events={events} isManager={isManager} onSetEvent={onSetEvent} ds={ds}/>}
       {tab==="team"&&(canTeam||canStats)&&<TeamHubTab canTeam={canTeam} canStats={canStats} isManager={isManager}
         profiles={profiles} members={members} statusOverrides={statusOverrides}

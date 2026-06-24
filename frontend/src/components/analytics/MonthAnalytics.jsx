@@ -5,8 +5,11 @@
 // Расширяемость: EVENT_TYPES — единый реестр; добавление нового типа события
 // автоматически создаёт строку в таблице сравнения и маркер на спарклайне.
 
+import { useState } from 'react';
 import { EVENT_TYPES, classifyEvent } from '../../constants/events.js';
 import { MONTHS_RU } from '../../constants/locale.js';
+
+const MAX_MONTHLY = 30_000_000; // 30 млн ₽/мес — разумный потолок для санитарного контроля
 
 // ── Хелперы ────────────────────────────────────────────────────────────────
 
@@ -139,28 +142,67 @@ function EventComparison({ rows, maxAvg }) {
 }
 
 // ── Главный компонент ────────────────────────────────────────────────────────
-export function MonthAnalytics({ revenue, events, ym }) {
+export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan = {}, onSetMonthPlan }) {
   const [y, m] = ym.split('-').map(Number);
   const daysInMonth = new Date(y, m, 0).getDate();
   const days = Array.from({ length: daysInMonth }, (_, i) =>
     `${ym}-${String(i + 1).padStart(2, '0')}`
   );
 
-  // ── Агрегаты месяца ──
-  const daysWithFact = days.filter(d => (revenue[d]?.fact || 0) > 0);
-  const daysWithPlan = days.filter(d => (revenue[d]?.plan || 0) > 0);
+  // Number() обязателен: plan/fact/guests могут быть строками из ручного ввода
+  const fN = d => Number(revenue[d]?.fact)   || 0;
+  const pN = d => Number(revenue[d]?.plan)   || 0;
+  const gN = d => Number(revenue[d]?.guests) || 0;
 
-  // Number() обязателен: plan/fact могут быть строками из ручного ввода
-  // без него JS делает конкатенацию вместо сложения → мусорные значения
-  const totalFact   = daysWithFact.reduce((s, d) => s + (Number(revenue[d].fact) || 0), 0);
-  const totalPlan   = daysWithPlan.reduce((s, d) => s + (Number(revenue[d].plan) || 0), 0);
+  // ── Факт месяца — вся реальная выручка (заголовок) ──
+  const daysWithFact = days.filter(d => fN(d) > 0);
+  const totalFact = daysWithFact.reduce((s, d) => s + fN(d), 0);
 
-  // Санитарный контроль: если сумма нереальная — данные испорчены
-  const MAX_MONTHLY = 30_000_000; // 30 млн ₽/мес — разумный потолок
-  const dataCorrupt = !isFinite(totalFact) || !isFinite(totalPlan) || totalFact > MAX_MONTHLY || totalPlan > MAX_MONTHLY;
-  const totalGuests = days.reduce((s, d) => s + (revenue[d]?.guests || 0), 0);
-  const avgCheck    = totalGuests > 0 && totalFact > 0 ? Math.round(totalFact / totalGuests) : null;
-  const factPct     = totalPlan > 0 && totalFact > 0 ? Math.round((totalFact / totalPlan) * 100) : null;
+  // ── Месячный план — единая цель, задаётся менеджером один раз ──
+  const mPlan = Number(monthPlan?.[ym]) || 0;
+
+  // ── Сравнение «яблоки-к-яблокам»: дни где есть И план И факт (один набор) ──
+  const matchedDays = days.filter(d => fN(d) > 0 && pN(d) > 0);
+  const matchedFact = matchedDays.reduce((s, d) => s + fN(d), 0);
+  const matchedPlan = matchedDays.reduce((s, d) => s + pN(d), 0);
+
+  // ── % выполнения: приоритет у месячной цели, иначе — по дням с планом ──
+  let factPct = null, planMode = null, planValue = 0;
+  if (mPlan > 0 && totalFact > 0) {
+    factPct = Math.round((totalFact / mPlan) * 100);
+    planMode = 'month'; planValue = mPlan;
+  } else if (matchedPlan > 0) {
+    factPct = Math.round((matchedFact / matchedPlan) * 100);
+    planMode = 'matched'; planValue = matchedPlan;
+  }
+
+  // ── Прогресс месяца — для честного % в середине месяца ──
+  const todayYM = ds ? ds.slice(0, 7) : null;
+  let elapsed = daysInMonth; // прошлый месяц — целиком
+  if (todayYM === ym) elapsed = Math.min(daysInMonth, Number(ds.slice(8, 10)));
+  else if (todayYM && ym > todayYM) elapsed = 0; // будущий месяц
+  const monthOver = elapsed >= daysInMonth;
+
+  // ── Средний чек — только дни где есть И факт И гости (тот же набор) ──
+  // Иначе дни с фактом но без гостей завышают числитель → завышенный чек.
+  const guestDays   = days.filter(d => fN(d) > 0 && gN(d) > 0);
+  const totalGuests = days.reduce((s, d) => s + gN(d), 0);
+  const gFact       = guestDays.reduce((s, d) => s + fN(d), 0);
+  const gGuests     = guestDays.reduce((s, d) => s + gN(d), 0);
+  const avgCheck    = gGuests > 0 ? Math.round(gFact / gGuests) : null;
+
+  // ── Санитарный контроль ──
+  const dataCorrupt = !isFinite(totalFact) || totalFact > MAX_MONTHLY || mPlan > MAX_MONTHLY;
+
+  // ── Редактор месячной цели (только менеджер) ──
+  const [editPlan, setEditPlan]   = useState(false);
+  const [planDraft, setPlanDraft] = useState('');
+  const saveMonthPlan = () => {
+    const v = planDraft === '' ? 0 : Number(planDraft);
+    if (!isFinite(v) || v < 0 || v > MAX_MONTHLY) { setEditPlan(false); return; }
+    onSetMonthPlan && onSetMonthPlan(ym, v);
+    setEditPlan(false);
+  };
 
   // ── Статистика по типам событий ──
   const eventRows = EVENT_TYPES.map(type => {
@@ -236,7 +278,7 @@ export function MonthAnalytics({ revenue, events, ym }) {
         </span>
       </div>
 
-      {/* Выручка */}
+      {/* Выручка-факт + % выполнения */}
       <div style={{ marginBottom: 10 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 26, fontWeight: 700, letterSpacing: -0.5, color: 'var(--pp)' }}>
@@ -253,15 +295,58 @@ export function MonthAnalytics({ revenue, events, ym }) {
             </span>
           )}
         </div>
-        {totalPlan > 0 && (
-          <div style={{ fontSize: 12, color: 'var(--mt)', marginTop: 2 }}>
-            план {fmt(totalPlan)} ₽
-            {factPct != null && (
-              <span style={{ marginLeft: 6 }}>
-                · {totalFact > totalPlan
-                  ? `+${fmt(totalFact - totalPlan)} ₽ сверх плана`
-                  : `${fmt(totalPlan - totalFact)} ₽ до плана`}
-              </span>
+
+        {/* Подпись режима расчёта % */}
+        {factPct != null && (
+          <div style={{ fontSize: 12, color: 'var(--mt)', marginTop: 3 }}>
+            {planMode === 'month' ? (
+              <>
+                от цели {fmt(planValue)} ₽
+                {monthOver
+                  ? (totalFact >= planValue
+                      ? <span style={{ color: '#8bc47a' }}> · +{fmt(totalFact - planValue)} ₽ сверх цели</span>
+                      : <span> · {fmt(planValue - totalFact)} ₽ до цели</span>)
+                  : (elapsed > 0
+                      ? <span style={{ opacity: .8 }}> · прошло {elapsed} из {daysInMonth} {plural(daysInMonth, 'дня', 'дней', 'дней')}</span>
+                      : null)}
+              </>
+            ) : (
+              <>по {matchedDays.length} {plural(matchedDays.length, 'дню', 'дням', 'дням')} с планом · {fmt(matchedPlan)} ₽</>
+            )}
+          </div>
+        )}
+
+        {/* Месячная цель — редактор для менеджера / read-only для остальных */}
+        {(mPlan > 0 || isManager) && (
+          <div style={{ marginTop: 6 }}>
+            {!editPlan ? (
+              <div style={{ fontSize: 12, color: 'var(--mt)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>🎯 Цель месяца: {mPlan > 0
+                  ? <b style={{ color: 'var(--pp)' }}>{fmt(mPlan)} ₽</b>
+                  : <span style={{ opacity: .7 }}>не задана</span>}</span>
+                {isManager && onSetMonthPlan && (
+                  <button onClick={() => { setPlanDraft(mPlan > 0 ? String(mPlan) : ''); setEditPlan(true); }}
+                    style={{ background: 'transparent', border: '1px solid var(--bd)', borderRadius: 6,
+                      color: 'var(--mt)', cursor: 'pointer', fontSize: 11, padding: '2px 8px', fontFamily: 'inherit' }}>
+                    {mPlan > 0 ? 'Изменить' : 'Задать'}
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <input type="number" value={planDraft} autoFocus
+                  onChange={e => setPlanDraft(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') saveMonthPlan(); if (e.key === 'Escape') setEditPlan(false); }}
+                  placeholder="план на месяц, ₽"
+                  style={{ flex: 1, maxWidth: 180, background: 'var(--bg)', border: '1px solid var(--bd)',
+                    borderRadius: 7, padding: '6px 10px', color: 'var(--pp)', fontSize: 13, fontFamily: 'inherit' }} />
+                <button onClick={saveMonthPlan}
+                  style={{ background: 'var(--cu)', border: 'none', borderRadius: 7, color: 'var(--bg)',
+                    cursor: 'pointer', fontSize: 12, fontWeight: 600, padding: '6px 12px', fontFamily: 'inherit' }}>OK</button>
+                <button onClick={() => setEditPlan(false)}
+                  style={{ background: 'transparent', border: '1px solid var(--bd)', borderRadius: 7,
+                    color: 'var(--mt)', cursor: 'pointer', fontSize: 12, padding: '6px 10px', fontFamily: 'inherit' }}>✕</button>
+              </div>
             )}
           </div>
         )}

@@ -11,7 +11,7 @@ import { Ring } from '../components/Ring.jsx';
 import { classifyEvent } from '../constants/events.js';
 import { MonthAnalytics } from '../components/analytics/MonthAnalytics.jsx';
 
-export function ScheduleTab({schedule,events,revenue,ds,members,onOpenDay}){
+export function ScheduleTab({schedule,events,revenue,ds,members,onOpenDay,isManager,monthPlan={},onSetMonthPlan}){
   const[sub,setSub]=useState("calendar");
 
   // Гард: проверяем наличие данных за текущий месяц
@@ -37,7 +37,7 @@ export function ScheduleTab({schedule,events,revenue,ds,members,onOpenDay}){
         </span>
       </div>
     </div>}
-    {sub==="calendar"&&<CalendarTab schedule={schedule} events={events} revenue={revenue} ds={ds} onOpenDay={onOpenDay}/>}
+    {sub=="calendar"&&<CalendarTab schedule={schedule} events={events} revenue={revenue} ds={ds} onOpenDay={onOpenDay} isManager={isManager} monthPlan={monthPlan} onSetMonthPlan={onSetMonthPlan}/>}
     {sub==="dashboard"&&<DashboardTab schedule={schedule} members={members} ds={ds}/>}
   </>);
 }
@@ -48,6 +48,14 @@ function getRevenueColor(pct){
   if(pct>=100)return '#8bc47a';
   if(pct>=90)return '#e8a030';
   return '#e85535';
+}
+
+// Компактный формат рублей для тесных ячеек: 127345 → «127к», 980 → «980»
+function kRub(n){
+  n=Number(n)||0;
+  if(n>=1_000_000)return (Math.round(n/100_000)/10)+'млн';
+  if(n>=1000)return Math.round(n/1000)+'к';
+  return String(Math.round(n));
 }
 
 // Бейдж события в ячейке календаря — использует реестр EVENT_TYPES для цвета/эмодзи
@@ -62,7 +70,7 @@ function CalEventBadge({ eventStr }) {
   return <span className="cal-ev">{eventStr}</span>;
 }
 
-function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
+function CalendarTab({schedule,events,revenue,ds,onOpenDay,isManager,monthPlan={},onSetMonthPlan}){
   const[ym,setYm]=useState("2026-06");
   const[tooltip,setTooltip]=useState(null);   // только desktop hover
   const[daySheet,setDaySheet]=useState(null);
@@ -162,14 +170,20 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
         const check=staffCheck(c,schedule,events);
         const dnum=Number(c.slice(-2));
         const rev=revenue[c]||{};
-        const pct=rev.plan&&rev.fact?(rev.fact/rev.plan)*100:null;
+        const factN=Number(rev.fact)||0;
+        const planN=Number(rev.plan)||0;
+        const pct=planN>0&&factN>0?(factN/planN)*100:null;
+        const revColor=pct!=null?getRevenueColor(pct):null;
         const evType=classifyEvent(events[c]||null);
         return(<div key={i} className={`cal-cell${c===ds?" today":""}${!check.ok?" short":""}`} onClick={()=>onCellClick(c)}
           onPointerEnter={e=>onCellEnter(e,c)} onPointerLeave={onCellLeave}
           onPointerDown={e=>onCellDown(e,c)} onPointerMove={clearPress} onPointerUp={clearPress} onPointerCancel={clearPress}
-          style={{touchAction:"manipulation",...(pct!=null?{background:getRevenueColor(pct)+"22"}:evType?{background:evType.bg}:null)}}>
-          <span className="cal-num" style={pct!=null?{color:getRevenueColor(pct)}:undefined}>{dnum}</span>
-          {pct!=null&&<span style={{fontSize:13,fontWeight:700,color:getRevenueColor(pct)}}>{Math.round(pct)}%</span>}
+          style={{touchAction:"manipulation",...(revColor?{background:revColor+"22"}:evType?{background:evType.bg}:null)}}>
+          <span className="cal-num" style={revColor?{color:revColor}:undefined}>{dnum}</span>
+          {/* Выручка-факт показывается ВСЕГДА когда есть — даже без плана */}
+          {factN>0&&<span style={{fontSize:12,fontWeight:700,lineHeight:1.05,color:revColor||"var(--pp)"}}>{kRub(factN)}</span>}
+          {/* Процент плана — мелким, только если план задан */}
+          {pct!=null&&<span style={{fontSize:9,fontWeight:600,lineHeight:1,color:revColor,opacity:.9}}>{Math.round(pct)}%</span>}
           <CalEventBadge eventStr={events[c]||null}/>
         </div>);
       })}
@@ -274,7 +288,7 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay}){
       </div>
     </>}
   </div>
-  <MonthAnalytics revenue={revenue} events={events} ym={ym}/>
+  <MonthAnalytics revenue={revenue} events={events} ym={ym} ds={ds} isManager={isManager} monthPlan={monthPlan} onSetMonthPlan={onSetMonthPlan}/>
   </>
   );
 }

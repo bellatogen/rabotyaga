@@ -33,6 +33,7 @@ const KV_FORBIDDEN = new Set(['__proto__', 'constructor', 'prototype']);
 const MANAGER_ONLY_KV = new Set([
   'tasks:v4', 'schedule:v1', 'cards:v1',
   'members:v1', 'events:v1', 'acl:v1', 'seeds:v1',
+  'month_plan:v1', // месячный план выручки — задаёт только менеджер
 ]);
 
 const app = express();
