@@ -149,9 +149,59 @@ module.exports = function makeSender(data, saveData) {
     return data.pushSettings || {};
   }
 
+  // Уведомление управляющим о закрытии смены.
+  // Шлём напрямую через bindings — без проверки pushSettings,
+  // т.к. менеджер может не делать /startpush.
+  async function sendShiftClosedToManagers(bot, { dateStr, done, total, revenueFact, revenuePlan, workers }) {
+    let profiles = [];
+    try { profiles = JSON.parse(data.kv?.['profiles:v1'] || '[]'); } catch {}
+
+    const managers = Array.isArray(profiles) ? profiles.filter(p => p.role === 'manager') : [];
+    if (!managers.length) {
+      console.log('[shiftClosed] нет пользователей с ролью manager');
+      return { sent: 0, failed: 0 };
+    }
+
+    // YYYY-MM-DD → DD.MM.YYYY
+    const parts = String(dateStr || '').split('-');
+    const dateFmt = parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : (dateStr || '?');
+
+    const revLine = (revenueFact != null && Number(revenueFact) > 0)
+      ? `Выручка: ${Number(revenueFact).toLocaleString('ru-RU')} ₽ (план ${Number(revenuePlan || 0).toLocaleString('ru-RU')} ₽)`
+      : 'Выручка: не указана';
+
+    const workersLine = (Array.isArray(workers) && workers.length)
+      ? `Смена: ${workers.join(', ')}`
+      : 'Смена: не указана';
+
+    const text = `✅ Смена закрыта — ${dateFmt}\nЗадачи: ${done}/${total}\n${revLine}\n${workersLine}`;
+
+    let sent = 0, failed = 0;
+    for (const profile of managers) {
+      const chatId = data.bindings?.[profile.name];
+      if (!chatId) {
+        log(null, profile.name, 'shiftClosed', 'skipped', 'Telegram не привязан');
+        console.log(`[shiftClosed] пропуск ${profile.name} — нет привязки Telegram`);
+        continue;
+      }
+      try {
+        await bot.telegram.sendMessage(String(chatId), text);
+        log(String(chatId), profile.name, 'shiftClosed', 'sent');
+        console.log(`✅ Пуш «Смена закрыта» → ${profile.name} (chatId: ${chatId})`);
+        sent++;
+      } catch (err) {
+        log(String(chatId), profile.name, 'shiftClosed', 'failed', err.message);
+        console.error(`❌ Ошибка пуша «Смена закрыта» → ${profile.name}:`, err.message);
+        failed++;
+      }
+    }
+    return { sent, failed };
+  }
+
   return {
     sendPush, sendDayBeforeShiftPush, sendPersonalTasksPush,
     sendCloseShiftPush, sendSetsPush, sendIndividualPush,
+    sendShiftClosedToManagers,
     updatePushSettings, getPushSettings, getAllPushSettings,
   };
 };

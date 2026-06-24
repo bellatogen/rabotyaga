@@ -272,6 +272,19 @@ export const savePushSettings = async (settings) => {
   return d;
 };
 
+// ── Пуш «Смена закрыта» — вызывается фронтом при закрытии смены (все задачи + после 23:30) ──
+export async function notifyShiftClosed({ date, done, total, revenueFact, revenuePlan, workers }) {
+  try {
+    const res = await fetch(`${API_BASE}/push/shift-closed`, {
+      ...FETCH_OPTS,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date, done, total, revenueFact, revenuePlan, workers }),
+    });
+    return res.ok ? await res.json() : null;
+  } catch { return null; }
+}
+
 // ── iiko basket analysis (market basket / ассоциативные правила) ──
 // force=true — игнорировать кэш на сервере (20ч), пересчитать
 export async function iikoBasket(force = false) {

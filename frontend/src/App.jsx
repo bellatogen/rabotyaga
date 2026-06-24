@@ -15,7 +15,7 @@ import { afterPushGate, getShiftStatus } from './utils/staffUtils.js';
 import { DEFAULT_HOUR_NORMS } from './constants/staff.js';
 import { processCard } from './utils/cardUtils.js';
 import { applyTheme, THEME_KEY } from './utils/theme.js';
-  import { ld, sv, pingServer, tgBind, authLogin, authLogout, authMe, authHasPassword, authChangePassword, authResetPassword } from './services/api.js';
+  import { ld, sv, pingServer, tgBind, authLogin, authLogout, authMe, authHasPassword, authChangePassword, authResetPassword, notifyShiftClosed } from './services/api.js';
 import { usePersist } from './hooks/usePersist.js';
 import { Mascot } from './components/Mascot.jsx';
 import { TodayTab } from './pages/TodayTab.jsx';
@@ -218,7 +218,13 @@ export default function App(){
       const summary=buildDaySummary(tasks,history,ds);
       setCloseNotified(prev=>({...prev,[ds]:true}));
       logEvent("shift_closed",`Смена закрыта · выполнено ${summary.done}/${summary.total}`);
-      setToast("✅ Смена закрыта. Пуш отправлен управляющему и шеф-бармену (после 23:30).");
+      notifyShiftClosed({
+        date:ds,done:summary.done,total:summary.total,
+        revenueFact:revenue[ds]?.fact??null,
+        revenuePlan:revenue[ds]?.plan??null,
+        workers:(schedule[ds]||[]).map(s=>s.name),
+      }).catch(()=>{});
+      setToast("✅ Смена закрыта. Управляющий уведомлён.");
       setTimeout(()=>setToast(null),6000);
       setModal({_closing:true,summary,auto:true});
     }
@@ -229,7 +235,13 @@ export default function App(){
     const summary=buildDaySummary(tasks,snapHistory,ds);
     setCloseNotified(prev=>({...prev,[ds]:true}));
     logEvent("shift_closed",`Смена закрыта · выполнено ${summary.done}/${summary.total}`);
-    setToast("✅ Смена закрыта. Пуш отправлен управляющему и шеф-бармену (после 23:30).");
+    notifyShiftClosed({
+      date:ds,done:summary.done,total:summary.total,
+      revenueFact:revenue[ds]?.fact??null,
+      revenuePlan:revenue[ds]?.plan??null,
+      workers:(schedule[ds]||[]).map(s=>s.name),
+    }).catch(()=>{});
+    setToast("✅ Смена закрыта. Управляющий уведомлён.");
     setTimeout(()=>setToast(null),6000);
     setModal({_closing:true,summary,auto:true});
   };

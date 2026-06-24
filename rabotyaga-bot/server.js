@@ -333,6 +333,30 @@ app.get('/api/push/test/:name', requireManager, async (req, res) => {
   res.json(ok ? { success: true, msg: 'Пуш отправлен' } : { success: false, msg: 'Пуши отключены' });
 });
 
+// ── Пуш «Смена закрыта» — триггер с фронта когда все задачи выполнены + после 23:30 ──
+// Шлёт подтверждение ТОЛЬКО менеджерам у которых есть привязка Telegram.
+// Дедуп обеспечивается на фронте через closeNotified[ds] (вызывается один раз за день).
+app.post('/api/push/shift-closed', requireAuth, async (req, res) => {
+  const { date, done, total, revenueFact, revenuePlan, workers } = req.body || {};
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ error: 'Поле date обязательно (YYYY-MM-DD)' });
+  }
+  try {
+    const result = await pushSender.sendShiftClosedToManagers(bot, {
+      dateStr: date,
+      done:        Number(done)  || 0,
+      total:       Number(total) || 0,
+      revenueFact: revenueFact  ?? null,
+      revenuePlan: revenuePlan  ?? null,
+      workers:     Array.isArray(workers) ? workers : [],
+    });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('[push/shift-closed]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Бот-чаты и макросы рассылки (только менеджер) ──
 // Хранятся в KV (bot_chats:v1 / bot_macros:v1), но доступны через выделенные
 // роуты с генерацией id и валидацией. Планировщик читает bot_macros:v1 напрямую.
