@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, AlertTriangle, CheckCircle, Send, User, Plus, Clock } from 'lucide-react';
 import { MONTHS_RU, DOW_FULL, REPEAT_OPTS } from '../constants/locale.js';
-import { hourNorm } from '../constants/staff.js';
+import { hourNorm, DEFAULT_HOUR_NORM } from '../constants/staff.js';
 import { staffCheck } from '../utils/staffUtils.js';
 import { isToday, isDone } from '../utils/taskUtils.js';
 import { hmm, rangeDays } from '../utils/dateUtils.js';
@@ -12,7 +12,7 @@ import { classifyEvent } from '../constants/events.js';
 import { MonthAnalytics } from '../components/analytics/MonthAnalytics.jsx';
 import { revColor, kRub } from '../utils/revenueUtils.js';
 
-export function ScheduleTab({schedule,events,revenue,ds,members,onOpenDay,isManager,monthPlan={},onSetMonthPlan}){
+export function ScheduleTab({schedule,events,revenue,ds,members,onOpenDay,isManager,monthPlan={},onSetMonthPlan,hourNorms={},onSetHourNorm}){
   const[sub,setSub]=useState("calendar");
 
   // Гард: проверяем наличие данных за текущий месяц
@@ -39,7 +39,7 @@ export function ScheduleTab({schedule,events,revenue,ds,members,onOpenDay,isMana
       </div>
     </div>}
     {sub=="calendar"&&<CalendarTab schedule={schedule} events={events} revenue={revenue} ds={ds} onOpenDay={onOpenDay} isManager={isManager} monthPlan={monthPlan} onSetMonthPlan={onSetMonthPlan}/>}
-    {sub==="dashboard"&&<DashboardTab schedule={schedule} members={members} ds={ds}/>}
+    {sub==="dashboard"&&<DashboardTab schedule={schedule} members={members} ds={ds} isManager={isManager} hourNorms={hourNorms} onSetHourNorm={onSetHourNorm}/>}
   </>);
 }
 
@@ -392,13 +392,21 @@ export function DayDetail({date,schedule,events,tasks,history,revenue,handovers,
   </div>);
 }
 
-function DashboardTab({schedule,members,ds}){
+function DashboardTab({schedule,members,ds,isManager,hourNorms={},onSetHourNorm}){
   const[view,setView]=useState("bars");
+  const[editingNorm,setEditingNorm]=useState(null);
+  const[normDraft,setNormDraft]=useState({min:'',max:''});
   const month=ds.slice(0,7);
   const monthDays=Object.keys(schedule).filter(d=>d.startsWith(month));
   const memHours=name=>monthDays.reduce((a,d)=>{const s=(schedule[d]||[]).find(x=>x.name===name);return a+(s&&s.end?hmm(s.end)/60:0);},0);
   const memShifts=name=>monthDays.filter(d=>(schedule[d]||[]).some(s=>s.name===name)).length;
-  const stats=members.map(n=>({name:n,hours:Math.round(memHours(n)*10)/10,shifts:memShifts(n),nrm:hourNorm(n)})).sort((a,b)=>b.hours-a.hours);
+  const stats=members.map(n=>({name:n,hours:Math.round(memHours(n)*10)/10,shifts:memShifts(n),nrm:hourNorm(n,hourNorms)})).sort((a,b)=>b.hours-a.hours);
+  const saveNorm=name=>{
+    const mn=parseInt(normDraft.min),mx=parseInt(normDraft.max);
+    if(!isFinite(mn)||!isFinite(mx)||mn<0||mx<mn||mx>400)return;
+    onSetHourNorm&&onSetHourNorm(name,mn,mx);
+    setEditingNorm(null);
+  };
   const subShifts=monthDays.reduce((a,d)=>a+(schedule[d]||[]).filter(s=>s.sub||(!members.includes(s.name)&&s.name)).length,0);
   const totalH=Math.round(stats.reduce((a,m)=>a+m.hours,0));
   const week=rangeDays(ds,7).slice().reverse();
@@ -423,10 +431,24 @@ function DashboardTab({schedule,members,ds}){
       </div>
     </div>
 
-    {view==="bars"&&stats.map(m=>{const denom=m.nrm.max;return(<div className="pr" key={m.name}>
+    {view==="bars"&&stats.map(m=>{const denom=m.nrm.max;const editing=isManager&&editingNorm===m.name;return(<div className="pr" key={m.name}>
       <div className="pr-nm"><span>{m.name}</span><span className="mono" style={{fontWeight:600,fontSize:14,color:col(m)}}>{m.hours}ч</span></div>
       <div className="bar-bg"><div className="bar-fill" style={{width:`${Math.min(m.hours/denom*100,100)}%`,background:col(m),transition:"width .4s ease"}}/></div>
-      <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}><span className="bar-pct">{m.shifts} смен</span><span className="bar-pct">норма {m.nrm.min}–{m.nrm.max}ч</span></div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4,gap:6}}>
+        <span className="bar-pct">{m.shifts} смен</span>
+        {!editing&&<span className="bar-pct" style={{display:'flex',alignItems:'center',gap:4}}>
+          норма {m.nrm.min}–{m.nrm.max}ч
+          {isManager&&<button onClick={()=>{setEditingNorm(m.name);setNormDraft({min:m.nrm.min,max:m.nrm.max});}} style={{background:'transparent',border:'none',color:'var(--mt)',cursor:'pointer',padding:'0 2px',fontSize:11,lineHeight:1}} title="Изменить норму">✎</button>}
+        </span>}
+        {editing&&<span style={{display:'flex',alignItems:'center',gap:4}}>
+          <input type="number" min={0} max={400} value={normDraft.min} onChange={e=>setNormDraft(p=>({...p,min:e.target.value}))} onKeyDown={e=>{if(e.key==='Enter')saveNorm(m.name);if(e.key==='Escape')setEditingNorm(null);}} style={{width:48,background:'var(--bg)',border:'1px solid var(--bd)',borderRadius:5,padding:'2px 5px',color:'var(--pp)',fontSize:11,fontFamily:'inherit'}}/>
+          <span style={{fontSize:10,color:'var(--mt)'}}>–</span>
+          <input type="number" min={0} max={400} value={normDraft.max} onChange={e=>setNormDraft(p=>({...p,max:e.target.value}))} onKeyDown={e=>{if(e.key==='Enter')saveNorm(m.name);if(e.key==='Escape')setEditingNorm(null);}} style={{width:48,background:'var(--bg)',border:'1px solid var(--bd)',borderRadius:5,padding:'2px 5px',color:'var(--pp)',fontSize:11,fontFamily:'inherit'}}/>  
+          <span style={{fontSize:10,color:'var(--mt)'}}>ч</span>
+          <button onClick={()=>saveNorm(m.name)} style={{background:'var(--cu)',border:'none',borderRadius:5,color:'var(--bg)',cursor:'pointer',fontSize:10,fontWeight:700,padding:'2px 7px',fontFamily:'inherit'}}>OK</button>
+          <button onClick={()=>setEditingNorm(null)} style={{background:'transparent',border:'1px solid var(--bd)',borderRadius:5,color:'var(--mt)',cursor:'pointer',fontSize:10,padding:'2px 6px',fontFamily:'inherit'}}>✕</button>
+        </span>}
+      </div>
     </div>);})}
 
     {view==="days"&&<div>
