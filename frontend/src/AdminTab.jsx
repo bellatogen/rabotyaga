@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { FileText, Users, BarChart2, RefreshCw, AlertTriangle, CheckCircle, Calendar, Download, Check, Bell, BellOff, TrendingUp } from 'lucide-react';
 
 const API = '/api';
 
@@ -180,17 +181,18 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
       {/* Chip-переключатель */}
       <div className="tabs" style={{ marginBottom: 16 }}>
         {[
-          ['templates', '📝 Шаблоны'],
-          ['employees', '👥 Сотрудники'],
-          ['stats',     '📊 Статистика'],
-          ['sync',      '🔄 Синхронизация'],
-        ].map(([id, label]) => (
+          ['templates', <FileText size={11}/>, 'Шаблоны'],
+          ['employees', <Users size={11}/>, 'Сотрудники'],
+          ['stats',     <BarChart2 size={11}/>, 'Статистика'],
+          ['sync',      <RefreshCw size={11}/>, 'Синхронизация'],
+        ].map(([id, icon, label]) => (
           <button
             key={id}
             className={`tab${sub === id ? ' on' : ''}`}
             onClick={() => setSub(id)}
+            style={{display:'flex',alignItems:'center',gap:4}}
           >
-            {label}
+            {icon}{label}
           </button>
         ))}
       </div>
@@ -227,7 +229,7 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
             onClick={saveTemplates}
             disabled={saving}
           >
-            {saved ? '✓ Сохранено' : saving ? 'Сохранение...' : 'Сохранить шаблоны'}
+            {saved ? <><Check size={13}/>Сохранено</> : saving ? 'Сохранение...' : 'Сохранить шаблоны'}
           </button>
         </div>
       )}
@@ -262,7 +264,7 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
                 fontSize: 12,
                 color: push?.enabled !== false ? '#8bc47a' : 'var(--mt)',
               }}>
-                {push?.enabled !== false ? '🔔 вкл' : '🔕 выкл'}
+                <span style={{display:'flex',alignItems:'center',gap:3}}>{push?.enabled !== false ? <><Bell size={12}/>вкл</> : <><BellOff size={12}/>выкл</>}</span>
               </div>
             </div>
           ))}
@@ -309,7 +311,7 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
                       }}>
                         <div style={{ fontWeight: 600, fontSize: 13 }}>{name}</div>
                         <div style={{ fontSize: 12, color: 'var(--mt)' }}>
-                          ✅ {s.sent || 0}   ❌ {s.failed || 0}   ⏭ {s.skipped || 0}
+                          <span style={{display:'flex',alignItems:'center',gap:6}}><CheckCircle size={12} color="#8bc47a"/>{s.sent||0} · <AlertTriangle size={12} color="#e07a60"/>{s.failed||0} · <span style={{opacity:.6}}>{s.skipped||0} проп.</span></span>
                         </div>
                       </div>
                     );
@@ -345,16 +347,16 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
           {syncStatus && (
             <div style={{ background:'var(--sf)', borderRadius:10, padding:'12px 14px', marginBottom:16 }}>
               {syncStatus.error ? (
-                <div style={{ color:'#e07a60', fontSize:13, fontWeight:600, marginBottom:4 }}>⚠ Ошибка расписания: {syncStatus.error}</div>
+                <div style={{ color:'#e07a60', fontSize:13, fontWeight:600, marginBottom:4, display:'flex',alignItems:'center',gap:5 }}><AlertTriangle size={13}/>Ошибка расписания: {syncStatus.error}</div>
               ) : (
-                <div style={{ color:'#8bc47a', fontSize:13, fontWeight:600, marginBottom:4 }}>
-                  ✓ Расписание: обновлено {syncStatus.daysUpdated} дней
+                <div style={{ color:'#8bc47a', fontSize:13, fontWeight:600, marginBottom:4, display:'flex',alignItems:'center',gap:5 }}>
+                  <CheckCircle size={13}/>Расписание: обновлено {syncStatus.daysUpdated} дней
                 </div>
               )}
               {syncStatus.revenueUpdated != null && (
                 syncStatus.revenueError
-                  ? <div style={{ color:'#e07a60', fontSize:12 }}>⚠ iiko выручка: {syncStatus.revenueError}</div>
-                  : <div style={{ color:'#8bc47a', fontSize:12 }}>✓ Выручка iiko: обновлено {syncStatus.revenueUpdated} дней</div>
+                  ? <div style={{ color:'#e07a60', fontSize:12, display:'flex',alignItems:'center',gap:4 }}><AlertTriangle size={12}/>iiko выручка: {syncStatus.revenueError}</div>
+                  : <div style={{ color:'#8bc47a', fontSize:12, display:'flex',alignItems:'center',gap:4 }}><CheckCircle size={12}/>Выручка iiko: обновлено {syncStatus.revenueUpdated} дней</div>
               )}
               {syncStatus.lastRun && (
                 <div style={{ fontSize:11, color:'var(--mt)', marginTop:6 }}>
@@ -369,7 +371,7 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
             onClick={runSync}
             disabled={syncLoading}
           >
-            {syncLoading ? '⏳ Синхронизация...' : '🔄 Синхронизировать сейчас'}
+            {syncLoading ? <><RefreshCw size={15} style={{animation:'spin 1s linear infinite'}}/>Синхронизация...</> : <><RefreshCw size={15}/>Синхронизировать сейчас</>}
           </button>
 
           {/* ── Восстановление истории ── */}
@@ -398,25 +400,25 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
 
             {backfillStatus && !backfillStatus.error && (
               <div style={{ background: 'var(--sf)', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 12 }}>
-                <div style={{ color: '#8bc47a', fontWeight: 600, marginBottom: 6 }}>
-                  ✓ Данные обновлены в интерфейсе ({backfillStatus.from} → {backfillStatus.to})
+                <div style={{ color: '#8bc47a', fontWeight: 600, marginBottom: 6, display:'flex',alignItems:'center',gap:5 }}>
+                  <CheckCircle size={13}/>Данные обновлены в интерфейсе ({backfillStatus.from} → {backfillStatus.to})
                 </div>
                 {/* Расписание */}
                 {backfillStatus.schedule?.error
-                  ? <div style={{ color: '#e07a60', marginBottom: 4 }}>⚠ Расписание: {backfillStatus.schedule.error}</div>
-                  : <div style={{ color: backfillStatus.schedule?.daysUpdated > 0 ? '#8bc47a' : '#e0a41e', marginBottom: 4 }}>
-                      📅 Расписание: {backfillStatus.schedule?.daysUpdated ?? 0} дней
+                  ? <div style={{ color: '#e07a60', marginBottom: 4, display:'flex',alignItems:'center',gap:4 }}><AlertTriangle size={12}/>Расписание: {backfillStatus.schedule.error}</div>
+                  : <div style={{ color: backfillStatus.schedule?.daysUpdated > 0 ? '#8bc47a' : '#e0a41e', marginBottom: 4, display:'flex',alignItems:'center',gap:4 }}>
+                      <Calendar size={12}/>Расписание: {backfillStatus.schedule?.daysUpdated ?? 0} дней
                       {(backfillStatus.schedule?.daysUpdated ?? 0) === 0 &&
                         <span style={{ color: 'var(--mt)', marginLeft: 6 }}>— Google Sheets не вернул данных</span>}
                     </div>
                 }
                 {/* Выручка iiko */}
               {backfillStatus.revenue?.error
-                  ? <div style={{ color: '#e07a60' }}>
-                    ⚠ iiko выручка: {backfillStatus.revenue.error}
+                  ? <div style={{ color: '#e07a60', display:'flex',alignItems:'center',gap:4 }}>
+                    <AlertTriangle size={12}/>iiko выручка: {backfillStatus.revenue.error}
                     </div>
-                  : <div style={{ color: backfillStatus.revenue?.updated > 0 ? '#8bc47a' : '#e0a41e' }}>
-                      💰 Выручка iiko: {backfillStatus.revenue?.updated ?? 0} дней
+                  : <div style={{ color: backfillStatus.revenue?.updated > 0 ? '#8bc47a' : '#e0a41e', display:'flex',alignItems:'center',gap:4 }}>
+                      <TrendingUp size={12}/>Выручка iiko: {backfillStatus.revenue?.updated ?? 0} дней
                       {(backfillStatus.revenue?.updated ?? 0) === 0 &&
                           <span style={{ color: 'var(--mt)', marginLeft: 6 }}>
                             — iiko не вернул данных. Проверьте IIKO_URL, IIKO_LOGIN, IIKO_PASSWORD в .env
@@ -425,12 +427,12 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
               }
               {/* План выручки из Google Sheets */}
               {backfillStatus.plan?.error
-                  ? <div style={{ color: '#e07a60', marginTop: 4 }}>
-                      ⚠ план выручки: {backfillStatus.plan.error}
+                  ? <div style={{ color: '#e07a60', marginTop: 4, display:'flex',alignItems:'center',gap:4 }}>
+                      <AlertTriangle size={12}/>план выручки: {backfillStatus.plan.error}
                     </div>
                   : backfillStatus.plan != null && (
-                      <div style={{ color: backfillStatus.plan?.daysUpdated > 0 ? '#8bc47a' : '#e0a41e', marginTop: 4 }}>
-                        📊 План выручки: {backfillStatus.plan?.daysUpdated ?? 0} дней
+                      <div style={{ color: backfillStatus.plan?.daysUpdated > 0 ? '#8bc47a' : '#e0a41e', marginTop: 4, display:'flex',alignItems:'center',gap:4 }}>
+                        <BarChart2 size={12}/>План выручки: {backfillStatus.plan?.daysUpdated ?? 0} дней
                         {backfillStatus.plan?.sheets?.length > 0 &&
                           <span style={{ color: 'var(--mt)', marginLeft: 6 }}>
                             ({backfillStatus.plan.sheets.join(', ')})
@@ -441,7 +443,7 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
               </div>
             )}
             {backfillStatus?.error && (
-              <div style={{ color: '#e07a60', fontSize: 12, marginBottom: 12 }}>⚠ {backfillStatus.error}</div>
+              <div style={{ color: '#e07a60', fontSize: 12, marginBottom: 12, display:'flex',alignItems:'center',gap:4 }}><AlertTriangle size={12}/>{backfillStatus.error}</div>
             )}
 
             <button
@@ -450,7 +452,7 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
               disabled={backfillLoading || !backfillFrom}
               style={{ opacity: backfillLoading ? 0.6 : 1 }}
             >
-              {backfillLoading ? '⏳ Загружаю историю...' : '📥 Восстановить данные'}
+              {backfillLoading ? <><RefreshCw size={15} style={{animation:'spin 1s linear infinite'}}/>Загружаю историю...</> : <><Download size={15}/>Восстановить данные</>}
             </button>
           </div>
         </div>

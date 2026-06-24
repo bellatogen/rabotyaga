@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Modal, Alert, Button } from '../components/Common.jsx';
 import { getPushLog, getPushSchedule, setPushSchedule, getBindings } from '../services/api.js';
-import { RefreshCw, CheckCircle, AlertTriangle } from 'lucide-react';
+import { RefreshCw, CheckCircle, AlertTriangle, Settings, Bell, Calendar, Users } from 'lucide-react';
 
 export function AdminPanel({ token }) {
   const [tab, setTab] = useState('push-log');
@@ -81,15 +81,15 @@ export function AdminPanel({ token }) {
 
   return (
     <div style={{ padding: '12px' }}>
-      <h1 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '16px' }}>⚙️ Админ-панель</h1>
+      <h1 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '16px', display:'flex', alignItems:'center', gap:8 }}><Settings size={18}/>Админ-панель</h1>
 
       {/* Табы */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', borderBottom: '1px solid var(--bd)', paddingBottom: '12px' }}>
         {[
-          { id: 'push-log', label: '📬 Логи пушей' },
-          { id: 'push-schedule', label: '📅 График пушей' },
-          { id: 'bindings', label: '👥 Привязки' },
-          { id: 'sync', label: '🔄 Синхронизация' }
+          { id: 'push-log', icon: <Bell size={11}/>, label: 'Логи пушей' },
+          { id: 'push-schedule', icon: <Calendar size={11}/>, label: 'График пушей' },
+          { id: 'bindings', icon: <Users size={11}/>, label: 'Привязки' },
+          { id: 'sync', icon: <RefreshCw size={11}/>, label: 'Синхронизация' }
         ].map(t => (
           <button
             key={t.id}
@@ -98,10 +98,11 @@ export function AdminPanel({ token }) {
               background: tab === t.id ? 'var(--pp)' : 'transparent',
               color: tab === t.id ? '#fff' : 'var(--mt)',
               border: 'none', padding: '8px 12px', borderRadius: '6px', cursor: 'pointer',
-              fontSize: '13px', fontWeight: 500
+              fontSize: '13px', fontWeight: 500,
+              display: 'flex', alignItems: 'center', gap: 5
             }}
           >
-            {t.label}
+            {t.icon}{t.label}
           </button>
         ))}
       </div>
@@ -109,9 +110,9 @@ export function AdminPanel({ token }) {
       {/* Логи пушей */}
       {tab === 'push-log' && (
         <div>
-          <h2 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '12px' }}>📬 История рассылок</h2>
+          <h2 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '12px', display:'flex', alignItems:'center', gap:7 }}><Bell size={14}/>История рассылок</h2>
           {pushLog.length === 0 ? (
-            <Alert type="info">ℹ️ Логи отправок еще пусты</Alert>
+            <Alert type="info">Логи отправок еще пусты</Alert>
           ) : (
             <div style={{ maxHeight: '400px', overflow: 'auto' }}>
               {pushLog.map((log, idx) => (
@@ -148,7 +149,7 @@ export function AdminPanel({ token }) {
           </div>
 
           {pushSchedule.length === 0 ? (
-            <Alert type="info">ℹ️ График пуш на этот день пуст</Alert>
+            <Alert type="info">График пуш на этот день пуст</Alert>
           ) : (
             pushSchedule.map((item, idx) => (
               <div key={idx} style={{
@@ -262,7 +263,7 @@ export function AdminPanel({ token }) {
         <div>
           <h2 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '12px' }}>👥 Сотрудники</h2>
           {Object.keys(bindings).length === 0 ? (
-            <Alert type="info">ℹ️ Привязок еще нет</Alert>
+            <Alert type="info">Привязок еще нет</Alert>
           ) : (
             Object.entries(bindings).map(([name, telegramId]) => (
               <div key={name} style={{

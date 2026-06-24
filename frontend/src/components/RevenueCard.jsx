@@ -1,6 +1,6 @@
 // RevenueCard — спидометр выручки (план/факт/дельта/YoY) + кнопка ⬇ iiko
 import { useState } from 'react';
-import { Calendar, TrendingUp, TrendingDown } from 'lucide-react';
+import { Calendar, TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react';
 import { fmtDate } from '../utils/dateUtils.js';
 
 // ─── SVG-спидометр ──────────────────────────────────────────────────────────
@@ -173,7 +173,7 @@ export function RevenueCard({ date, revenue, onIikoLoad }) {
         </div>
       )}
 
-      {err && <div className="mono" style={{fontSize:11,marginTop:6,color:'#e8593c'}}>⚠ {err}</div>}
+      {err && <div className="mono" style={{fontSize:11,marginTop:6,color:'#e8593c',display:'flex',alignItems:'center',gap:3}}><AlertTriangle size={11}/>{err}</div>}
     </div>
   );
 }

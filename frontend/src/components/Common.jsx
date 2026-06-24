@@ -29,7 +29,8 @@ export function Modal({ isOpen, title, children, onClose, actions }) {
   );
 }
 
-export function Alert({ type = 'info', icon = 'ℹ️', children }) {
+import { Info } from 'lucide-react';
+export function Alert({ type = 'info', icon = <Info size={14}/>, children }) {
   const colors = {
     info: 'rgba(201,125,60,.3)',
     warning: 'rgba(232,160,48,.4)',
@@ -42,7 +43,7 @@ export function Alert({ type = 'info', icon = 'ℹ️', children }) {
       padding: '12px 14px', marginBottom: '12px', display: 'flex', gap: '9px',
       alignItems: 'flex-start', fontSize: '13px', lineHeight: '1.5'
     }}>
-      <span style={{ flexShrink: 0 }}>{icon}</span>
+      <span style={{ flexShrink: 0, display:'flex', alignItems:'center' }}>{icon}</span>
       <div>{children}</div>
     </div>
   );

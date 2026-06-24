@@ -1,6 +1,6 @@
 // Личный кабинет сотрудника — обзор, задачи, цифры, советы, карточки, журнал
 import { useState } from 'react';
-import { AlertTriangle, Award, AtSign, User, Plus, TrendingUp, TrendingDown, Minus, Lock, Key } from 'lucide-react';
+import { AlertTriangle, Award, AtSign, User, Plus, TrendingUp, TrendingDown, Minus, Lock, Key, FileText, Phone, CheckCircle } from 'lucide-react';
 import { ROLES } from '../constants/roles.js';
 import { SHIFT_STATUSES } from '../constants/shifts.js';
 import { hourNorm } from '../constants/staff.js';
@@ -236,12 +236,12 @@ function ProfileSection({profile,name,isOwnCabinet,onUpdateProfile,ds}){
     )}
 
     <div style={{background:"var(--sf)",border:"1px solid var(--bd)",borderRadius:12,padding:14,marginBottom:12}}>
-      <div className="sec-lbl" style={{marginBottom:10}}>👤 Профиль</div>
+      <div className="sec-lbl" style={{marginBottom:10,display:'flex',alignItems:'center',gap:5}}><User size={12}/>Профиль</div>
       <ProfileField label="Отображаемое имя" editing={editing} value={editing?f.displayName:profile.displayName||""} onChange={v=>setF(p=>({...p,displayName:v}))} placeholder={name}/>
       <ProfileField label="Фото (URL)" editing={editing} value={editing?f.avatarUrl:profile.avatarUrl||""} onChange={v=>setF(p=>({...p,avatarUrl:v}))} placeholder="https://…"/>
     </div>
     <div style={{background:"var(--sf)",border:"1px solid var(--bd)",borderRadius:12,padding:14,marginBottom:12}}>
-      <div className="sec-lbl" style={{marginBottom:10}}>📞 Контакты</div>
+      <div className="sec-lbl" style={{marginBottom:10,display:'flex',alignItems:'center',gap:5}}><Phone size={12}/>Контакты</div>
       <ProfileField label="Телефон" editing={editing} value={editing?f.phone:profile.phone||""} onChange={v=>setF(p=>({...p,phone:v}))} placeholder="+7 900 000-00-00"/>
       <ProfileField label="Telegram" editing={editing} value={editing?f.telegram:profile.telegram||""} onChange={v=>setF(p=>({...p,telegram:v}))} placeholder="@username"/>
       <ProfileField label="Экстренный контакт" editing={editing} value={editing?f.emergency:profile.emergency||""} onChange={v=>setF(p=>({...p,emergency:v}))} placeholder="Имя: +7 900 …"/>
@@ -249,8 +249,8 @@ function ProfileSection({profile,name,isOwnCabinet,onUpdateProfile,ds}){
 
     <div style={{background:"var(--sf)",border:`1px solid ${medbookExp?"rgba(158,63,43,.4)":medbookWarn?"rgba(232,160,48,.4)":"var(--bd)"}`,borderRadius:12,padding:14,marginBottom:12}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-        <div className="sec-lbl">📋 Медкнижка</div>
-        {medbookOk===true&&!medbookWarn&&<span style={{fontSize:11,color:"#8bc47a",fontWeight:700}}>✓ действительна</span>}
+        <div className="sec-lbl" style={{display:'flex',alignItems:'center',gap:5}}><FileText size={12}/>Медкнижка</div>
+        {medbookOk===true&&!medbookWarn&&<span style={{fontSize:11,color:"#8bc47a",fontWeight:700,display:'flex',alignItems:'center',gap:3}}><CheckCircle size={11}/>действительна</span>}
       </div>
       <ProfileField label="Номер" editing={editing} value={editing?f.medbook.number:profile.medbook?.number||""} onChange={v=>setMed("number",v)} placeholder="123456"/>
       <ProfileField label="Выдана" editing={editing} value={editing?f.medbook.issued:profile.medbook?.issued||""} onChange={v=>setMed("issued",v)} type="date"/>

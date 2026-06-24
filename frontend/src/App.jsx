@@ -11,6 +11,7 @@ import { uid, nowISO, fmtDate, addDays } from './utils/dateUtils.js';
 import { isToday, isDone, todayStr, buildDaySummary } from './utils/taskUtils.js';
 import { hasPerm, accountLabel } from './utils/authUtils.js';
 import { afterPushGate, getShiftStatus } from './utils/staffUtils.js';
+import { DEFAULT_HOUR_NORMS } from './constants/staff.js';
 import { processCard } from './utils/cardUtils.js';
 import { applyTheme, THEME_KEY } from './utils/theme.js';
   import { ld, sv, pingServer, tgBind, authLogin, authLogout, authMe, authHasPassword, authChangePassword, authResetPassword } from './services/api.js';

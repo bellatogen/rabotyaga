@@ -1,5 +1,5 @@
 // Строка задачи с признаком срочности — используется в PersonalCabinet и InboxModal
-import { CheckCircle } from 'lucide-react';
+import { CheckCircle, AlertTriangle, Circle } from 'lucide-react';
 import { dueLabel, isDone } from '../utils/taskUtils.js';
 
 export function DueRow({task,history,ds,onToggle}){
@@ -14,11 +14,11 @@ export function DueRow({task,history,ds,onToggle}){
           <span className={done?"":""} style={{textDecoration:done?"line-through":"none",color:done?"var(--mt)":"var(--pp)"}}>{task.title}{task.isReport&&<span style={{color:"var(--am)"}}> ★</span>}</span>
         </div>
         <div className="st" style={{marginTop:4,display:"flex",gap:8,flexWrap:"wrap"}}>
-          <span style={{color:overdue?"#e07a60":"var(--mt)"}}>{overdue?"⚠ просрочено · ":""}{dl.text}</span>
+          <span style={{color:overdue?"#e07a60":"var(--mt)",display:'flex',alignItems:'center',gap:3}}>{overdue&&<AlertTriangle size={10}/>}{overdue?"просрочено · ":""}{dl.text}</span>
           {task.assignedTo&&task.assignedBy&&<span>от {task.assignedBy}</span>}
         </div>
       </div>
-      <span style={{fontSize:11,fontWeight:700,color:done?"var(--hp)":"var(--mt)"}}>{done?"✓":"○"}</span>
+      <span style={{display:'flex',alignItems:'center',color:done?"var(--hp)":"var(--mt)"}}>{done?<CheckCircle size={13}/>:<Circle size={13}/>}</span>
     </div>
   </div>);
 }

@@ -2,7 +2,7 @@
 // Данные: GET /api/iiko/basket — кэшируется на сервере 20ч.
 // Кнопка «GoList» → добавляет пару в гоу-лист смены.
 import { useState, useEffect, useCallback } from 'react';
-import { Zap, Plus, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { Zap, Plus, RefreshCw, ChevronDown, ChevronUp, AlertTriangle, Check } from 'lucide-react';
 import { iikoBasket } from '../services/api.js';
 
 export function BundleRecommendations({ onGoAdd, defaultOpen = false }) {
@@ -74,7 +74,7 @@ export function BundleRecommendations({ onGoAdd, defaultOpen = false }) {
           )}
 
           {err && (
-            <div style={{fontSize:12,color:'#e8593c',padding:'8px 0'}}>⚠ {err}</div>
+            <div style={{fontSize:12,color:'#e8593c',padding:'8px 0',display:'flex',alignItems:'center',gap:4}}><AlertTriangle size={12}/>{err}</div>
           )}
 
           {!loading && !err && data && top.length === 0 && (
@@ -124,7 +124,7 @@ export function BundleRecommendations({ onGoAdd, defaultOpen = false }) {
                     display:'flex', alignItems:'center', gap:3,
                     color: isAdded ? 'var(--cu)' : 'var(--mt)',
                     fontSize:11, fontWeight:600, fontFamily:'inherit', whiteSpace:'nowrap'}}>
-                  {isAdded ? '✓ В листе' : <><Plus size={12}/>GoList</>}
+                  {isAdded ? <><Check size={12}/>В листе</> : <><Plus size={12}/>GoList</>}
                 </button>
               </div>
             );

@@ -3,6 +3,7 @@
 // среднее по дням недели, события в кольцах.
 
 import { useState } from 'react';
+import { BarChart2, Users, AlertTriangle, CheckCircle, X, FileText } from 'lucide-react';
 import { EVENT_TYPES, classifyEvent } from '../../constants/events.js';
 import { MONTHS_RU } from '../../constants/locale.js';
 import { revColor, kRub } from '../../utils/revenueUtils.js';
@@ -88,7 +89,7 @@ function MetricCard({ icon, label, value, unit = '', lyValue, pctOfPlan, note })
       flex: 1, background: 'var(--sf)', borderRadius: 11,
       padding: '11px 14px', border: '1px solid var(--bd)',
     }}>
-      <div style={{ fontSize: 10, color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 600, marginBottom: 3 }}>
+      <div style={{ fontSize: 10, color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 600, marginBottom: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
         {icon} {label}
       </div>
       <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: -0.3 }}>
@@ -362,7 +363,7 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
   if (daysWithFact.length === 0) {
     return (
       <div className="sec" style={{ paddingTop: 14 }}>
-        <div className="sec-lbl">📊 Аналитика · {MONTHS_RU[m - 1]}</div>
+        <span className="sec-lbl" style={{display:'flex',alignItems:'center',gap:5}}><BarChart2 size={12}/>Аналитика · {MONTHS_RU[m - 1]}</span>
         <div style={{ fontSize: 12, color: 'var(--mt)', textAlign: 'center', padding: '14px 0', opacity: .6 }}>
           Данных выручки за {MONTHS_RU[m - 1].toLowerCase()} пока нет
         </div>
@@ -384,7 +385,7 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
           <button onClick={saveGoal} style={{ background: 'var(--cu)', border: 'none', borderRadius: 6,
             color: 'var(--bg)', cursor: 'pointer', fontSize: 12, fontWeight: 600, padding: '3px 9px', fontFamily: 'inherit' }}>OK</button>
           <button onClick={() => setEditGoal(false)} style={{ background: 'transparent', border: '1px solid var(--bd)',
-            borderRadius: 6, color: 'var(--mt)', cursor: 'pointer', fontSize: 12, padding: '3px 7px', fontFamily: 'inherit' }}>✕</button>
+            borderRadius: 6, color: 'var(--mt)', cursor: 'pointer', fontSize: 12, padding: '2px 5px', fontFamily: 'inherit', display:'flex', alignItems:'center' }}><X size={12}/></button>
         </div>
       )
       : (
@@ -406,7 +407,7 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
           borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13,
           color: '#e05555', lineHeight: 1.5,
         }}>
-          <strong>⚠️ Данные выручки некорректны</strong> — числа нереальные.<br/>
+          <strong style={{display:"flex",alignItems:"center",gap:5}}><AlertTriangle size={14}/>Данные выручки некорректны</strong> — числа нереальные.<br/>
           <span style={{ fontSize: 12, opacity: .85 }}>
             Откройте Календарь → найдите день с неверным числом → «Сохранить выручку».
           </span>
@@ -415,7 +416,7 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
 
       {/* Заголовок */}
       <div className="sec-head" style={{ marginBottom: 8 }}>
-        <span className="sec-lbl">📊 {MONTHS_RU[m - 1]}</span>
+        <span className="sec-lbl" style={{display:'flex',alignItems:'center',gap:5}}><BarChart2 size={12}/>{MONTHS_RU[m - 1]}</span>
         <span style={{ fontSize: 11, color: 'var(--mt)' }}>{daysWithFact.length}/{daysInMonth} дн.</span>
       </div>
 
@@ -476,7 +477,7 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
                     )}
                   </>
                 : totalFact >= mGoal
-                  ? <span style={{ color: '#8bc47a' }}>✅ +{fmt(totalFact - mGoal)} ₽ сверх цели</span>
+                  ? <span style={{ color: '#8bc47a', display:'flex', alignItems:'center', gap:4 }}><CheckCircle size={13}/>+{fmt(totalFact - mGoal)} руб сверх цели</span>
                   : <span style={{ color: '#e85535' }}>не дошли {fmt(mGoal - totalFact)} ₽</span>)
             : <span style={{ opacity: .5 }}>дневные планы не заданы</span>
         }
@@ -486,13 +487,13 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
       {totalGuests > 0 ? (
         <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
           <MetricCard
-            icon="👥" label="Гостей"
+              icon={<Users size={12}/>} label="Гостей"
             value={totalGuests}
             note={avgGuestsPerDay != null ? `≈ ${fmt(avgGuestsPerDay)} / день (${guestDays.length} дн.)` : null}
           />
           {avgCheck != null && (
             <MetricCard
-              icon="🧾" label="Средний чек"
+              icon={<FileText size={12}/>} label="Средний чек"
               value={avgCheck} unit=" ₽"
               note={`за ${guestDays.length} ${plural(guestDays.length, 'день', 'дня', 'дней')}`}
             />

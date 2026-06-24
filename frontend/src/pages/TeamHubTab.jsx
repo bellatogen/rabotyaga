@@ -1,6 +1,6 @@
 // Вкладка «Команда» — состав, статистика, карточки, журнал
 import { useState } from 'react';
-import { Users, Plus, Trash2, Key, BarChart2, TrendingUp, TrendingDown, Minus, Award, Eye, EyeOff, Lock } from 'lucide-react';
+import { Users, Plus, Trash2, Key, BarChart2, TrendingUp, TrendingDown, Minus, Award, Eye, EyeOff, Lock, LockOpen, AlertTriangle } from 'lucide-react';
 import { Avatar } from '../components/Avatar.jsx';
 import { ROLES, ALL_PERMS } from '../constants/roles.js';
 import { SHIFT_STATUSES } from '../constants/shifts.js';
@@ -100,7 +100,7 @@ function StatsTab({tasks,history,ds,members,schedule,cards,onView}){
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
             <span style={{fontWeight:600,fontSize:14,display:"flex",alignItems:"center",gap:5}}>{m.name}
               {m.ac.some(c=>c.type==="red")&&<span>🔴</span>}{!m.ac.some(c=>c.type==="red")&&m.ac.some(c=>c.type==="orange")&&<span>🟠</span>}{!m.ac.some(c=>c.type==="orange")&&m.ac.some(c=>c.type==="yellow")&&<span>🟡</span>}
-              {m.susp>0&&<span title="нереалистичное закрытие" style={{fontSize:12}}>🔍</span>}
+              {m.susp>0&&<AlertTriangle size={12} color="#e07a60" title="нереалистичное закрытие"/>}
             </span>
             <span style={{display:"flex",gap:8,alignItems:"center"}}>
               {m.tr&&<span style={{color:m.tr.delta>=0?"#8bc47a":"#e07a60",display:"flex",alignItems:"center"}}>{m.tr.delta>0?<TrendingUp size={13}/>:m.tr.delta<0?<TrendingDown size={13}/>:<Minus size={13}/>}</span>}
@@ -135,7 +135,7 @@ function CardsTab({cards,members,setCardModal,onRevoke}){
 function PwdRow({account,hasPassword,onReset}){
   return(<div className="pr" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
     <div><div style={{fontWeight:600,fontSize:14}}>{accountLabel(account)}</div>
-      <div className="mono" style={{fontSize:13,color:hasPassword?"var(--hp)":"var(--mt)",marginTop:3}}>{hasPassword?"🔒 пароль задан":"⚪ пароль не задан"}</div></div>
+      <div className="mono" style={{fontSize:13,color:hasPassword?"var(--hp)":"var(--mt)",marginTop:3,display:'flex',alignItems:'center',gap:4}}>{hasPassword?<><Lock size={11}/>пароль задан</>:<><LockOpen size={11}/>пароль не задан</>}</div></div>
     <div style={{display:"flex",gap:6,alignItems:"center"}}>
       {hasPassword&&<button onClick={onReset} style={{background:"transparent",border:"1px solid rgba(158,63,43,.35)",color:"#e07a60",borderRadius:6,padding:"4px 9px",fontSize:11,cursor:"pointer"}}>сбросить</button>}
     </div>

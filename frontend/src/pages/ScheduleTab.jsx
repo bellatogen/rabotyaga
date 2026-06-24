@@ -1,6 +1,6 @@
 // Вкладка «График» — календарь, дашборд часов, таблица часов + детальный просмотр дня
 import { useState, useEffect, useRef } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, AlertTriangle, CheckCircle, Send, User, Plus, Clock } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, AlertTriangle, CheckCircle, Send, User, Plus, Clock, Users, TrendingUp, Download, Pencil, X } from 'lucide-react';
 import { MONTHS_RU, DOW_FULL, REPEAT_OPTS } from '../constants/locale.js';
 import { hourNorm, DEFAULT_HOUR_NORM } from '../constants/staff.js';
 import { staffCheck } from '../utils/staffUtils.js';
@@ -182,13 +182,13 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay,isManager,monthPlan={
         <span style={{fontWeight:600}}>{new Date(tooltip.date).toLocaleDateString("ru-RU",{day:"numeric",month:"long"})}</span>
         <span className="cal-tt-mt" style={{fontSize:11}}>{DOW_FULL[new Date(tooltip.date).getDay()]}</span>
       </div>
-      <div className="cal-tt-row"><span className="cal-tt-mt">👥 Штат</span><span style={{color:tooltip.check.ok?"var(--hp)":"#e07a60",fontWeight:600}}>{tooltip.check.actual}/{tooltip.check.norm.count}{tooltip.check.ok?"":" · недобор"}</span></div>
+      <div className="cal-tt-row"><span className="cal-tt-mt" style={{display:"flex",alignItems:"center",gap:3}}><Users size={11}/>Штат</span><span style={{color:tooltip.check.ok?"var(--hp)":"#e07a60",fontWeight:600}}>{tooltip.check.actual}/{tooltip.check.norm.count}{tooltip.check.ok?"":" · недобор"}</span></div>
       {tooltip.shifts.length>0&&<div style={{margin:"4px 0 2px"}}>
         {tooltip.shifts.map((s,idx)=><div className="cal-tt-row" key={idx} style={{fontSize:12}}><span>{s.name}{s.guest?" (гость)":""}{s.sub?" · подмена":""}</span><span className="cal-tt-mt">{s.start||""}{s.end?` · ${s.end}ч`:""}</span></div>)}
       </div>}
       {tooltip.rev.plan!=null&&tooltip.rev.plan!==""&&<div style={{borderTop:"1px solid var(--bd)",paddingTop:6,marginTop:4}}>
         <div className="cal-tt-row"><span className="cal-tt-mt">₽ План</span><span>{Number(tooltip.rev.plan).toLocaleString("ru-RU")} ₽</span></div>
-        {tooltip.rev.fact!=null&&tooltip.rev.fact!==""&&<div className="cal-tt-row"><span className="cal-tt-mt">📈 Факт</span><span style={{color:tooltip.pct!=null?revColor(tooltip.pct):"var(--pp)",fontWeight:600}}>{Number(tooltip.rev.fact).toLocaleString("ru-RU")} ₽{tooltip.pct!=null?` · ${Math.round(tooltip.pct)}%`:""}</span></div>}
+        {tooltip.rev.fact!=null&&tooltip.rev.fact!==""&&<div className="cal-tt-row"><span className="cal-tt-mt" style={{display:'flex',alignItems:'center',gap:3}}><TrendingUp size={11}/>Факт</span><span style={{color:tooltip.pct!=null?revColor(tooltip.pct):"var(--pp)",fontWeight:600}}>{Number(tooltip.rev.fact).toLocaleString("ru-RU")} ₽{tooltip.pct!=null?` · ${Math.round(tooltip.pct)}%`:""}</span></div>}
       </div>}
       {tooltip.event&&(()=>{const et=classifyEvent(tooltip.event);return(<div style={{marginTop:6,paddingTop:6,borderTop:"1px solid var(--bd)",fontSize:12,color:et?et.color:"var(--mt)"}}>{et?et.emoji:'📌'} {tooltip.event}</div>);})()}
     </div>}
@@ -221,7 +221,7 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay,isManager,monthPlan={
         <div style={{padding:"12px 18px"}}>
           {/* Штат */}
           <div style={{marginBottom:14}}>
-            <div className="sec-lbl" style={{marginBottom:8}}>👥 Штат</div>
+            <div className="sec-lbl" style={{marginBottom:8,display:'flex',alignItems:'center',gap:5}}><Users size={12}/>Штат</div>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
               <span style={{fontSize:22,fontWeight:700,color:daySheet.check.ok?"var(--hp)":"#e07a60"}}>
                 {daySheet.check.actual}/{daySheet.check.norm.count}
@@ -325,7 +325,7 @@ export function DayDetail({date,schedule,events,tasks,history,revenue,handovers,
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
             <input type="number" value={fact} onChange={e=>setFact(e.target.value)} placeholder="—" style={{flex:1}}/>
             <button className="mini-btn" onClick={loadIikoFact} disabled={iikoLoading} title="Загрузить факт из iiko" style={{whiteSpace:"nowrap",flexShrink:0}}>
-              {iikoLoading?"⏳":"⬇ iiko"}
+              {iikoLoading?<RefreshCw size={12} style={{animation:'spin 1s linear infinite'}}/>:<><Download size={12}/>iiko</>}
             </button>
           </div>
         </div>
@@ -438,7 +438,7 @@ function DashboardTab({schedule,members,ds,isManager,hourNorms={},onSetHourNorm}
         <span className="bar-pct">{m.shifts} смен</span>
         {!editing&&<span className="bar-pct" style={{display:'flex',alignItems:'center',gap:4}}>
           норма {m.nrm.min}–{m.nrm.max}ч
-          {isManager&&<button onClick={()=>{setEditingNorm(m.name);setNormDraft({min:m.nrm.min,max:m.nrm.max});}} style={{background:'transparent',border:'none',color:'var(--mt)',cursor:'pointer',padding:'0 2px',fontSize:11,lineHeight:1}} title="Изменить норму">✎</button>}
+          {isManager&&<button onClick={()=>{setEditingNorm(m.name);setNormDraft({min:m.nrm.min,max:m.nrm.max});}} style={{background:'transparent',border:'none',color:'var(--mt)',cursor:'pointer',padding:'0 2px',fontSize:11,lineHeight:1,display:'flex',alignItems:'center'}} title="Изменить норму"><Pencil size={10}/></button>}
         </span>}
         {editing&&<span style={{display:'flex',alignItems:'center',gap:4}}>
           <input type="number" min={0} max={400} value={normDraft.min} onChange={e=>setNormDraft(p=>({...p,min:e.target.value}))} onKeyDown={e=>{if(e.key==='Enter')saveNorm(m.name);if(e.key==='Escape')setEditingNorm(null);}} style={{width:48,background:'var(--bg)',border:'1px solid var(--bd)',borderRadius:5,padding:'2px 5px',color:'var(--pp)',fontSize:11,fontFamily:'inherit'}}/>
@@ -446,7 +446,7 @@ function DashboardTab({schedule,members,ds,isManager,hourNorms={},onSetHourNorm}
           <input type="number" min={0} max={400} value={normDraft.max} onChange={e=>setNormDraft(p=>({...p,max:e.target.value}))} onKeyDown={e=>{if(e.key==='Enter')saveNorm(m.name);if(e.key==='Escape')setEditingNorm(null);}} style={{width:48,background:'var(--bg)',border:'1px solid var(--bd)',borderRadius:5,padding:'2px 5px',color:'var(--pp)',fontSize:11,fontFamily:'inherit'}}/>  
           <span style={{fontSize:10,color:'var(--mt)'}}>ч</span>
           <button onClick={()=>saveNorm(m.name)} style={{background:'var(--cu)',border:'none',borderRadius:5,color:'var(--bg)',cursor:'pointer',fontSize:10,fontWeight:700,padding:'2px 7px',fontFamily:'inherit'}}>OK</button>
-          <button onClick={()=>setEditingNorm(null)} style={{background:'transparent',border:'1px solid var(--bd)',borderRadius:5,color:'var(--mt)',cursor:'pointer',fontSize:10,padding:'2px 6px',fontFamily:'inherit'}}>✕</button>
+          <button onClick={()=>setEditingNorm(null)} style={{background:'transparent',border:'1px solid var(--bd)',borderRadius:5,color:'var(--mt)',cursor:'pointer',fontSize:10,padding:'2px 4px',fontFamily:'inherit',display:'flex',alignItems:'center'}}><X size={12}/></button>
         </span>}
       </div>
     </div>);})}
