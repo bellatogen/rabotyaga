@@ -47,26 +47,13 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
       </div>
     </div>}
 
-    {/* 0. Дашборд управляющего — итог дня */}
+    {/* 0. Дашборд управляющего — итог дня (выручка + карточки; задачи и смена видны ниже) */}
     {isManager&&<div className="sec" style={{paddingBottom:4}}>
       <div className="sec-head"><span className="sec-lbl">📊 Итог дня</span></div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
         <div style={{background:'var(--sf)',border:'1px solid var(--bd)',borderRadius:10,padding:'10px 12px'}}>
-          <div style={{fontSize:11,opacity:.55,marginBottom:3}}>Задачи</div>
-          <div style={{fontWeight:700,fontSize:20}}>{doneTodayCount}/{todayTasks.length}</div>
-          <div style={{marginTop:6,height:4,background:'var(--bd)',borderRadius:2}}><div style={{height:'100%',width:`${pct}%`,background:'var(--hp)',borderRadius:2}}/></div>
-          <div style={{fontSize:11,opacity:.55,marginTop:3}}>{pct}%</div>
-        </div>
-        <div style={{background:'var(--sf)',border:'1px solid var(--bd)',borderRadius:10,padding:'10px 12px'}}>
           <div style={{fontSize:11,opacity:.55,marginBottom:3}}>Выручка</div>
           {_fact>0?<><div style={{fontWeight:700,fontSize:16}}>{_fact.toLocaleString('ru-RU')} ₽</div>{_plan>0&&<div style={{fontSize:11,opacity:.6,marginTop:1}}>план {_plan.toLocaleString('ru-RU')} ₽</div>}{_revPct!=null&&<div style={{fontSize:13,fontWeight:600,color:_revClr,marginTop:3}}>{_revPct}%</div>}</>:<div style={{fontSize:12,opacity:.45,marginTop:4}}>не внесена</div>}
-        </div>
-        <div style={{background:'var(--sf)',border:'1px solid var(--bd)',borderRadius:10,padding:'10px 12px'}}>
-          <div style={{fontSize:11,opacity:.55,marginBottom:3}}>Смена</div>
-          {todayShifts.filter(s=>!s.guest).length===0
-            ?<div style={{fontSize:12,opacity:.45}}>не запланирована</div>
-            :todayShifts.filter(s=>!s.guest).map((s,i)=>{const ss=SHIFT_STATUSES[getShiftStatus(s.name,ds,schedule,statusOverrides,now)];return(<div key={i} style={{display:'flex',alignItems:'center',gap:5,marginBottom:3}}><span style={{width:6,height:6,borderRadius:'50%',background:ss?.bg||'var(--bd)',flexShrink:0}}/><span style={{fontSize:12,fontWeight:500}}>{s.name.split(' ')[0]}</span><span style={{fontSize:10,opacity:.55,marginLeft:2}}>{ss?.label}</span></div>);})
-          }
         </div>
         <div style={{background:'var(--sf)',border:'1px solid var(--bd)',borderRadius:10,padding:'10px 12px'}}>
           <div style={{fontSize:11,opacity:.55,marginBottom:3}}>Карточки</div>

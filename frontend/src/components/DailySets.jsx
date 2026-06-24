@@ -36,10 +36,12 @@ export function DailySets({ onGoAdd }) {
 
   const activePool = hasPairs ? pool : soloPool;
   const total      = activePool.length;
-  const page       = activePool.slice(offset, offset + PAGE);
-  const canNext    = total > PAGE;
+  // Ротация пула: сдвигаем стартовую позицию на 1 и берём PAGE элементов с wraparound
+  const rotated    = [...activePool.slice(offset), ...activePool.slice(0, offset)];
+  const page       = rotated.slice(0, PAGE);
+  const canNext    = total > 1;
 
-  const nextPage = () => setOffset(o => (o + PAGE) >= total ? 0 : o + PAGE);
+  const nextPage = () => setOffset(o => (o + 1) % total);
 
   const marginTop = topMarginKeys(page, PAGE);
 
@@ -55,8 +57,8 @@ export function DailySets({ onGoAdd }) {
           <Sparkles size={12}/>{hasPairs ? 'Сэты дня' : 'Рекомендуй сегодня'}
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {hasPairs && <span style={{ fontSize: 11, color: 'var(--mt)', opacity: .6 }}>
-            {offset + 1}–{Math.min(offset + PAGE, total)} из {total}
+          {hasPairs && total > 0 && <span style={{ fontSize: 11, color: 'var(--mt)', opacity: .6 }}>
+            {total > PAGE ? `${offset + 1}–${Math.min(offset + PAGE, total)} из ${total}` : `${total} из ${total}`}
           </span>}
           {canNext && (
             <button onClick={nextPage}
