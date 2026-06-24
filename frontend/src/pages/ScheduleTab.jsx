@@ -1,6 +1,6 @@
 // Вкладка «График» — календарь, дашборд часов, таблица часов + детальный просмотр дня
 import { useState, useEffect, useRef } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, AlertTriangle, CheckCircle, Send, User, Plus, Clock, Users, TrendingUp, Download, Pencil, X } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, AlertTriangle, CheckCircle, Send, User, Plus, Clock, Users, TrendingUp, Download, Pencil, X, RefreshCw } from 'lucide-react';
 import { MONTHS_RU, DOW_FULL, REPEAT_OPTS } from '../constants/locale.js';
 import { hourNorm } from '../constants/staff.js';
 import { staffCheck } from '../utils/staffUtils.js';
@@ -431,7 +431,7 @@ function DashboardTab({schedule,members,ds,isManager,hourNorms={},onSetHourNorm}
       </div>
     </div>
 
-    {view==="bars"&&stats.map(m=>{const denom=m.nrm.max;const editing=isManager&&editingNorm===m.name;return(<div className="pr" key={m.name}>
+    {view==="bars"&&stats.map(m=>{const denom=m.nrm.max>0?m.nrm.max:1;const editing=isManager&&editingNorm===m.name;return(<div className="pr" key={m.name}>
       <div className="pr-nm"><span>{m.name}</span><span className="mono" style={{fontWeight:600,fontSize:14,color:col(m)}}>{m.hours}ч</span></div>
       <div className="bar-bg"><div className="bar-fill" style={{width:`${Math.min(m.hours/denom*100,100)}%`,background:col(m),transition:"width .4s ease"}}/></div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4,gap:6}}>
@@ -463,7 +463,7 @@ function DashboardTab({schedule,members,ds,isManager,hourNorms={},onSetHourNorm}
     </div>}
 
     {view==="rings"&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(110px,1fr))",gap:12,justifyItems:"center"}}>
-      {stats.map(m=>{const pct=m.hours/m.nrm.max;return(<div key={m.name} style={{textAlign:"center"}}>
+      {stats.map(m=>{const pct=m.nrm.max>0?m.hours/m.nrm.max:0;return(<div key={m.name} style={{textAlign:"center"}}>
         <Ring pct={pct} color={col(m)} top={`${m.hours}`} bottom={`/${m.nrm.max}ч`} label={`${m.name}: ${m.hours} из ${m.nrm.max} часов`}/>
         <div style={{fontSize:13,fontWeight:600,marginTop:4}}>{m.name}</div>
         <div style={{fontSize:10,color:"var(--mt)"}}>{m.shifts} смен</div>

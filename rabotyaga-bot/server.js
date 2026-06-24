@@ -33,9 +33,10 @@ const KV_FORBIDDEN = new Set(['__proto__', 'constructor', 'prototype']);
 // Барман не должен перезаписывать задачи, расписание, карточки нарушений и т.д.
 const MANAGER_ONLY_KV = new Set([
   'tasks:v4', 'schedule:v1', 'cards:v1',
-  'members:v1', 'events:v1', 'acl:v1', 'seeds:v1',
+  'members:v1', 'events:v1', 'events:v2', 'acl:v1', 'seeds:v1',
   'month_plan:v1', // месячный план выручки — задаёт только менеджер
   'revenue:v1',   // выручка по дням — запись через KV только менеджер (икко-синк пишет напрямую)
+  'hour_norms:v1', // нормы часов сотрудников — только менеджер
 ]);
 
 const app = express();
