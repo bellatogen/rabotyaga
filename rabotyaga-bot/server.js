@@ -253,7 +253,7 @@ app.post('/api/sync/mozg', requireManager, async (req, res) => {
 });
 
 // ── iiko — только авторизованные ──
-app.post('/api/iiko/revenue/sync',
+app.post('/api/iiko/revenue/sync', requireAuth, async (req, res) => {
   try {
     const result = await iiko.syncRevenue(data, saveData);
     res.json(result);
