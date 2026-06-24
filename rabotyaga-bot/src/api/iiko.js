@@ -92,12 +92,13 @@ function invalidateToken() { _token = null; _tokenExpiry = 0; }
 
 // Внутренний запрос OLAP за один день.
 // Возвращает { fact, guests } — выручка + кол-во гостей.
+// Группируем по (OpenDate.Typed, Order.Id) чтобы GuestNum не дублировался по блюдам.
 // guests может быть 0 если iiko не вернул поле GuestNum.
 async function fetchOlapForDate(date, token) {
   const body = {
     reportType: 'SALES', buildSummary: 'false',
-    groupByRowFields: ['OpenDate.Typed'],
-    // GuestNum — кол-во персон в заказе; может отсутствовать в старых версиях iiko
+    // Order.Id в groupBy → одна строка на заказ → GuestNum без дублирования
+    groupByRowFields: ['OpenDate.Typed', 'Order.Id'],
     aggregateFields: ['DishDiscountSumInt', 'GuestNum'],
     filters: {
       'OpenDate.Typed': {
@@ -116,8 +117,6 @@ async function fetchOlapForDate(date, token) {
   if (res.status === 401) { invalidateToken(); throw Object.assign(new Error('iiko: сессия истекла'), { status: 401 }); }
   if (!res.ok) {
     const t = await res.text().catch(()=>'');
-    // Если GuestNum неизвестен — повторяем без него
-    // Проверяем что именно это поле GuestNum неизвестно (а не другое)
     if (t.includes('GuestNum') || t.includes('Unknown OLAP field')) {
       console.warn('[iiko] GuestNum не поддерживается, запрашиваем только выручку');
       return fetchOlapRevenueOnly(date, token);
@@ -125,6 +124,7 @@ async function fetchOlapForDate(date, token) {
     throw new Error(`iiko OLAP HTTP ${res.status}: ${t.slice(0,200)}`);
   }
   const json = await res.json();
+  // Одна строка = один заказ: суммируем выручку, GuestNum берём без дублирования
   let fact = 0, guests = 0;
   for (const row of (json.data || [])) {
     fact   += Number(row.DishDiscountSumInt || 0);
@@ -212,10 +212,11 @@ async function syncRevenueRange(from, to, data, saveData) {
   }
   const token = await getToken();
 
-  // Запрос с GuestNum (полная версия)
+  // Запрос с GuestNum (полная версия).
+  // Order.Id в groupBy → одна строка на заказ → GuestNum не дублируется по блюдам.
   const bodyFull = {
     reportType: 'SALES', buildSummary: 'false',
-    groupByRowFields: ['OpenDate.Typed'],
+    groupByRowFields: ['OpenDate.Typed', 'Order.Id'],
     aggregateFields: ['DishDiscountSumInt', 'GuestNum'],
     filters: { 'OpenDate.Typed': { filterType:'DateRange', periodType:'CUSTOM', from, to, includeLow:true, includeHigh:true } },
   };
@@ -233,7 +234,7 @@ async function syncRevenueRange(from, to, data, saveData) {
       // Fallback — без GuestNum
       console.warn('[iiko/range] GuestNum не поддерживается, запрашиваем только выручку');
       useGuests = false;
-      const bodyPlain = { ...bodyFull, aggregateFields: ['DishDiscountSumInt'] };
+      const bodyPlain = { ...bodyFull, aggregateFields: ['DishDiscountSumInt'], groupByRowFields: ['OpenDate.Typed', 'Order.Id'] };
       res = await fetch(url, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(bodyPlain), signal: AbortSignal.timeout(60_000),
