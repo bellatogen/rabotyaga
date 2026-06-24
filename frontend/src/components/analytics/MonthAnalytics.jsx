@@ -33,7 +33,8 @@ function plural(n, one, few, many) {
 // Каждый день — вертикальный бар. Событийный день — цветная точка снизу.
 // Цвет бара: план/факт-светофор если есть план, иначе --cu.
 function Sparkline({ days, revenue, events }) {
-  const facts   = days.map(d => revenue[d]?.fact  || 0);
+  // Number() — защита от строковых значений, попавших из ручного ввода
+  const facts   = days.map(d => Number(revenue[d]?.fact)  || 0);
   const maxFact = Math.max(1, ...facts);
   const hasFact = facts.some(f => f > 0);
   if (!hasFact) return null;
@@ -149,8 +150,14 @@ export function MonthAnalytics({ revenue, events, ym }) {
   const daysWithFact = days.filter(d => (revenue[d]?.fact || 0) > 0);
   const daysWithPlan = days.filter(d => (revenue[d]?.plan || 0) > 0);
 
-  const totalFact   = daysWithFact.reduce((s, d) => s + revenue[d].fact, 0);
-  const totalPlan   = daysWithPlan.reduce((s, d) => s + revenue[d].plan, 0);
+  // Number() обязателен: plan/fact могут быть строками из ручного ввода
+  // без него JS делает конкатенацию вместо сложения → мусорные значения
+  const totalFact   = daysWithFact.reduce((s, d) => s + (Number(revenue[d].fact) || 0), 0);
+  const totalPlan   = daysWithPlan.reduce((s, d) => s + (Number(revenue[d].plan) || 0), 0);
+
+  // Санитарный контроль: если сумма нереальная — данные испорчены
+  const MAX_MONTHLY = 30_000_000; // 30 млн ₽/мес — разумный потолок
+  const dataCorrupt = !isFinite(totalFact) || !isFinite(totalPlan) || totalFact > MAX_MONTHLY || totalPlan > MAX_MONTHLY;
   const totalGuests = days.reduce((s, d) => s + (revenue[d]?.guests || 0), 0);
   const avgCheck    = totalGuests > 0 && totalFact > 0 ? Math.round(totalFact / totalGuests) : null;
   const factPct     = totalPlan > 0 && totalFact > 0 ? Math.round((totalFact / totalPlan) * 100) : null;
@@ -159,7 +166,7 @@ export function MonthAnalytics({ revenue, events, ym }) {
   const eventRows = EVENT_TYPES.map(type => {
     const typeDays         = days.filter(d => classifyEvent(events[d])?.id === type.id);
     const typeDaysWithFact = typeDays.filter(d => (revenue[d]?.fact || 0) > 0);
-    const typeTotal        = typeDaysWithFact.reduce((s, d) => s + revenue[d].fact, 0);
+    const typeTotal        = typeDaysWithFact.reduce((s, d) => s + (Number(revenue[d].fact) || 0), 0);
     return {
       emoji:       type.emoji,
       name:        type.name,
@@ -174,7 +181,7 @@ export function MonthAnalytics({ revenue, events, ym }) {
   // ── Обычные дни (без классифицированного события) ──
   const regularDays         = days.filter(d => !classifyEvent(events[d]));
   const regularDaysWithFact = regularDays.filter(d => (revenue[d]?.fact || 0) > 0);
-  const regularTotal        = regularDaysWithFact.reduce((s, d) => s + revenue[d].fact, 0);
+  const regularTotal        = regularDaysWithFact.reduce((s, d) => s + (Number(revenue[d].fact) || 0), 0);
   const regularAvg          = regularDaysWithFact.length > 0
     ? Math.round(regularTotal / regularDaysWithFact.length) : null;
 
@@ -207,6 +214,20 @@ export function MonthAnalytics({ revenue, events, ym }) {
 
   return (
     <div className="sec" style={{ paddingTop: 14 }}>
+      {/* Санитарный алерт: данные испорчены */}
+      {dataCorrupt && (
+        <div style={{
+          background: 'rgba(220,53,53,.12)', border: '1px solid rgba(220,53,53,.35)',
+          borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13,
+          color: '#e05555', lineHeight: 1.5,
+        }}>
+          <strong>⚠️ Данные выручки некорректны</strong> — числа выглядят нереальными.<br/>
+          <span style={{ fontSize: 12, opacity: .85 }}>
+            Что сделать: откройте Календарь, найдите день с неверным числом, нажмите «Сохранить выручку» — исправьте план или факт.
+            Если проблема осталась — напишите @admin.
+          </span>
+        </div>
+      )}
       {/* Заголовок */}
       <div className="sec-head" style={{ marginBottom: 10 }}>
         <span className="sec-lbl">📊 Аналитика · {MONTHS_RU[m - 1]}</span>

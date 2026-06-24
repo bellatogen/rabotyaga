@@ -361,7 +361,15 @@ export default function App(){
         revenue={revenue} handovers={handovers} isManager={isManager} canTeam={canTeam} members={members}
         onAddTask={canAddTasks?()=>setModal({_new:true,_date:viewingDay}):null}
         onEditTask={isManager?t=>setModal(t):null}
-        onSetRevenue={isManager?(plan,fact)=>setRevenue(prev=>({...prev,[viewingDay]:{plan,fact}})):null}
+        onSetRevenue={isManager?(plan,fact)=>setRevenue(prev=>({
+          ...prev,
+          [viewingDay]:{
+            // Сохраняем guests/avgCheck/lastYear от iiko, приводим plan/fact к числа
+            ...(prev[viewingDay]||{}),
+            plan: plan!=='' ? Number(plan) : '',
+            fact: fact!=='' ? Number(fact) : '',
+          }
+        })):null}
         onAddShift={canTeam?addShift:null} onRemoveShift={canTeam?removeShift:null} onUpdateShift={canTeam?updateShift:null}/>
     </div>);
 
