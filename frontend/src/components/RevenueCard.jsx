@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { Calendar, TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react';
 import { fmtDate } from '../utils/dateUtils.js';
+import cavemanImg from '../assets/caveman.png';
 
 // ─── SVG-спидометр ──────────────────────────────────────────────────────────
 function SpeedometerGauge({ pct = 0 }) {
@@ -47,7 +48,9 @@ function SpeedometerGauge({ pct = 0 }) {
   const [px1, py1] = pt(p2d(100), RO - 1);
 
   return (
-    <svg viewBox="0 0 200 146" style={{width:'100%',maxWidth:230,display:'block',margin:'0 auto'}}>
+    <div style={{position:'relative',maxWidth:230,margin:'0 auto'}}>
+    <img src={cavemanImg} alt="" style={{position:'absolute',right:-8,bottom:10,width:60,opacity:0.42,pointerEvents:'none',userSelect:'none'}}/>
+    <svg viewBox="0 0 200 146" style={{width:'100%',display:'block'}}>
       {ZONES.map(z => (
         <path key={z.from} d={donut(p2d(z.from), p2d(z.to), RO, RI)}
           fill={z.color} opacity={0.18}/>
@@ -74,6 +77,7 @@ function SpeedometerGauge({ pct = 0 }) {
       <text x={lx2} y={ly2} fontSize={7.5} fill="var(--mt)" textAnchor="middle">200%</text>
       <text x={CX} y={132} fontSize={9} fill="var(--mt)" textAnchor="middle" letterSpacing=".04em">100% = план</text>
     </svg>
+    </div>
   );
 }
 
