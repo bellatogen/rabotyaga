@@ -10,6 +10,7 @@ import { RevenueCard } from '../components/RevenueCard.jsx';
 import { Ring } from '../components/Ring.jsx';
 import { classifyEvent } from '../constants/events.js';
 import { MonthAnalytics } from '../components/analytics/MonthAnalytics.jsx';
+import { revColor, kRub } from '../utils/revenueUtils.js';
 
 export function ScheduleTab({schedule,events,revenue,ds,members,onOpenDay,isManager,monthPlan={},onSetMonthPlan}){
   const[sub,setSub]=useState("calendar");
@@ -42,21 +43,7 @@ export function ScheduleTab({schedule,events,revenue,ds,members,onOpenDay,isMana
   </>);
 }
 
-// Светофор по выручке: синий >110%, зелёный 100-110%, жёлтый 90-100%, красный <90%
-function getRevenueColor(pct){
-  if(pct>=110)return '#5b8b9b';
-  if(pct>=100)return '#8bc47a';
-  if(pct>=90)return '#e8a030';
-  return '#e85535';
-}
-
-// Компактный формат рублей для тесных ячеек: 127345 → «127к», 980 → «980»
-function kRub(n){
-  n=Number(n)||0;
-  if(n>=1_000_000)return (Math.round(n/100_000)/10)+'млн';
-  if(n>=1000)return Math.round(n/1000)+'к';
-  return String(Math.round(n));
-}
+// revColor и kRub — импортированы из utils/revenueUtils.js
 
 // Бейдж события в ячейке календаря — использует реестр EVENT_TYPES для цвета/эмодзи
 function CalEventBadge({ eventStr }) {
@@ -71,7 +58,8 @@ function CalEventBadge({ eventStr }) {
 }
 
 function CalendarTab({schedule,events,revenue,ds,onOpenDay,isManager,monthPlan={},onSetMonthPlan}){
-  const[ym,setYm]=useState("2026-06");
+  // Инициализация из текущей даты — не хардкодим месяц
+  const[ym,setYm]=useState(()=>ds.slice(0,7));
   const[tooltip,setTooltip]=useState(null);   // только desktop hover
   const[daySheet,setDaySheet]=useState(null);
   const[helpOpen,setHelpOpen]=useState(false); // mobile bottom sheet
@@ -173,17 +161,17 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay,isManager,monthPlan={
         const factN=Number(rev.fact)||0;
         const planN=Number(rev.plan)||0;
         const pct=planN>0&&factN>0?(factN/planN)*100:null;
-        const revColor=pct!=null?getRevenueColor(pct):null;
+        const cellColor=pct!=null?revColor(pct):null;
         const evType=classifyEvent(events[c]||null);
         return(<div key={i} className={`cal-cell${c===ds?" today":""}${!check.ok?" short":""}`} onClick={()=>onCellClick(c)}
           onPointerEnter={e=>onCellEnter(e,c)} onPointerLeave={onCellLeave}
           onPointerDown={e=>onCellDown(e,c)} onPointerMove={clearPress} onPointerUp={clearPress} onPointerCancel={clearPress}
-          style={{touchAction:"manipulation",...(revColor?{background:revColor+"22"}:evType?{background:evType.bg}:null)}}>
-          <span className="cal-num" style={revColor?{color:revColor}:undefined}>{dnum}</span>
+          style={{touchAction:"manipulation",...(cellColor?{background:cellColor+"22"}:evType?{background:evType.bg}:null)}}>
+          <span className="cal-num" style={cellColor?{color:cellColor}:undefined}>{dnum}</span>
           {/* Выручка-факт показывается ВСЕГДА когда есть — даже без плана */}
-          {factN>0&&<span style={{fontSize:12,fontWeight:700,lineHeight:1.05,color:revColor||"var(--pp)"}}>{kRub(factN)}</span>}
+          {factN>0&&<span style={{fontSize:12,fontWeight:700,lineHeight:1.05,color:cellColor||"var(--pp)"}}>{kRub(factN)}</span>}
           {/* Процент плана — мелким, только если план задан */}
-          {pct!=null&&<span style={{fontSize:9,fontWeight:600,lineHeight:1,color:revColor,opacity:.9}}>{Math.round(pct)}%</span>}
+          {pct!=null&&<span style={{fontSize:9,fontWeight:600,lineHeight:1,color:cellColor,opacity:.9}}>{Math.round(pct)}%</span>}
           <CalEventBadge eventStr={events[c]||null}/>
         </div>);
       })}
@@ -200,7 +188,7 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay,isManager,monthPlan={
       </div>}
       {tooltip.rev.plan!=null&&tooltip.rev.plan!==""&&<div style={{borderTop:"1px solid var(--bd)",paddingTop:6,marginTop:4}}>
         <div className="cal-tt-row"><span className="cal-tt-mt">₽ План</span><span>{Number(tooltip.rev.plan).toLocaleString("ru-RU")} ₽</span></div>
-        {tooltip.rev.fact!=null&&tooltip.rev.fact!==""&&<div className="cal-tt-row"><span className="cal-tt-mt">📈 Факт</span><span style={{color:tooltip.pct!=null?getRevenueColor(tooltip.pct):"var(--pp)",fontWeight:600}}>{Number(tooltip.rev.fact).toLocaleString("ru-RU")} ₽{tooltip.pct!=null?` · ${Math.round(tooltip.pct)}%`:""}</span></div>}
+        {tooltip.rev.fact!=null&&tooltip.rev.fact!==""&&<div className="cal-tt-row"><span className="cal-tt-mt">📈 Факт</span><span style={{color:tooltip.pct!=null?revColor(tooltip.pct):"var(--pp)",fontWeight:600}}>{Number(tooltip.rev.fact).toLocaleString("ru-RU")} ₽{tooltip.pct!=null?` · ${Math.round(tooltip.pct)}%`:""}</span></div>}
       </div>}
       {tooltip.event&&(()=>{const et=classifyEvent(tooltip.event);return(<div style={{marginTop:6,paddingTop:6,borderTop:"1px solid var(--bd)",fontSize:12,color:et?et.color:"var(--mt)"}}>{et?et.emoji:'📌'} {tooltip.event}</div>);})()}
     </div>}
@@ -270,7 +258,7 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay,isManager,monthPlan={
                 </div>
                 {daySheet.rev.fact!=null&&daySheet.rev.fact!==""&&<div>
                   <div style={{fontSize:11,color:"var(--mt)",marginBottom:2}}>Факт</div>
-                  <div style={{fontSize:18,fontWeight:700,color:daySheet.pct!=null?getRevenueColor(daySheet.pct):"var(--tx)"}}>
+                  <div style={{fontSize:18,fontWeight:700,color:daySheet.pct!=null?revColor(daySheet.pct):"var(--tx)"}}>    
                     {Number(daySheet.rev.fact).toLocaleString("ru-RU")} ₽
                     {daySheet.pct!=null&&<span style={{fontSize:12,marginLeft:6}}>{Math.round(daySheet.pct)}%</span>}
                   </div>
