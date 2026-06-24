@@ -75,6 +75,7 @@ export default function App(){
   // Порядок вкладок (drag-and-drop), хранится в localStorage
   const[navTabOrder,setNavTabOrder]=useState(()=>{try{return JSON.parse(localStorage.getItem('rab:nav_tab_order')||'[]');}catch{return [];}});
   const[dragTab,setDragTab]=useState(null);
+  const[mozgDashboard,setMozgDashboard]=useState({});
 
   const ds=todayStr(), now=new Date(), dateObj=new Date(ds);
   const dateLabel=`${DOW_FULL[dateObj.getDay()]}, ${dateObj.getDate()} ${MONTHS_RU[dateObj.getMonth()]}`;
@@ -107,11 +108,13 @@ export default function App(){
       ld("cards:v1",[]),ld("status_overrides:v1",[]),ld("revenue:v1",{}),ld("month_plan:v1",{}),
       ld("handovers:v1",{}),ld("events_log:v1",[]),ld("inbox_seen:v1",{}),ld("shift_closed:v1",{}),ld("close_notified:v1",{}),ld("acl:v1",{}),ld("task_order:v1",[]),ld("members:v1",DEFAULT_MEMBERS),ld("schedule:v1",EMBEDDED_SCHEDULE),ld("events:v1",EMBEDDED_EVENTS),ld("golist:v1",[]),ld("leave_requests:v1",[]),ld("task_comments:v1",{}),
       ld("hour_norms:v1",DEFAULT_HOUR_NORMS),ld("events:v2",[]),ld("handover_seen:v1",{}),
+      ld("mozg:dashboard:v1",{}),
     ]);
-    const[t,hist,profs,cds,so,rev,mp,ho,ev,seen,sc,cn,ac,tord,mem,sch,evKV,gl,lr,tc,hn,evV2,hs]=_loaded;
+    const[t,hist,profs,cds,so,rev,mp,ho,ev,seen,sc,cn,ac,tord,mem,sch,evKV,gl,lr,tc,hn,evV2,hs,mozgDb]=_loaded;
     setTasks(mergeSeeds(t));setHistory(hist);setProfiles(profs);setCards(cds);setStatusOverrides(so);
     setRevenue(rev);setMonthPlan(mp||{});setHandovers(ho);setEventsLog(ev);setInboxSeen(seen);setShiftClosed(sc);setCloseNotified(cn);setHandoverSeen(hs||{});setAcl(ac);setTaskOrder(tord);setMembers(mem);setSchedule(sch);if(evKV&&Object.keys(evKV).length)setEventsData(evKV);setGoList(gl);if(lr&&lr.length)setLeaveRequests(lr);if(tc&&Object.keys(tc).length)setTaskComments(tc);
     if(hn&&Object.keys(hn).length)setHourNorms(hn);
+    if(mozgDb&&Object.keys(mozgDb).length)setMozgDashboard(mozgDb);
     // Миграция events:v1 → events:v2 (один раз, пока v2 пуст) — детерминированные id
     const v1src=(evKV&&Object.keys(evKV).length)?evKV:EMBEDDED_EVENTS;
     setEventsV2((Array.isArray(evV2)&&evV2.length)?evV2:migrateEventsV1toV2(v1src));
@@ -508,7 +511,7 @@ export default function App(){
         onUpdateProfile={p=>setProfiles(prev=>prev.map(x=>x.name===p.name?p:x))}/>}
 
       {tab==="tasks"&&<TasksTab tasks={tasks} doneMap={doneToday} onToggle={toggle} onEdit={isManager?t=>setModal(t):null} onArchive={canAddTasks?archiveTask:null}/>}
-      {tab==="schedule"&&<ScheduleTab schedule={schedule} events={events} revenue={revenue} ds={ds} members={members} onOpenDay={d=>setViewingDay(d)} isManager={isManager} monthPlan={monthPlan} onSetMonthPlan={isManager?setMonthPlanFor:null} hourNorms={hourNorms} onSetHourNorm={isManager?setHourNormFor:null}/>}
+      {tab==="schedule"&&<ScheduleTab schedule={schedule} events={events} revenue={revenue} ds={ds} members={members} onOpenDay={d=>setViewingDay(d)} isManager={isManager} monthPlan={monthPlan} onSetMonthPlan={isManager?setMonthPlanFor:null} hourNorms={hourNorms} onSetHourNorm={isManager?setHourNormFor:null} mozgDashboard={mozgDashboard}/>}
         {tab=="events"&&<EventsTab events={eventsV2} isManager={isManager} onSave={saveEventV2} onDelete={deleteEventV2} ds={ds} staff={members}/>}
       {tab==="team"&&(canTeam||canStats)&&<TeamHubTab canTeam={canTeam} canStats={canStats} isManager={isManager}
         profiles={profiles} members={members} statusOverrides={statusOverrides}

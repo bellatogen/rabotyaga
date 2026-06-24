@@ -11,7 +11,7 @@ import { classifyEvent } from '../constants/events.js';
 import { MonthAnalytics } from '../components/analytics/MonthAnalytics.jsx';
 import { revColor, kRub } from '../utils/revenueUtils.js';
 
-export function ScheduleTab({schedule,events,revenue,ds,members,onOpenDay,isManager,monthPlan={},onSetMonthPlan,hourNorms={},onSetHourNorm}){
+export function ScheduleTab({schedule,events,revenue,ds,members,onOpenDay,isManager,monthPlan={},onSetMonthPlan,hourNorms={},onSetHourNorm,mozgDashboard={}}){
   const[sub,setSub]=useState("calendar");
 
   // Гард: проверяем наличие данных за текущий месяц
@@ -275,7 +275,7 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay,isManager,monthPlan={
       </div>
     </>}
   </div>
-  <MonthAnalytics revenue={revenue} events={events} ym={ym} ds={ds} isManager={isManager} monthPlan={monthPlan} onSetMonthPlan={onSetMonthPlan}/>
+  <MonthAnalytics revenue={revenue} events={events} ym={ym} ds={ds} isManager={isManager} monthPlan={monthPlan} onSetMonthPlan={onSetMonthPlan} mozgData={mozgDashboard[ym]}/>
   </>
   );
 }

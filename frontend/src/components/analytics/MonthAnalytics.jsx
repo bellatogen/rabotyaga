@@ -395,8 +395,79 @@ function MiniSparkline({ values, color = 'var(--cu)', h = 24 }) {
   );
 }
 
+// ── Блок с авторитетными данными из mozg.rest ──────────────────────────────
+function MozgCard({ data }) {
+  if (!data) return null;
+  const { fact, guests, cheque, forecast, plan, period, syncedAt } = data;
+  const syncTime = syncedAt ? new Date(syncedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : null;
+  const syncDate = syncedAt ? new Date(syncedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) : null;
+
+  const Row = ({ label, value, sub, accent }) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+      padding: '5px 0', borderBottom: '1px solid var(--bd)' }}>
+      <span style={{ fontSize: 11, color: 'var(--mt)' }}>{label}</span>
+      <div style={{ textAlign: 'right' }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: accent || 'var(--pp)' }}>{value}</span>
+        {sub && <span style={{ fontSize: 10, color: 'var(--mt)', marginLeft: 5 }}>{sub}</span>}
+      </div>
+    </div>
+  );
+
+  const fmtRub = n => n != null ? Number(n).toLocaleString('ru-RU') + ' ₽' : '—';
+  const fmtN   = n => n != null ? Number(n).toLocaleString('ru-RU') : '—';
+
+  const planPct  = plan  > 0 && fact  != null ? Math.round(fact  / plan  * 100) : null;
+  const fcPct    = plan  > 0 && forecast != null ? Math.round(forecast / plan * 100) : null;
+
+  return (
+    <div style={{
+      background: 'var(--sf)', borderRadius: 12, border: '1px solid var(--bd)',
+      padding: '12px 14px', marginBottom: 10,
+    }}>
+      {/* Заголовок */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
+          letterSpacing: '.07em', color: 'var(--mt)', display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ fontSize: 13 }}>🧠</span> Мозг
+        </span>
+        {syncDate && (
+          <span style={{ fontSize: 9, color: 'var(--mt)', opacity: .55 }}>
+            обновлено {syncDate} в {syncTime}
+          </span>
+        )}
+      </div>
+
+      {/* Выручка — большое число */}
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 9, color: 'var(--mt)', textTransform: 'uppercase',
+          letterSpacing: '.05em', marginBottom: 2 }}>Выручка факт</div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ fontSize: 22, fontWeight: 700, letterSpacing: -0.5, color: 'var(--pp)' }}>
+            {fmtRub(fact)}
+          </span>
+          {planPct != null && <PctBadge pct={planPct} size={13} />}
+        </div>
+        {period?.from && (
+          <div style={{ fontSize: 9, color: 'var(--mt)', opacity: .6, marginTop: 1 }}>
+            {period.from.slice(8)} – {period.to.slice(8)} {MONTHS_RU[Number(period.from.slice(5,7))-1].toLowerCase()}
+          </div>
+        )}
+      </div>
+
+      {/* Строки метрик */}
+      <div>
+        {forecast != null && <Row label="Прогноз на месяц" value={fmtRub(forecast)}
+          sub={fcPct != null ? `${fcPct}% от плана` : null} accent="var(--cu)" />}
+        {plan != null && <Row label="План на месяц" value={fmtRub(plan)} />}
+        {guests != null && <Row label="Гостей" value={fmtN(guests) + ' чел.'} />}
+        {cheque != null && <Row label="Средний чек" value={fmtRub(cheque)} />}
+      </div>
+    </div>
+  );
+}
+
 // ── Главный компонент ────────────────────────────────────────────────────────
-export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan = {}, onSetMonthPlan }) {
+export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan = {}, onSetMonthPlan, mozgData }) {
   const [y, m] = ym.split('-').map(Number);
   const daysInMonth = new Date(y, m, 0).getDate();
   const days = Array.from({ length: daysInMonth }, (_, i) =>
@@ -606,6 +677,9 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
         </span>
         <span style={{ fontSize: 11, color: 'var(--mt)' }}>{daysWithFact.length}/{daysInMonth} дн.</span>
       </div>
+
+      {/* Блок Мозг — авторитетные данные (если есть) */}
+      <MozgCard data={mozgData} />
 
       {/* Спарклайн с тултипом */}
       <Sparkline days={days} revenue={revenue} events={events} monthShort={monthShort} />

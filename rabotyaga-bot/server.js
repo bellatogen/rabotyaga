@@ -18,6 +18,7 @@ const makeAuthApi   = require('./src/api/auth');
 const iiko          = require('./src/api/iiko');
 const { syncSchedule }    = require('./src/sync/scheduleSync');
 const { syncRevenuePlan } = require('./src/sync/revenueSync');
+const { syncMozgDashboard } = require('./src/sync/mozgSync');
 const { requireAuth, requireManager } = require('./src/middleware/auth');
 
 // ── Конфиг ──
@@ -44,6 +45,7 @@ const MANAGER_ONLY_KV = new Set([
   'bot_chats:v1',        // зарегистрированные чаты для рассылки — только менеджер
   'bot_macros:v1',       // макросы рассылки в чаты — только менеджер
   'push_settings:v1',    // расписание + шаблоны пушей — только менеджер
+  'mozg:dashboard:v1',   // сводные метрики из mozg.rest — пишет только mozgSync
 ]);
 
 const app = express();
@@ -200,6 +202,20 @@ setTimeout(() => {
   }, 12 * 60 * 60 * 1000);
 }, 10000);
 
+// Авто-синхронизация из mozg.rest каждые 2 часа (если заданы MOZG_LOGIN/PASSWORD)
+setTimeout(() => {
+  if (process.env.MOZG_LOGIN && process.env.MOZG_PASSWORD) {
+    syncMozgDashboard(data, saveData)
+      .then(r => console.log(`[mozg/auto] старт: факт ${r.fact?.toLocaleString('ru-RU')}₽`))
+      .catch(e => console.error('[mozg/auto] startup error:', e.message));
+    setInterval(() => {
+      syncMozgDashboard(data, saveData)
+        .then(r => console.log(`[mozg/auto] интервал: факт ${r.fact?.toLocaleString('ru-RU')}₽`))
+        .catch(e => console.error('[mozg/auto] interval error:', e.message));
+    }, 2 * 60 * 60 * 1000);
+  }
+}, 20000);
+
 // Авто-синхронизация ФАКТА выручки из iiko каждые 2 часа
 // Стартовый sync: задержка 30с (после auth и планового sync)
 setTimeout(() => {
@@ -215,8 +231,29 @@ setTimeout(() => {
   }
 }, 30000);
 
+// ── mozg.rest — статус и ручной запуск ──
+app.get('/api/sync/mozg/status', requireAuth, (req, res) => {
+  try {
+    const status = JSON.parse(data.kv['sync:mozg:status'] || 'null');
+    res.json(status || { lastRun: null, error: null });
+  } catch { res.json({ lastRun: null, error: null }); }
+});
+
+app.post('/api/sync/mozg', requireManager, async (req, res) => {
+  try {
+    const result = await syncMozgDashboard(data, saveData);
+    res.json(result);
+  } catch (err) {
+    console.error('[sync/mozg]', err.message);
+    const errStatus = { lastRun: new Date().toISOString(), error: err.message };
+    data.kv['sync:mozg:status'] = JSON.stringify(errStatus);
+    saveData();
+    res.status(500).json(errStatus);
+  }
+});
+
 // ── iiko — только авторизованные ──
-app.post('/api/iiko/revenue/sync', requireAuth, async (req, res) => {
+app.post('/api/iiko/revenue/sync',
   try {
     const result = await iiko.syncRevenue(data, saveData);
     res.json(result);
