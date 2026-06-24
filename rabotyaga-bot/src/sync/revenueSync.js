@@ -60,7 +60,12 @@ async function fetchPlanSheet(sheetName) {
 // opts.fromDate — начало периода (по умолчанию: 1 января текущего года).
 async function syncRevenuePlan(data, saveData, opts = {}) {
   const sheets  = sheetsForPlan(opts.fromDate || null);
-  const revenue = JSON.parse(data.kv['revenue:v1'] || '{}');
+  let revenue;
+  try { revenue = JSON.parse(data.kv['revenue:v1'] || '{}'); }
+  catch (e) {
+    console.error('[revenueSync] revenue:v1 повреждён — начинаем с пустого объекта:', e.message);
+    revenue = {};
+  }
 
   let daysUpdated   = 0;
   const updatedSheets = [];

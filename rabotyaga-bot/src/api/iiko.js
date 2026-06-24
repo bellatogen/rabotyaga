@@ -296,7 +296,11 @@ async function getBasketPairs(data, saveData) {
   console.log(`[iiko/basket] чеков: ${totalChecks}, чеков с 2+ блюдами: ${totalOrders}`);
 
   if (totalOrders < 10) {
-    return { pairs: [], totalChecks, from, to, ts: new Date().toISOString() };
+    // Кэшируем даже пустой результат — иначе каждый вызов без данных бьёт в iiko.
+    // Пользователь может сбросить кэш кнопкой «Обновить» (force=1).
+    const result = { pairs: [], totalChecks, from, to, ts: new Date().toISOString() };
+    if (data && saveData) { data.kv[CACHE_KEY] = JSON.stringify(result); saveData(); }
+    return result;
   }
 
   // Ко-оккуррентность
