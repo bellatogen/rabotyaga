@@ -6,6 +6,7 @@ import { ROLES } from './constants/roles.js';
 import { SHIFT_STATUSES } from './constants/shifts.js';
 import { MONTHS_RU, DOW_FULL, DEFAULT_MEMBERS, DEFAULT_PROFILES } from './constants/locale.js';
 import { EMBEDDED_SCHEDULE, EMBEDDED_EVENTS } from './constants/schedule.js';
+import { isEventToday, buildEventsFlatMap, migrateEventsV1toV2 } from './constants/events.js';
 import { defaultTasks, mergeSeeds } from './constants/seeds.js';
 import { uid, nowISO, fmtDate, addDays } from './utils/dateUtils.js';
 import { isToday, isDone, todayStr, buildDaySummary } from './utils/taskUtils.js';
@@ -56,12 +57,11 @@ export default function App(){
   const[taskOrder,setTaskOrder]=useState([]);
   const[members,setMembers]=useState(DEFAULT_MEMBERS);
   const[schedule,setSchedule]=useState(EMBEDDED_SCHEDULE);
-  const[eventsData,setEventsData]=useState(EMBEDDED_EVENTS); // события из KV (синкаются scheduleSync)
+  const[eventsData,setEventsData]=useState(EMBEDDED_EVENTS); // events:v1 — плоская карта {дата:строка} из Google-таблицы (scheduleSync)
+  const[eventsV2,setEventsV2]=useState([]); // events:v2 — рич-события (создаются в EventsTab)
   const[goList,setGoList]=useState([]);
   const[taskComments,setTaskComments]=useState({});
   const[serverOk,setServerOk]=useState(null);
-  // events читается из KV (scheduleSync синкает events:v1), фолбек — EMBEDDED_EVENTS
-  const events=eventsData;
   const[acl,setAcl]=useState({});
   const[authPending,setAuthPending]=useState(null);
   const[toast,setToast]=useState(null);
@@ -76,6 +76,12 @@ export default function App(){
 
   const ds=todayStr(), now=new Date(), dateObj=new Date(ds);
   const dateLabel=`${DOW_FULL[dateObj.getDay()]}, ${dateObj.getDate()} ${MONTHS_RU[dateObj.getMonth()]}`;
+  // Плоская карта событий для календаря/аналитики/норматива штата: v1 (Google-таблица)
+  // + развёрнутые вхождения рич-событий v2 в окне ±400 дней. v1 не перезаписывается.
+  // (React Compiler авто-мемоизирует эти вычисления — ручной useMemo не нужен)
+  const events=buildEventsFlatMap(eventsData,eventsV2,addDays(ds,-400),addDays(ds,400));
+  // Рич-события, применимые к сегодняшнему дню (для вкладки «Сегодня»)
+  const todayEvents=eventsV2.filter(e=>isEventToday(e,ds));
 
   useEffect(()=>{if(TG){try{TG.ready();TG.expand();}catch{}}},[]);
   useEffect(()=>{
@@ -98,12 +104,15 @@ export default function App(){
       ld("tasks:v4",defaultTasks()),ld("done:hist:v2",{}),ld("profiles:v1",DEFAULT_PROFILES),
       ld("cards:v1",[]),ld("status_overrides:v1",[]),ld("revenue:v1",{}),ld("month_plan:v1",{}),
       ld("handovers:v1",{}),ld("events_log:v1",[]),ld("inbox_seen:v1",{}),ld("shift_closed:v1",{}),ld("close_notified:v1",{}),ld("acl:v1",{}),ld("task_order:v1",[]),ld("members:v1",DEFAULT_MEMBERS),ld("schedule:v1",EMBEDDED_SCHEDULE),ld("events:v1",EMBEDDED_EVENTS),ld("golist:v1",[]),ld("leave_requests:v1",[]),ld("task_comments:v1",{}),
-      ld("hour_norms:v1",DEFAULT_HOUR_NORMS),
+      ld("hour_norms:v1",DEFAULT_HOUR_NORMS),ld("events:v2",[]),
     ]);
-    const[t,hist,profs,cds,so,rev,mp,ho,ev,seen,sc,cn,ac,tord,mem,sch,evKV,gl,lr,tc,hn]=_loaded;
+    const[t,hist,profs,cds,so,rev,mp,ho,ev,seen,sc,cn,ac,tord,mem,sch,evKV,gl,lr,tc,hn,evV2]=_loaded;
     setTasks(mergeSeeds(t));setHistory(hist);setProfiles(profs);setCards(cds);setStatusOverrides(so);
     setRevenue(rev);setMonthPlan(mp||{});setHandovers(ho);setEventsLog(ev);setInboxSeen(seen);setShiftClosed(sc);setCloseNotified(cn);setAcl(ac);setTaskOrder(tord);setMembers(mem);setSchedule(sch);if(evKV&&Object.keys(evKV).length)setEventsData(evKV);setGoList(gl);if(lr&&lr.length)setLeaveRequests(lr);if(tc&&Object.keys(tc).length)setTaskComments(tc);
     if(hn&&Object.keys(hn).length)setHourNorms(hn);
+    // Миграция events:v1 → events:v2 (один раз, пока v2 пуст) — детерминированные id
+    const v1src=(evKV&&Object.keys(evKV).length)?evKV:EMBEDDED_EVENTS;
+    setEventsV2((Array.isArray(evV2)&&evV2.length)?evV2:migrateEventsV1toV2(v1src));
     // Восстанавливаем сессию по httpOnly cookie (серверная авторизация)
     const restoredAccount = await authMe();
     if(restoredAccount){setWho(restoredAccount);}else{setPicking(true);}
@@ -147,6 +156,7 @@ export default function App(){
   usePersist("schedule:v1",schedule,ready);
   usePersist("golist:v1",goList,ready);
   usePersist("events:v1",eventsData,ready);
+  usePersist("events:v2",eventsV2,ready);
   usePersist("leave_requests:v1",leaveRequests,ready);
   usePersist("task_comments:v1",taskComments,ready);
 
@@ -159,7 +169,8 @@ export default function App(){
   const imReport=myShift?.report;
 
   const logEvent=(type,detail)=>setEventsLog(prev=>[{id:uid(),ts:nowISO(),who:accountLabel(who),type,detail},...prev].slice(0,500));
-  const onSetEvent=(date,label)=>setEventsData(prev=>label?{...prev,[date]:label}:Object.fromEntries(Object.entries(prev).filter(([d])=>d!==date)));
+  const saveEventV2=ev=>setEventsV2(prev=>prev.some(e=>e.id===ev.id)?prev.map(e=>e.id===ev.id?ev:e):[...prev,ev]);
+  const deleteEventV2=id=>setEventsV2(prev=>prev.filter(e=>e.id!==id));
   const onLeaveRequest=req=>setLeaveRequests(prev=>[...prev,{...req,id:uid(),ts:nowISO(),status:"pending",decidedBy:null,decidedAt:null}]);
   const onLeaveDecide=(id,approved)=>{
     const req=leaveRequests.find(r=>r.id===id);
@@ -448,7 +459,7 @@ export default function App(){
 
       {tab==="today"&&<TodayTab who={who} isManager={isManager} ds={ds} todayTasks={todayTasks} doneMap={doneToday}
         pct={pct} doneTodayCount={doneTodayCount} todayShifts={todayShifts} myStatus={myStatus} myAssigned={myAssigned}
-        schedule={schedule} events={events} statusOverrides={statusOverrides} now={now} revenue={revenue} handovers={handovers}
+        schedule={schedule} events={events} todayEvents={todayEvents} statusOverrides={statusOverrides} now={now} revenue={revenue} handovers={handovers}
         dayClosed={dayClosed} dayRegularCount={dayRegular.length} irregular={irregularTasks} irregularDoneMap={irregularDoneMap}
         pushGateOk={afterPushGate(now)} onSummary={openSummary} taskOrder={taskOrder} onReorder={setTaskOrder}
         canManage={canAddTasks} onDelete={canAddTasks?delTask:null} onArchive={canAddTasks?archiveTask:null}
@@ -475,7 +486,7 @@ export default function App(){
 
       {tab==="tasks"&&<TasksTab tasks={tasks} doneMap={doneToday} onToggle={toggle} onEdit={isManager?t=>setModal(t):null} onArchive={canAddTasks?archiveTask:null}/>}
       {tab==="schedule"&&<ScheduleTab schedule={schedule} events={events} revenue={revenue} ds={ds} members={members} onOpenDay={d=>setViewingDay(d)} isManager={isManager} monthPlan={monthPlan} onSetMonthPlan={isManager?setMonthPlanFor:null} hourNorms={hourNorms} onSetHourNorm={isManager?setHourNormFor:null}/>}
-        {tab==="events"&&<EventsTab events={events} isManager={isManager} onSetEvent={onSetEvent} ds={ds}/>}
+        {tab=="events"&&<EventsTab events={eventsV2} isManager={isManager} onSave={saveEventV2} onDelete={deleteEventV2} ds={ds} staff={members}/>}
       {tab==="team"&&(canTeam||canStats)&&<TeamHubTab canTeam={canTeam} canStats={canStats} isManager={isManager}
         profiles={profiles} members={members} statusOverrides={statusOverrides}
         account={who} who={who} isDeveloper={isDeveloper} auth={authHasPasswordMap} acl={acl}

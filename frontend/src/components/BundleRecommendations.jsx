@@ -2,8 +2,9 @@
 // Данные: GET /api/iiko/basket — кэшируется на сервере 20ч.
 // Кнопка «GoList» → добавляет пару в гоу-лист смены.
 import { useState, useEffect, useCallback } from 'react';
-import { Zap, Plus, RefreshCw, ChevronDown, ChevronUp, AlertTriangle, Check } from 'lucide-react';
+import { Zap, Plus, RefreshCw, ChevronDown, ChevronUp, AlertTriangle, Check, Info, TrendingUp } from 'lucide-react';
 import { iikoBasket } from '../services/api.js';
+import { topMarginKeys, pairKey, setGoText } from '../utils/setsUtils.js';
 
 export function BundleRecommendations({ onGoAdd, defaultOpen = false }) {
   const [open,    setOpen]    = useState(defaultOpen);
@@ -11,6 +12,7 @@ export function BundleRecommendations({ onGoAdd, defaultOpen = false }) {
   const [loading, setLoading] = useState(false);
   const [err,     setErr]     = useState(null);
   const [added,   setAdded]   = useState(new Set());
+  const [why,     setWhy]     = useState(false);
 
   const load = useCallback(async (force = false) => {
     setLoading(true); setErr(null);
@@ -28,13 +30,17 @@ export function BundleRecommendations({ onGoAdd, defaultOpen = false }) {
   useEffect(() => { if (open && !data && !loading && !err) load(); }, [open, data, loading, err, load]);
 
   const addToGoList = pair => {
-    const text = `${pair.a} + ${pair.b} — предлагай сетом (${pair.confAB}% берут вместе)`;
-    onGoAdd && onGoAdd(text);
+    onGoAdd && onGoAdd(setGoText(pair));
     setAdded(prev => new Set([...prev, pairKey(pair)]));
   };
 
-  const pairKey = p => `${p.a}|||${p.b}`;
-  const top = (data?.pairs || []).slice(0, 6);
+  // Правило сэтов: показываем только напиток+закуска. Если категорий
+  // нет (старый iiko) — fallback на общий список с пояснением.
+  const allPairs = data?.pairs || [];
+  const dsPairs  = allPairs.filter(p => p.drinkSnack);
+  const usingFallback = dsPairs.length === 0 && allPairs.length > 0;
+  const top = (dsPairs.length ? dsPairs : allPairs).slice(0, 6);
+  const marginTop = topMarginKeys(top, 3);
 
   return (
     <div style={{border:'1px solid var(--bd)',borderRadius:10,overflow:'hidden',background:'var(--sf)'}}>
@@ -61,6 +67,22 @@ export function BundleRecommendations({ onGoAdd, defaultOpen = false }) {
 
       {open && (
         <div style={{padding:'4px 12px 12px'}}>
+          {/* Зачем нужны сэты — коллапсируемая подсказка */}
+          <button onClick={() => setWhy(w => !w)}
+            style={{background:'transparent',border:'none',color:'var(--mt)',cursor:'pointer',
+              padding:'2px 0 6px',display:'flex',alignItems:'center',gap:4,fontSize:11,
+              fontFamily:'inherit',opacity:.8}}>
+            <Info size={11}/>Зачем нужны сэты?{why ? <ChevronUp size={12}/> : <ChevronDown size={12}/>}
+          </button>
+          {why && (
+            <div style={{fontSize:11,color:'var(--mt)',lineHeight:1.5,marginBottom:8,
+              padding:'8px 10px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--bd)'}}>
+              Сэт — это «напиток + закуска», которые гости чаще всего берут вместе.
+              Предлагая их активно, поднимаем средний чек и выручку. Пары
+              отсортированы по частоте совместных заказов; позиции с высокой маржей
+              отмечены значком <TrendingUp size={10} style={{verticalAlign:'middle'}}/> — их выгоднее всего продвигать.
+            </div>
+          )}
           {/* Мета */}
           {data && (
             <div style={{fontSize:10,color:'var(--mt)',marginBottom:8,opacity:.6}}>
@@ -84,10 +106,19 @@ export function BundleRecommendations({ onGoAdd, defaultOpen = false }) {
             </div>
           )}
 
+          {usingFallback && (
+            <div style={{fontSize:10,color:'var(--mt)',marginBottom:6,opacity:.7,lineHeight:1.4,
+              display:'flex',alignItems:'flex-start',gap:4}}>
+              <AlertTriangle size={11} style={{flexShrink:0,marginTop:1}}/>
+              <span>Категории блюд из iiko недоступны — показаны все пары без фильтра «напиток+закуска».</span>
+            </div>
+          )}
+
           {top.map((pair, i) => {
-            const key     = pairKey(pair);
-            const isAdded = added.has(key);
-            const conf    = Math.max(pair.confAB, pair.confBA);
+            const key      = pairKey(pair);
+            const isAdded  = added.has(key);
+            const conf     = Math.max(pair.confAB, pair.confBA);
+            const isMargin = marginTop.has(key);
             return (
               <div key={i} style={{
                 display:'flex', alignItems:'flex-start',
@@ -109,6 +140,12 @@ export function BundleRecommendations({ onGoAdd, defaultOpen = false }) {
                       <span style={{color:'var(--am)',fontWeight:700}}>{conf}%</span>
                       {' '}случаев
                     </span>
+                    {pair.margin != null && (
+                      <span style={{fontSize:11,fontWeight:isMargin?700:400,
+                        color:isMargin?'var(--cu)':'var(--mt)',display:'inline-flex',alignItems:'center',gap:3}}>
+                        {isMargin && <TrendingUp size={11}/>}маржа ~{pair.margin}%
+                      </span>
+                    )}
                     <span style={{fontSize:11,color:'var(--mt)',opacity:.6}}>
                       lift {pair.lift}× · {pair.count} раз
                     </span>

@@ -12,6 +12,19 @@ function readLog() {
   try { return JSON.parse(fs.readFileSync(LOG_FILE, 'utf8')); } catch { return []; }
 }
 
+// Подстановка переменных в шаблоне: {{имя}}, {{дата}}, {{день_недели}}.
+const WEEKDAYS_RU = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+function substVars(tpl, userName) {
+  const now = new Date();
+  const dd = String(now.getDate()).padStart(2, '0');
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = now.getFullYear();
+  return String(tpl || '')
+    .replace(/\{\{имя\}\}/g, userName || '')
+    .replace(/\{\{дата\}\}/g, `${dd}.${mm}.${yyyy}`)
+    .replace(/\{\{день_недели\}\}/g, WEEKDAYS_RU[now.getDay()]);
+}
+
 module.exports = function makeSender(data, saveData) {
 
   // Пишем запись в push-log.json с форматом, который ждёт /api/push/stats:
@@ -55,35 +68,59 @@ module.exports = function makeSender(data, saveData) {
     return false;
   }
 
-  async function sendDayBeforeShiftPush(bot, userId, tasks) {
+  async function sendDayBeforeShiftPush(bot, userId, tasks, globalTemplate) {
     if (!data.pushSettings?.[userId]?.notifications?.dayBeforeShift) return false;
     const s = data.pushSettings[userId];
-    const template = s.templates?.dayBeforeShift ||
+    const userName = Object.keys(data.bindings || {}).find(n => data.bindings[n] == userId) || '';
+    const template = (globalTemplate && globalTemplate.trim()) ||
+      s.templates?.dayBeforeShift ||
       data.defaultTemplates?.dayBeforeShift ||
       '🔔 Завтра твоя смена!\n\nЗадачи:\n{tasks}';
     const tasksText = tasks.map((t, i) => `${i + 1}. ${t}`).join('\n');
-    return sendPush(bot, userId, template.replace('{tasks}', tasksText), 'dayBeforeShift');
+    return sendPush(bot, userId, substVars(template, userName).replace('{tasks}', tasksText), 'dayBeforeShift');
   }
 
-  async function sendPersonalTasksPush(bot, userId, tasks) {
+  async function sendPersonalTasksPush(bot, userId, tasks, globalTemplate) {
     if (!data.pushSettings?.[userId]?.notifications?.personalTasks) return false;
     const s = data.pushSettings[userId];
-    const template = s.templates?.personalTasks ||
+    const userName = Object.keys(data.bindings || {}).find(n => data.bindings[n] == userId) || '';
+    const template = (globalTemplate && globalTemplate.trim()) ||
+      s.templates?.personalTasks ||
       data.defaultTemplates?.personalTasks ||
       '📬 Твои задачи на сегодня:\n\n{tasks}';
     const tasksText = tasks.map(t =>
       `📌 ${t.title}\n👤 ${t.assignedBy || '—'}\n⏰ ${t.deadline || '—'}\n📝 ${t.context || ''}`
     ).join('\n\n');
-    return sendPush(bot, userId, template.replace('{tasks}', tasksText), 'personalTasks');
+    return sendPush(bot, userId, substVars(template, userName).replace('{tasks}', tasksText), 'personalTasks');
   }
 
-  async function sendCloseShiftPush(bot, userId) {
+  async function sendCloseShiftPush(bot, userId, globalTemplate) {
     if (!data.pushSettings?.[userId]?.notifications?.closeShiftReminder) return false;
     const s = data.pushSettings[userId];
-    const template = s.templates?.closeShiftReminder ||
+    const userName = Object.keys(data.bindings || {}).find(n => data.bindings[n] == userId) || '';
+    const template = (globalTemplate && globalTemplate.trim()) ||
+      s.templates?.closeShiftReminder ||
       data.defaultTemplates?.closeShiftReminder ||
       '⏰ Пора закрывать смену!\n\n✅ Чек-лист:\n• Пересчитать кассу\n• Убраться\n• Сдать отчёт\n• Закрыть бар';
-    return sendPush(bot, userId, template, 'closeShiftReminder');
+    return sendPush(bot, userId, substVars(template, userName), 'closeShiftReminder');
+  }
+
+  // «Сэты дня» — топ-3 пары напиток+закуска перед сменой.
+  // Opt-out: шлём всем с включёнными пушами, кроме явно отписавшихся.
+  async function sendSetsPush(bot, userId, sets, globalTemplate) {
+    if (data.pushSettings?.[userId]?.notifications?.setRecommendations === false) return false;
+    const s = data.pushSettings?.[userId];
+    const userName = Object.keys(data.bindings || {}).find(n => data.bindings[n] == userId) || '';
+    const template = (globalTemplate && globalTemplate.trim()) ||
+      s?.templates?.setRecommendations ||
+      data.defaultTemplates?.setRecommendations ||
+      '🍻 Сэты дня — предлагай гостям:\n\n{sets}';
+    const setsText = (sets || []).map((p, i) => {
+      const conf = Math.max(p.confAB || 0, p.confBA || 0);
+      const m = p.margin != null ? ` · маржа ~${p.margin}%` : '';
+      return `${i + 1}. ${p.a} + ${p.b}\n   ${conf}% берут вместе${m}`;
+    }).join('\n\n');
+    return sendPush(bot, userId, substVars(template, userName).replace('{sets}', setsText), 'setRecommendations');
   }
 
   async function sendIndividualPush(bot, userId, message) {
@@ -108,7 +145,7 @@ module.exports = function makeSender(data, saveData) {
 
   return {
     sendPush, sendDayBeforeShiftPush, sendPersonalTasksPush,
-    sendCloseShiftPush, sendIndividualPush,
+    sendCloseShiftPush, sendSetsPush, sendIndividualPush,
     updatePushSettings, getPushSettings, getAllPushSettings,
   };
 };
