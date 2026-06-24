@@ -47,21 +47,12 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
       </div>
     </div>}
 
-    {/* 0. Дашборд управляющего — итог дня (выручка + карточки; задачи и смена видны ниже) */}
-    {isManager&&<div className="sec" style={{paddingBottom:4}}>
-      <div className="sec-head"><span className="sec-lbl">📊 Итог дня</span></div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
-        <div style={{background:'var(--sf)',border:'1px solid var(--bd)',borderRadius:10,padding:'10px 12px'}}>
-          <div style={{fontSize:11,opacity:.55,marginBottom:3}}>Выручка</div>
-          {_fact>0?<><div style={{fontWeight:700,fontSize:16}}>{_fact.toLocaleString('ru-RU')} ₽</div>{_plan>0&&<div style={{fontSize:11,opacity:.6,marginTop:1}}>план {_plan.toLocaleString('ru-RU')} ₽</div>}{_revPct!=null&&<div style={{fontSize:13,fontWeight:600,color:_revClr,marginTop:3}}>{_revPct}%</div>}</>:<div style={{fontSize:12,opacity:.45,marginTop:4}}>не внесена</div>}
-        </div>
-        <div style={{background:'var(--sf)',border:'1px solid var(--bd)',borderRadius:10,padding:'10px 12px'}}>
-          <div style={{fontSize:11,opacity:.55,marginBottom:3}}>Карточки</div>
-          {_todayCards.length===0
-            ?<div style={{fontSize:13,opacity:.55}}>нет</div>
-            :<><div style={{fontWeight:700,fontSize:18}}>{_todayCards.length}</div><div style={{fontSize:13,marginTop:2}}>{_todayCards.map(c=>c.type==='yellow'?'🟡':c.type==='orange'?'🟠':'🔴').join(' ')}</div></>
-          }
-        </div>
+    {/* 0. Карточки дня — только когда назначены */}
+    {isManager&&_todayCards.length>0&&<div className="sec" style={{paddingBottom:4}}>
+      <div className="sec-head"><span className="sec-lbl">🃏 Карточки сегодня</span><span className="sec-cnt">{_todayCards.length}</span></div>
+      <div style={{background:'var(--sf)',border:'1px solid var(--bd)',borderRadius:10,padding:'10px 12px',display:'flex',alignItems:'center',gap:10}}>
+        <div style={{fontSize:22,lineHeight:1}}>{_todayCards.map(c=>c.type==='yellow'?'🟡':c.type==='orange'?'🟠':'🔴').join(' ')}</div>
+        <div style={{fontSize:13,color:'var(--mt)'}}>{_todayCards.map(c=>c.name||c.who).filter(Boolean).join(', ')}</div>
       </div>
     </div>}
 
