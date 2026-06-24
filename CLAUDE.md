@@ -60,3 +60,22 @@ When all of a day's regular (non-irregular) tasks are marked done, the day is co
 
 ### Push notifications
 `rabotyaga-bot/src/push/sender.js` is the single chokepoint all pushes go through (`sendPush()`); the per-event helpers (`sendDayBeforeShiftPush`, `sendPersonalTasksPush`, `sendCloseShiftPush`, `sendIndividualPush`) all call into it. `sendPush()` retries up to 3 times with linear backoff (1s × attempt), skipping retries on a 403 (user blocked the bot) since that's permanent. Every attempt — sent, failed, or skipped (pushes disabled) — is appended to `rabotyaga-bot/push-log.json` (separate from `data.json`, not versioned with the KV store). `src/push/scheduler.js` ticks every minute and fires the three scheduled jobs at fixed times (20:00 day-before-shift, 09:00 personal tasks, 22:00 close-shift reminder) — it duplicates `isToday()` from `App.jsx`/`server.js` a third time, so a fourth place to update if the day-matching rule changes. `GET /api/push/stats` (`src/api/push.js`) reads `push-log.json` and returns total/sent/failed/skipped counts plus a per-user breakdown.
+
+### iiko OLAP data contract (read before touching `rabotyaga-bot/src/api/iiko.js`)
+The revenue/guests/basket analytics come from iikoServer's OLAP report endpoint. The field names and aggregation rules are strict — getting them wrong silently corrupts the numbers or returns HTTP 400.
+
+**Valid OLAP fields** used here:
+- `OpenDate.Typed` — order open date (group/filter)
+- `OrderNum` — order number; **the only order-level field allowed in `groupByRowFields`** (gives one row per order so `GuestNum` isn't duplicated across a basket's dishes)
+- `DishDiscountSumInt` — order fact revenue (aggregate)
+- `GuestNum` — guest count (aggregate)
+- `DishName`, `DishCategory` — for basket/ABC/margin reports
+
+**Invalid fields — do NOT use** (each breaks a query):
+- `Order.Id` → HTTP 400 (not a real OLAP field). Was a wrong guess for order grouping; use `OrderNum`.
+- `OrderId` → HTTP 400.
+- `UniqOrderId` → "Grouping is not allowed for field UniqOrderId".
+
+**GuestNum contract (regression-critical, commit `69bc3bd`):** cancelled/void orders stay in OLAP with `DishDiscountSumInt = 0` but a **positive `GuestNum`**. Guests must only be summed when `rowFact > 0` (`if (rowFact > 0) guests += Number(row.GuestNum||0)` in `fetchOlapForDate`; `const rowGuests = (useGuests && rowFact > 0) ? … : 0` in the `syncRevenueRange` accumulator). Summing unconditionally inflated guests ~3% (139 phantom guests in June 2026) and skewed the average check. Revenue (`fact`) is summed across **all** rows including zero-fact ones; only guests are gated. Since `OrderNum` grouping yields multiple rows per date, both paths accumulate per-date before writing `revenue:v1` (don't last-row-wins overwrite).
+
+**Tests:** `rabotyaga-bot/tests/iiko.test.js` (custom no-framework runner, mocked `fetch`) covers auth, OLAP fallbacks, the GuestNum-inflation regression, and basket logic. Run with `cd rabotyaga-bot && npm test`.

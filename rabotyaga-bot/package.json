@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "type": "commonjs",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node tests/iiko.test.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
