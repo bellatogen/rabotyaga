@@ -8,6 +8,7 @@ const rateLimit  = require('express-rate-limit');
 const fs         = require('fs');
 const path       = require('path');
 const bcrypt     = require('bcrypt');
+const crypto     = require('crypto');
 
 const makePushApi   = require('./src/api/push');
 const makePushSender = require('./src/push/sender');
@@ -37,6 +38,12 @@ const MANAGER_ONLY_KV = new Set([
   'month_plan:v1', // месячный план выручки — задаёт только менеджер
   'revenue:v1',   // выручка по дням — запись через KV только менеджер (икко-синк пишет напрямую)
   'hour_norms:v1', // нормы часов сотрудников — только менеджер
+  'margin_items:v1',     // ручной список маржинальных позиций (fallback) — только менеджер
+  'margin_data:v1',      // кэш авто-маржи из iiko — пишет только sync-роут и iiko.getMarginData
+  'margin_threshold:v1', // порог маржинальности (%) — только менеджер
+  'bot_chats:v1',        // зарегистрированные чаты для рассылки — только менеджер
+  'bot_macros:v1',       // макросы рассылки в чаты — только менеджер
+  'push_settings:v1',    // расписание + шаблоны пушей — только менеджер
 ]);
 
 const app = express();
@@ -228,6 +235,30 @@ app.get('/api/iiko/revenue/:date', requireAuth, async (req, res) => {
   }
 });
 
+// ── iiko: анализ маржинальности за 30 дней (requireManager — запись в KV чувствительна) ──
+app.get('/api/iiko/margin-data', requireAuth, async (req, res) => {
+  if (req.query.force === '1') delete data.kv['margin_data:v1'];
+  try {
+    const result = await iiko.getMarginData(data, saveData);
+    res.json(result);
+  } catch (err) {
+    console.error('[iiko/margin-data]', err.message);
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// ── iiko: ABC-анализ продаж за сегодня ──
+app.get('/api/iiko/sales-abc', requireAuth, async (req, res) => {
+  if (req.query.force === '1') delete data.kv['sales_abc:v1'];
+  try {
+    const result = await iiko.getSalesABC(data, saveData);
+    res.json(result);
+  } catch (err) {
+    console.error('[iiko/sales-abc]', err.message);
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
 // ── KV: GET — защита чёрного списка ──
 app.get('/api/kv/:key', requireAuth, (req, res) => {
   const key = req.params.key;
@@ -289,6 +320,140 @@ app.get('/api/push/test/:name', requireManager, async (req, res) => {
   res.json(ok ? { success: true, msg: 'Пуш отправлен' } : { success: false, msg: 'Пуши отключены' });
 });
 
+// ── Бот-чаты и макросы рассылки (только менеджер) ──
+// Хранятся в KV (bot_chats:v1 / bot_macros:v1), но доступны через выделенные
+// роуты с генерацией id и валидацией. Планировщик читает bot_macros:v1 напрямую.
+const genId = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+function loadKvArr(key) { try { const v = JSON.parse(data.kv[key] || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } }
+function saveKvArr(key, arr) { data.kv[key] = JSON.stringify(arr); saveData(); }
+
+// Чаты
+app.get('/api/bot-chats', requireManager, (req, res) => {
+  res.json({ chats: loadKvArr('bot_chats:v1') });
+});
+app.post('/api/bot-chats', requireManager, (req, res) => {
+  const { name, chatId } = req.body || {};
+  if (!name || !chatId) return res.status(400).json({ error: 'name и chatId обязательны' });
+  const chats = loadKvArr('bot_chats:v1');
+  const chat = { id: genId(), name: String(name).trim(), chatId: String(chatId).trim(), addedAt: new Date().toISOString() };
+  chats.push(chat);
+  saveKvArr('bot_chats:v1', chats);
+  res.json({ ok: true, chat });
+});
+app.delete('/api/bot-chats/:id', requireManager, (req, res) => {
+  const chats = loadKvArr('bot_chats:v1');
+  const next = chats.filter(c => c.id !== req.params.id);
+  if (next.length === chats.length) return res.status(404).json({ error: 'Чат не найден' });
+  saveKvArr('bot_chats:v1', next);
+  res.json({ ok: true });
+});
+
+// Макросы
+app.get('/api/bot-macros', requireManager, (req, res) => {
+  res.json({ macros: loadKvArr('bot_macros:v1') });
+});
+app.post('/api/bot-macros', requireManager, (req, res) => {
+  const { name, chatId, template, schedule } = req.body || {};
+  if (!name || !chatId || !template) return res.status(400).json({ error: 'name, chatId и template обязательны' });
+  if (!schedule || typeof schedule !== 'object' || !schedule.type || !schedule.time)
+    return res.status(400).json({ error: 'schedule.type и schedule.time обязательны' });
+  const macros = loadKvArr('bot_macros:v1');
+  const macro = {
+    id: genId(),
+    name: String(name).trim(),
+    chatId: String(chatId).trim(),
+    template: String(template),
+    schedule: {
+      type:     schedule.type,
+      time:     schedule.time,
+      weekday:  schedule.weekday  ?? null,
+      interval: schedule.interval ?? null,
+      runDate:  schedule.runDate  ?? null,
+    },
+    active: true,
+    lastRunDate: null,
+  };
+  macros.push(macro);
+  saveKvArr('bot_macros:v1', macros);
+  res.json({ ok: true, macro });
+});
+app.put('/api/bot-macros/:id', requireManager, (req, res) => {
+  const macros = loadKvArr('bot_macros:v1');
+  const idx = macros.findIndex(m => m.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Макрос не найден' });
+  const b = req.body || {};
+  const m = macros[idx];
+  if (b.name     !== undefined) m.name = String(b.name).trim();
+  if (b.chatId   !== undefined) m.chatId = String(b.chatId).trim();
+  if (b.template !== undefined) m.template = String(b.template);
+  if (b.active   !== undefined) m.active = !!b.active;
+  if (b.schedule !== undefined && b.schedule && typeof b.schedule === 'object') {
+    m.schedule = {
+      type:     b.schedule.type     ?? m.schedule.type,
+      time:     b.schedule.time     ?? m.schedule.time,
+      weekday:  b.schedule.weekday  ?? null,
+      interval: b.schedule.interval ?? null,
+      runDate:  b.schedule.runDate  ?? null,
+    };
+    m.lastRunDate = null; // новое расписание — сбрасываем дедуп
+  }
+  saveKvArr('bot_macros:v1', macros);
+  res.json({ ok: true, macro: m });
+});
+app.delete('/api/bot-macros/:id', requireManager, (req, res) => {
+  const macros = loadKvArr('bot_macros:v1');
+  const next = macros.filter(m => m.id !== req.params.id);
+  if (next.length === macros.length) return res.status(404).json({ error: 'Макрос не найден' });
+  saveKvArr('bot_macros:v1', next);
+  res.json({ ok: true });
+});
+
+// ── Настройки пушей: расписание + шаблоны (push_settings:v1) — только менеджер ──
+// Планировщик читает push_settings:v1 напрямую (с кэшем 60с). Здесь — чтение/запись с дефолтами и валидацией.
+const PUSH_JOB_KEYS = ['dayBefore', 'personalTasks', 'shiftClose', 'setsRecommend'];
+const DEFAULT_PUSH_SETTINGS = {
+  jobs: {
+    dayBefore:     { enabled: true, time: '20:00' },
+    personalTasks: { enabled: true, time: '09:00' },
+    shiftClose:    { enabled: true, time: '23:00' },
+    setsRecommend: { enabled: true, time: '16:00' },
+  },
+  templates: { dayBefore: '', personalTasks: '', shiftClose: '', setsRecommend: '' },
+};
+const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function mergedPushSettings() {
+  let parsed = {};
+  try { parsed = JSON.parse(data.kv['push_settings:v1'] || '{}'); } catch { parsed = {}; }
+  const jobsIn = parsed.jobs || {};
+  const tplIn  = parsed.templates || {};
+  const jobs = {};
+  for (const k of PUSH_JOB_KEYS) jobs[k] = { ...DEFAULT_PUSH_SETTINGS.jobs[k], ...(jobsIn[k] || {}) };
+  return { jobs, templates: { ...DEFAULT_PUSH_SETTINGS.templates, ...tplIn } };
+}
+
+app.get('/api/push-settings', requireManager, (req, res) => {
+  res.json({ settings: mergedPushSettings(), defaults: DEFAULT_PUSH_SETTINGS });
+});
+
+app.put('/api/push-settings', requireManager, (req, res) => {
+  const body = req.body || {};
+  const jobsIn = body.jobs || {};
+  const tplIn  = body.templates || {};
+  const jobs = {};
+  for (const k of PUSH_JOB_KEYS) {
+    const cur = { ...DEFAULT_PUSH_SETTINGS.jobs[k], ...(jobsIn[k] || {}) };
+    const time = String(cur.time || '');
+    if (!HHMM_RE.test(time)) return res.status(400).json({ error: `Некорректное время для «${k}»: ${time}` });
+    jobs[k] = { enabled: cur.enabled !== false, time };
+  }
+  const templates = {};
+  for (const k of PUSH_JOB_KEYS) templates[k] = typeof tplIn[k] === 'string' ? tplIn[k] : '';
+  data.kv['push_settings:v1'] = JSON.stringify({ jobs, templates });
+  saveData();
+  res.json({ ok: true, settings: { jobs, templates } });
+});
+
 // ── Telegram bot: команды ──
 function nameByTelegramId(id) {
   return Object.keys(data.bindings).find(name => data.bindings[name] === id) || null;
@@ -335,6 +500,9 @@ bot.command('start', ctx => {
     ]},
   });
 });
+// /id и /getchatid — вернуть chat_id текущего чата (для регистрации чата рассылки).
+// Работает в группах/каналах; используй /id@имя_бота если у бота включён privacy mode.
+bot.command(['id', 'getchatid'], ctx => ctx.reply(`chatId: ${ctx.chat.id}`));
 bot.command('today',    ctx => ctx.reply(todayTasksText(null)));
 bot.command('mytasks',  ctx => { const name = nameByTelegramId(ctx.from.id); if (!name) return ctx.reply('❌ Ты не привязан к системе.'); ctx.reply(todayTasksText(name)); });
 bot.command('startpush', async ctx => {
@@ -420,7 +588,7 @@ app.use((req, res, next) => {
 
 // ── Запуск ──
 bot.launch().catch(err => console.error('⚠️  Ошибка запуска бота (сервер продолжает работу):', err.message));
-pushScheduler.startScheduler(bot, data, pushSender);
+pushScheduler.startScheduler(bot, data, pushSender, saveData);
 
 const httpServer = app.listen(PORT, () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);

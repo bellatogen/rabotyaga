@@ -31,7 +31,9 @@ body{background:var(--bg);color:var(--pp);transition:background .2s ease,color .
 .nav-title{font-family:"Fraunces",serif;font-size:20px;font-weight:700;display:flex;align-items:center;gap:8px;}
 .nav-who{font-size:12px;color:var(--cu);font-weight:600;cursor:pointer;background:rgba(76,175,130,.1);border:1px solid rgba(76,175,130,.25);padding:4px 10px;border-radius:20px;display:flex;align-items:center;gap:4px;}
 .nav-date{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--mt);margin-bottom:9px;}
-.tabs{display:flex;gap:4px;overflow:hidden;padding-bottom:10px;}
+.tabs{display:flex;gap:4px;overflow-x:auto;padding-bottom:10px;scrollbar-width:none;}
+.tabs::-webkit-scrollbar{display:none;}
+.tabs .tab{flex-shrink:0;}
 .nav .tab{flex:1;flex-shrink:1;min-width:0;padding:7px 6px;font-size:13px;}
 .tab{flex-shrink:0;padding:8px 14px;font-size:14px;font-weight:600;color:var(--mt);background:transparent;border:none;border-radius:8px;cursor:pointer;white-space:nowrap;transition:all .2s ease;}
 .tab.on{background:var(--cu);color:var(--bg);font-weight:600;box-shadow:0 2px 8px rgba(76,175,130,.25);}

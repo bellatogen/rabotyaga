@@ -19,6 +19,20 @@ function sha1(str) {
   return crypto.createHash('sha1').update(str).digest('hex');
 }
 
+// ── Классификация категории блюда iiko → напиток / закуска / прочее ──
+// Правило сэтов: пара показывается только если это напиток + закуска.
+// Сопоставление по ключевым словам в названии категории (регистронезависимо).
+const DRINK_RE = /бар|напит|пиво|пив\b|пенн|коктейл|вино|виск|ром\b|водк|лимонад|\bчай|кофе|сидр|\bэль|лагер|безалког|морс|\bсок|тоник|джин|текил|ликёр|ликер|\bшот|настойк|drink/i;
+const FOOD_RE  = /кухн|закус|\bеда|бургер|пицц|салат|снэк|снек|тапас|гриль|горяч|блюд|паст\b|\bсыр|мяс|\bфри|начос|сухар|food|стартер|основ|десерт|десерт|брускет|сэндвич|сендвич|хот-?дог/i;
+
+function classifyCat(cat) {
+  if (!cat) return 'other';
+  const c = String(cat).toLowerCase();
+  if (DRINK_RE.test(c)) return 'drink';
+  if (FOOD_RE.test(c))  return 'food';
+  return 'other';
+}
+
 async function getToken() {
   if (_token && Date.now() < _tokenExpiry) return _token;
   // Один Promise на всех: параллельные вызовы ждут один fetch вместо N
@@ -241,7 +255,8 @@ async function getBasketPairs(data, saveData) {
   if (cached) {
     const parsed = JSON.parse(cached);
     const ageH = (Date.now() - new Date(parsed.ts).getTime()) / 3_600_000;
-    if (ageH < 20) return parsed;
+    // v<2 — старая схема без категорий/маржи, пересчитываем
+    if (ageH < 20 && parsed.v === 2) return parsed;
   }
 
   if (!IIKO_URL || !IIKO_LOGIN) {
@@ -256,27 +271,47 @@ async function getBasketPairs(data, saveData) {
   // Запрашиваем: каждый чек (фискальный номер) с перечнем блюд
   // FiscalChequeNumber — группируемое поле, уникально идентифицирует чек
   // (UniqOrderId не группируем: Grouping is not allowed)
-  const body = {
+  const url = `${IIKO_URL}/resto/api/v2/reports/olap?key=${token}`;
+  // Полный запрос: + категория блюда (правило «напиток+закуска») и
+  // выручка/себестоимость (расчёт маржи). На старых версиях iiko этих полей
+  // может не быть — тогда откат к базовому запросу без категорий и маржи.
+  const baseGroup = ['OpenDate.Typed', 'FiscalChequeNumber', 'DishName'];
+  const bodyFull = {
     reportType: 'SALES', buildSummary: 'false',
-    groupByRowFields: ['OpenDate.Typed', 'FiscalChequeNumber', 'DishName'],
-    aggregateFields: ['DishAmountInt'],
+    groupByRowFields: [...baseGroup, 'DishCategory'],
+    aggregateFields: ['DishAmountInt', 'DishDiscountSumInt', 'ProductCostBase.ProductCostBase'],
     filters: { 'OpenDate.Typed': { filterType:'DateRange', periodType:'CUSTOM', from, to, includeLow:true, includeHigh:true } },
   };
-
-  const url = `${IIKO_URL}/resto/api/v2/reports/olap?key=${token}`;
-  const res = await fetch(url, {
+  const postOlap = b => fetch(url, {
     method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(body), signal: AbortSignal.timeout(30_000),
+    body: JSON.stringify(b), signal: AbortSignal.timeout(30_000),
   });
+
+  let res = await postOlap(bodyFull);
+  let hasExtra = true; // есть ли категория + маржа в ответе
   if (res.status === 401) { invalidateToken(); throw Object.assign(new Error('iiko: сессия истекла'), { status: 401 }); }
-  if (!res.ok) { const t = await res.text(); throw new Error(`iiko basket OLAP ${res.status}: ${t.slice(0,200)}`); }
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    if (t.includes('DishCategory') || t.includes('ProductCostBase') || t.includes('Unknown OLAP field')) {
+      console.warn('[iiko/basket] категория/себестоимость не поддерживаются — базовый запрос');
+      hasExtra = false;
+      res = await postOlap({ ...bodyFull, groupByRowFields: baseGroup, aggregateFields: ['DishAmountInt'] });
+      if (res.status === 401) { invalidateToken(); throw Object.assign(new Error('iiko: сессия истекла'), { status: 401 }); }
+      if (!res.ok) { const t2 = await res.text().catch(() => ''); throw new Error(`iiko basket OLAP ${res.status}: ${t2.slice(0,200)}`); }
+    } else {
+      throw new Error(`iiko basket OLAP ${res.status}: ${t.slice(0,200)}`);
+    }
+  }
 
   const json = await res.json();
   const rows = json.data || [];
   console.log(`[iiko/basket] строк из iiko: ${rows.length}, период: ${from}–${to}`);
 
-  // Строим map: orderId → Set<dishes>
+  // Строим map: orderId → Set<dishes>; попутно — категория/выручка/себестоимость по блюду
   const orderItems = {};
+  const dishCat  = {};   // dish → сырое имя категории
+  const dishRev  = {};   // dish → суммарная выручка за период
+  const dishCost = {};   // dish → суммарная себестоимость за период
   for (const row of rows) {
     // Чек ID = дата + фискальный номер (вместе уникальны)
     const date    = String(row['OpenDate.Typed']      || '').slice(0, 10);
@@ -288,7 +323,20 @@ async function getBasketPairs(data, saveData) {
     if (!orderId || !dish || dish.length > 80) continue;
     if (!orderItems[orderId]) orderItems[orderId] = new Set();
     orderItems[orderId].add(dish);
+    if (hasExtra) {
+      const cat = (row['DishCategory'] || '').trim();
+      if (cat && !dishCat[dish]) dishCat[dish] = cat;
+      dishRev[dish]  = (dishRev[dish]  || 0) + Number(row['DishDiscountSumInt'] || 0);
+      dishCost[dish] = (dishCost[dish] || 0) + Number(row['ProductCostBase.ProductCostBase'] || 0);
+    }
   }
+
+  // Маржа по блюду, %: (выручка − себестоимость) / выручка. null — нет данных о себестоимости.
+  const dishMargin = dish => {
+    const rev = dishRev[dish] || 0, cost = dishCost[dish] || 0;
+    if (rev <= 0 || cost <= 0) return null;
+    return Math.round((rev - cost) / rev * 100);
+  };
 
   const orders = Object.values(orderItems).map(s => [...s]).filter(arr => arr.length >= 2);
   const totalOrders  = orders.length;
@@ -298,7 +346,7 @@ async function getBasketPairs(data, saveData) {
   if (totalOrders < 10) {
     // Кэшируем даже пустой результат — иначе каждый вызов без данных бьёт в iiko.
     // Пользователь может сбросить кэш кнопкой «Обновить» (force=1).
-    const result = { pairs: [], totalChecks, from, to, ts: new Date().toISOString() };
+    const result = { pairs: [], totalChecks, from, to, hasCategories: hasExtra, v: 2, ts: new Date().toISOString() };
     if (data && saveData) { data.kv[CACHE_KEY] = JSON.stringify(result); saveData(); }
     return result;
   }
@@ -327,6 +375,14 @@ async function getBasketPairs(data, saveData) {
       const confBA  = count / (itemCount[b] || 1);
       const lift    = confAB / ((itemCount[b] || 1) / totalOrders);
       const score   = lift * support * Math.sqrt(count);
+      // Категории + маржа для правила «напиток+закуска» и ранжирования
+      const catA = dishCat[a] || '', catB = dishCat[b] || '';
+      const typeA = classifyCat(catA), typeB = classifyCat(catB);
+      const drinkSnack = (typeA === 'drink' && typeB === 'food') ||
+                         (typeA === 'food'  && typeB === 'drink');
+      const marginA = dishMargin(a), marginB = dishMargin(b);
+      const ms = [marginA, marginB].filter(m => m != null);
+      const margin = ms.length ? Math.round(ms.reduce((s, m) => s + m, 0) / ms.length) : null;
       return {
         a, b, count,
         support:  Math.round(support * 100),
@@ -334,6 +390,8 @@ async function getBasketPairs(data, saveData) {
         confBA:   Math.round(confBA  * 100),
         lift:     Math.round(lift    * 100) / 100,
         score,
+        catA, catB, typeA, typeB, drinkSnack,
+        marginA, marginB, margin,
       };
     })
     .filter(p => p.lift > 1.05 && p.confAB >= 10)
@@ -341,10 +399,223 @@ async function getBasketPairs(data, saveData) {
     .slice(0, 30);
 
   // totalChecks — полное кол-во чеков за период (для UI); totalOrders — только чеки с 2+ блюдами (для алгоритма)
-  const result = { pairs, totalChecks, from, to, ts: new Date().toISOString() };
+  const result = { pairs, totalChecks, from, to, hasCategories: hasExtra, v: 2, ts: new Date().toISOString() };
   if (data && saveData) { data.kv[CACHE_KEY] = JSON.stringify(result); saveData(); }
-  console.log(`[iiko/basket] пар найдено: ${pairs.length}`);
+  console.log(`[iiko/basket] пар найдено: ${pairs.length} (категории: ${hasExtra ? 'да' : 'нет'})`);
   return result;
 }
 
-module.exports = { getDayRevenue, syncRevenue, syncRevenueRange, getBasketPairs };
+// Топ-N сэтов дня из результата getBasketPairs:
+// только напиток+закуска, приоритет по марже, затем по score.
+// Если категорий нет (старый iiko) — берём общий список пар.
+function pickDailySets(result, n = 3) {
+  const pairs = result?.pairs || [];
+  let pool = pairs.filter(p => p.drinkSnack);
+  if (!pool.length) pool = pairs;
+  return [...pool].sort((x, y) => {
+    const mx = x.margin ?? -1, my = y.margin ?? -1;
+    if (my !== mx) return my - mx;
+    return (y.score || 0) - (x.score || 0);
+  }).slice(0, n);
+}
+
+// Анализ маржинальности за 30 дней по всем блюдам.
+// Использует ProductCostBase.ProductCostBase (себестоимость); fallback — без маржи (только выручка/кол-во)
+async function getMarginData(data, saveData) {
+  const CACHE_KEY = 'margin_data:v1';
+  const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 часа
+
+  if (data.kv?.[CACHE_KEY]) {
+    const cached = JSON.parse(data.kv[CACHE_KEY]);
+    if (Date.now() - new Date(cached.ts).getTime() < CACHE_TTL) return cached;
+  }
+
+  if (!IIKO_URL || !IIKO_LOGIN) {
+    throw Object.assign(new Error('iiko не настроен'), { status: 503 });
+  }
+
+  const token = await getToken();
+  const nowMs = Date.now() + 3 * 3_600_000; // UTC+3
+  const to    = new Date(nowMs).toISOString().slice(0, 10);
+  const from  = new Date(nowMs - 30 * 86_400_000).toISOString().slice(0, 10);
+
+  const url = `${IIKO_URL}/resto/api/v2/reports/olap?key=${token}`;
+
+  // Пробуем с себестоимостью
+  const bodyFull = {
+    reportType: 'SALES', buildSummary: 'false',
+    groupByRowFields: ['DishName'],
+    aggregateFields: ['DishDiscountSumInt', 'DishAmountInt', 'ProductCostBase.ProductCostBase'],
+    filters: {
+      'OpenDate.Typed': { filterType:'DateRange', periodType:'CUSTOM', from, to, includeLow:true, includeHigh:true },
+    },
+  };
+
+  let res = await fetch(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(bodyFull), signal: AbortSignal.timeout(30_000),
+  });
+  if (res.status === 401) { invalidateToken(); throw Object.assign(new Error('iiko: сессия истекла'), { status: 401 }); }
+
+  let hasCost = true;
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    if (t.includes('ProductCostBase') || t.includes('Unknown OLAP field')) {
+      hasCost = false;
+      console.warn('[iiko/margin] ProductCostBase не поддерживается, запрашиваем без себестоимости');
+      const bodyPlain = { ...bodyFull, aggregateFields: ['DishDiscountSumInt', 'DishAmountInt'] };
+      res = await fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bodyPlain), signal: AbortSignal.timeout(30_000),
+      });
+      if (res.status === 401) { invalidateToken(); throw Object.assign(new Error('iiko: сессия истекла'), { status: 401 }); }
+      if (!res.ok) { const t2 = await res.text().catch(() => ''); throw new Error(`iiko margin OLAP ${res.status}: ${t2.slice(0,200)}`); }
+    } else {
+      throw new Error(`iiko margin OLAP ${res.status}: ${t.slice(0, 200)}`);
+    }
+  }
+
+  let json;
+  try { json = await res.json(); } catch { throw new Error('iiko вернул невалидный JSON (margin)'); }
+
+  const items = [];
+  for (const row of (json.data || [])) {
+    const name    = (row['DishName'] || '').trim();
+    const revenue = Math.round(Number(row['DishDiscountSumInt'] || 0));
+    const count   = Math.round(Number(row['DishAmountInt'] || 0));
+    const cost    = hasCost ? Math.round(Number(row['ProductCostBase.ProductCostBase'] || 0)) : 0;
+    if (!name || revenue <= 0) continue;
+    const margin  = (hasCost && cost > 0) ? Math.round((revenue - cost) / revenue * 100) : null;
+    items.push({ name, revenue, count, cost, margin });
+  }
+
+  // Сортировка: сначала по марже убывание, затем по выручке
+  items.sort((a, b) => {
+    if (a.margin != null && b.margin != null) return b.margin - a.margin;
+    if (a.margin != null) return -1;
+    if (b.margin != null) return 1;
+    return b.revenue - a.revenue;
+  });
+
+  const hasMarginData = hasCost && items.some(i => i.margin != null);
+  const result = { items, hasMarginData, from, to, ts: new Date().toISOString() };
+  if (data && saveData) { data.kv[CACHE_KEY] = JSON.stringify(result); saveData(); }
+  console.log(`[iiko/margin] ${items.length} позиций, маржа: ${hasMarginData ? 'есть' : 'нет (себестоимость iiko не предаёт)'}`);
+  return result;
+}
+
+// ABC-анализ продаж за сегодня: DishName + DishAmountInt, isMargin из margin_data:v1 (авто) или margin_items:v1 (ручно)
+async function getSalesABC(data, saveData) {
+  const CACHE_KEY = 'sales_abc:v1';
+  const CACHE_TTL = 30 * 60 * 1000; // 30 минут
+
+  // Проверяем кэш
+  if (data.kv?.[CACHE_KEY]) {
+    const cached = JSON.parse(data.kv[CACHE_KEY]);
+    if (Date.now() - cached.ts < CACHE_TTL) return cached;
+  }
+
+  if (!IIKO_URL || !IIKO_LOGIN) {
+    throw Object.assign(new Error('iiko не настроен: задайте IIKO_URL и IIKO_LOGIN в .env'), { status: 503 });
+  }
+
+  const token = await getToken();
+
+  // UTC+3 (Москва/Омск) — корректная локальная дата для России
+  const today = new Date(Date.now() + 3 * 3_600_000).toISOString().slice(0, 10);
+
+  const body = {
+    reportType: 'SALES', buildSummary: 'false',
+    groupByRowFields: ['DishName'],
+    aggregateFields: ['DishAmountInt'],
+    filters: {
+      'OpenDate.Typed': {
+        filterType: 'DateRange', periodType: 'CUSTOM',
+        from: today, to: today, includeLow: true, includeHigh: true,
+      },
+    },
+  };
+
+  const url = `${IIKO_URL}/resto/api/v2/reports/olap?key=${token}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15_000),
+  });
+
+  if (res.status === 401) { invalidateToken(); throw Object.assign(new Error('iiko: сессия истекла'), { status: 401 }); }
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`iiko OLAP (sales-abc) HTTP ${res.status}: ${t.slice(0, 200)}`);
+  }
+
+  let json;
+  try { json = await res.json(); } catch { throw new Error('iiko вернул невалидный JSON (sales-abc)'); }
+
+  // Агрегируем по блюду (iiko может дать несколько строк на одно блюдо)
+  const dishMap = {};
+  for (const row of (json.data || [])) {
+    const name  = (row['DishName'] || '').trim();
+    const count = Math.round(Number(row['DishAmountInt'] || 0));
+    if (!name || count <= 0) continue;
+    dishMap[name] = (dishMap[name] || 0) + count;
+  }
+
+  // Сортируем по убыванию продаж для ABC
+  const sorted = Object.entries(dishMap)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 60); // показываем не более 60 позиций
+
+  // ABC по кумулятивной доле: A — до 80%, B — до 95%, C — остальные
+  const total = sorted.reduce((s, i) => s + i.count, 0);
+  let cumSum = 0;
+  for (const item of sorted) {
+    cumSum += item.count;
+    const pct = total > 0 ? cumSum / total : 1;
+    item.abcGroup = pct <= 0.80 ? 'A' : pct <= 0.95 ? 'B' : 'C';
+  }
+
+  // Маржинальность: сначала авто-данные из margin_data:v1, затем ручный список margin_items:v1
+  const marginDataRaw   = data.kv?.['margin_data:v1'];
+  const marginData      = marginDataRaw ? JSON.parse(marginDataRaw) : null;
+  const thresholdRaw    = data.kv?.['margin_threshold:v1'];
+  const threshold       = thresholdRaw ? Number(thresholdRaw) : 60;
+
+  // Бнаружаем autoMap: name → true/false если есть данные о марже
+  const autoMap = {};
+  if (marginData?.hasMarginData) {
+    for (const item of (marginData.items || [])) {
+      if (item.margin != null) autoMap[item.name] = item.margin >= threshold;
+    }
+  }
+
+  // Fallback: если авто-данных нет — ручной список
+  const manualRaw = Object.keys(autoMap).length === 0 ? data.kv?.['margin_items:v1'] : null;
+  const manualSet = manualRaw ? new Set(JSON.parse(manualRaw)) : new Set();
+
+  // Статус для фронта
+  // green  = группа A (лидеры)
+  // yellow = маржинальная позиция НЕ в группе A (нужно продавать активнее)
+  // red    = группа C, не маржинальная (застой)
+  // grey   = группа B, не маржинальная (середнячок)
+  const items = sorted.map(item => {
+    const isMargin = Object.keys(autoMap).length > 0
+      ? (autoMap[item.name] === true)
+      : manualSet.has(item.name);
+    let status;
+    if (item.abcGroup === 'A')  status = 'green';
+    else if (isMargin)          status = 'yellow';
+    else if (item.abcGroup === 'C') status = 'red';
+    else                        status = 'grey';
+    return { name: item.name, count: item.count, abcGroup: item.abcGroup, isMargin, status };
+  });
+
+  const result = { ts: Date.now(), date: today, items };
+  if (data && saveData) { data.kv[CACHE_KEY] = JSON.stringify(result); saveData(); }
+  console.log(`[iiko/sales-abc] ${today}: ${items.length} позиций (A:${items.filter(i => i.abcGroup==='A').length}, B:${items.filter(i => i.abcGroup==='B').length}, C:${items.filter(i => i.abcGroup==='C').length})`);
+  return result;
+}
+
+module.exports = { getDayRevenue, syncRevenue, syncRevenueRange, getBasketPairs, getSalesABC, getMarginData };

@@ -8,3 +8,6 @@ prompt-exports/
 
 # сборка фронтенда — сервер пересобирает при деплое (deploy.sh), в гите не нужна
 frontend/dist/
+
+# служебные файлы macOS Finder
+.DS_Store

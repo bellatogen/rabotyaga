@@ -1,6 +1,7 @@
 // Вкладка «Сегодня» — прогресс, выручка, гоу-лист, состав смены, задачи дня
 import { useState } from 'react';
-import { CheckCircle, Bell, Send, AlertTriangle, FileText, ChevronDown, ChevronUp, AlignJustify, Square } from 'lucide-react';
+import { CheckCircle, Bell, Send, AlertTriangle, FileText, ChevronDown, ChevronUp, AlignJustify, Square, CalendarDays, MapPin, Clock, Users } from 'lucide-react';
+import { eventTypeById } from '../constants/events.js';
 import { TaskCarousel } from '../components/TaskCarousel.jsx';
 import { Avatar } from '../components/Avatar.jsx';
 import { SHIFT_STATUSES } from '../constants/shifts.js';
@@ -9,11 +10,13 @@ import { fmtDate } from '../utils/dateUtils.js';
 import { RevenueCard } from '../components/RevenueCard.jsx';
 import { GoListBlock } from '../components/GoList.jsx';
 import { BundleRecommendations } from '../components/BundleRecommendations.jsx';
+import { HoneycombGrid } from '../components/HoneycombGrid.jsx';
+import { DailySets } from '../components/DailySets.jsx';
 import { TaskCard } from '../components/TaskCard.jsx';
 import { DraggableTaskList } from '../components/DraggableTaskList.jsx';
 import { DoneAccordion } from '../components/DoneAccordion.jsx';
 
-export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,todayShifts,myStatus,myAssigned,schedule,events,statusOverrides,now,revenue,handovers,dayClosed,dayRegularCount,irregular,irregularDoneMap,pushGateOk,onSummary,taskOrder,onReorder,onDelete,onArchive,goList,onGoAdd,onGoToggle,onGoRemove,onToggle,onEdit,onViewEmployee,onHandover,onIikoLoad,sectionsOpen=false,tasksView='list'}){
+export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,todayShifts,myStatus,myAssigned,schedule,events,todayEvents=[],statusOverrides,now,revenue,handovers,dayClosed,dayRegularCount,irregular,irregularDoneMap,pushGateOk,onSummary,taskOrder,onReorder,onDelete,onArchive,goList,onGoAdd,onGoToggle,onGoRemove,onToggle,onEdit,onViewEmployee,onHandover,onIikoLoad,sectionsOpen=false,tasksView='list'}){
   // Гард: нет расписания на сегодня и нет выручки за месяц → подсказка менеджеру
   const month=ds.slice(0,7);
   const hasAnyRevenue=Object.keys(revenue||{}).some(d=>d.startsWith(month));
@@ -52,11 +55,34 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
         :`Все ${dayRegularCount} регулярных задач выполнены ✅ Пуш о закрытии уйдёт после 23:30.`}
     </span></div></div>}
 
+    {todayEvents.length>0&&<div className="sec">
+      <div className="sec-head"><span className="sec-lbl" style={{color:'var(--cu)'}}><CalendarDays size={12}/>События сегодня</span><span className="sec-cnt">{todayEvents.length}</span></div>
+      {todayEvents.map(ev=>{const t=eventTypeById(ev.type);return(
+        <div key={ev.id} style={{display:'flex',gap:10,padding:'10px 12px',background:'var(--sf)',
+          border:'1px solid var(--cu)',borderRadius:10,marginBottom:8}}>
+          <div style={{fontSize:20,lineHeight:1,flexShrink:0}}>{t?t.emoji:'📅'}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:600,fontSize:14}}>{ev.title}</div>
+            {ev.description&&<div style={{fontSize:12,color:'var(--mt)',marginTop:2,lineHeight:1.4}}>{ev.description}</div>}
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:6,fontSize:11,color:'var(--mt)'}}>
+              {ev.timing&&(ev.timing.start||ev.timing.end)&&<span style={{display:'inline-flex',alignItems:'center',gap:3}}><Clock size={11}/>{ev.timing.start||'?'}{ev.timing.end?`–${ev.timing.end}`:''}</span>}
+              {ev.location&&ev.location.type==='external'&&<span style={{display:'inline-flex',alignItems:'center',gap:3}}><MapPin size={11}/>{ev.location.address||'Выезд'}</span>}
+              {ev.responsible&&ev.responsible.length>0&&<span style={{display:'inline-flex',alignItems:'center',gap:3}}><Users size={11}/>{ev.responsible.join(', ')}</span>}
+            </div>
+          </div>
+        </div>
+      );})}
+    </div>}
+
     <div className="sec"><RevenueCard date={ds} revenue={revenue} onIikoLoad={onIikoLoad}/></div>
+
+    <DailySets onGoAdd={onGoAdd}/>
 
     {goList&&<div className="sec"><GoListBlock items={goList} onAdd={onGoAdd} onToggle={onGoToggle} onRemove={onGoRemove} defaultOpen={sectionsOpen}/></div>}
 
     <div className="sec"><BundleRecommendations onGoAdd={onGoAdd} defaultOpen={sectionsOpen}/></div>
+
+    <div className="sec"><HoneycombGrid onGoAdd={onGoAdd} defaultOpen={sectionsOpen}/></div>
 
     {myAssigned&&myAssigned.length>0&&<div className="sec">
       <div className="sec-head"><span className="sec-lbl" style={{color:"var(--am)"}}><Bell size={12}/>Назначено вам</span><span className="sec-cnt">{myAssigned.filter(t=>doneMap[t.id]).length}/{myAssigned.length}</span></div>

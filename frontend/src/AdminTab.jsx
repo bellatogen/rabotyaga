@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { FileText, Users, BarChart2, RefreshCw, AlertTriangle, CheckCircle, Calendar, Download, Check, Bell, BellOff, TrendingUp } from 'lucide-react';
+import { FileText, Users, BarChart2, RefreshCw, AlertTriangle, CheckCircle, Calendar, Download, Check, Bell, BellOff, TrendingUp, Star, X, Plus } from 'lucide-react';
+import { kvGet, kvSet, iikoMarginData } from './services/api.js';
 
 const API = '/api';
 
@@ -30,6 +31,17 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
   // Статистика
   const [stats, setStats]           = useState(null);
   const [statsLoading, setStatsLoading] = useState(false);
+
+  // Маржинальные позиции меню (Умные соты)
+  const [marginData,         setMarginData]         = useState(null);   // авто-данные iiko
+  const [marginDataLoading,  setMarginDataLoading]  = useState(false);
+  const [marginDataErr,      setMarginDataErr]      = useState(null);
+  const [threshold,          setThreshold]          = useState(60);     // % порог
+  const [thresholdSaved,     setThresholdSaved]     = useState(false);
+  const [marginItems,        setMarginItems]        = useState(null);   // string[] fallback
+  const [marginItemsLoading, setMarginItemsLoading] = useState(false);
+  const [marginItemsSaved,   setMarginItemsSaved]   = useState(false);
+  const [marginItemInput,    setMarginItemInput]    = useState('');
 
   // Синхронизация
   const [syncStatus,    setSyncStatus]    = useState(null);
@@ -80,7 +92,70 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
   useEffect(() => {
     if (sub === 'stats' && !stats) loadStats();
     if (sub === 'sync' && !syncStatus) loadSyncStatus();
+    if (sub === 'menu' && !marginData && !marginDataLoading) loadMenuTab();
   }, [sub]);
+
+  async function loadMenuTab() {
+    setMarginDataLoading(true); setMarginDataErr(null);
+    try {
+      const [md, thRaw, manualRaw] = await Promise.all([
+        iikoMarginData(),
+        kvGet('margin_threshold:v1'),
+        kvGet('margin_items:v1'),
+      ]);
+      setMarginData(md);
+      if (thRaw != null) setThreshold(Number(thRaw));
+      setMarginItems(manualRaw ? JSON.parse(manualRaw) : []);
+    } catch (e) { setMarginDataErr(e.message); }
+    finally { setMarginDataLoading(false); }
+  }
+
+  async function syncMarginFromIiko() {
+    setMarginDataLoading(true); setMarginDataErr(null);
+    try {
+      setMarginData(await iikoMarginData(true));
+    } catch (e) { setMarginDataErr(e.message); }
+    finally { setMarginDataLoading(false); }
+  }
+
+  async function saveThreshold(val) {
+    try {
+      await kvSet('margin_threshold:v1', String(val));
+      setThreshold(val);
+      setThresholdSaved(true);
+      setTimeout(() => setThresholdSaved(false), 2000);
+    } catch (e) { alert('Ошибка: ' + e.message); }
+  }
+
+  async function loadMarginItems() {
+    setMarginItemsLoading(true);
+    try {
+      const raw = await kvGet('margin_items:v1');
+      setMarginItems(raw ? JSON.parse(raw) : []);
+    } catch { setMarginItems([]); }
+    finally { setMarginItemsLoading(false); }
+  }
+
+  async function saveMarginItems(items) {
+    try {
+      await kvSet('margin_items:v1', JSON.stringify(items));
+      setMarginItems(items);
+      setMarginItemsSaved(true);
+      setTimeout(() => setMarginItemsSaved(false), 2000);
+    } catch (e) { alert('Ошибка сохранения: ' + e.message); }
+  }
+
+  function addMarginItem() {
+    const name = marginItemInput.trim();
+    if (!name || (marginItems || []).includes(name)) return;
+    const next = [...(marginItems || []), name];
+    setMarginItemInput('');
+    saveMarginItems(next);
+  }
+
+  function removeMarginItem(name) {
+    saveMarginItems((marginItems || []).filter(n => n !== name));
+  }
 
   async function loadSyncStatus() {
     try {
@@ -184,7 +259,8 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
           ['templates', <FileText size={11}/>, 'Шаблоны'],
           ['employees', <Users size={11}/>, 'Сотрудники'],
           ['stats',     <BarChart2 size={11}/>, 'Статистика'],
-          ['sync',      <RefreshCw size={11}/>, 'Синхронизация'],
+          ['sync',      <RefreshCw size={11}/>, 'Синхр'],
+          ['menu',      <Star size={11}/>, 'Меню'],
         ].map(([id, icon, label]) => (
           <button
             key={id}
@@ -454,6 +530,151 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
             >
               {backfillLoading ? <><RefreshCw size={15} style={{animation:'spin 1s linear infinite'}}/>Загружаю историю...</> : <><Download size={15}/>Восстановить данные</>}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Маржинальность меню (Умные соты) ── */}
+      {sub === 'menu' && (
+        <div>
+          <div className="sec-lbl" style={{ marginBottom: 6 }}>Маржинальность меню</div>
+          <div className="info-box" style={{ marginBottom: 14, fontSize: 12, lineHeight: 1.5 }}>
+            iiko автоматически вычисляет маржу по каждому блюду за 30 дней.
+            Позиции с маржей выше порога помечаются 🟡 в «Умных сотах».
+            Если iiko не передаёт себестоимость — добавьте позиции вручную в разделе ниже.
+          </div>
+
+          {/* Кнопка синхронизации */}
+          <button
+            className="btn"
+            onClick={syncMarginFromIiko}
+            disabled={marginDataLoading}
+            style={{ marginBottom: 14, opacity: marginDataLoading ? 0.6 : 1 }}
+          >
+            {marginDataLoading
+              ? <><RefreshCw size={14} style={{animation:'spin 1s linear infinite'}}/>Анализирую iiko…</>
+              : <><RefreshCw size={14}/>Синхронизировать из iiko</>
+            }
+          </button>
+
+          {marginDataErr && (
+            <div className="alert" style={{ marginBottom: 12, fontSize: 12, display:'flex', gap:4 }}>
+              <AlertTriangle size={13}/>{marginDataErr}
+            </div>
+          )}
+
+          {/* Авто данные iiko */}
+          {marginData && (
+            <div>
+              {marginData.hasMarginData ? (
+                <>
+                  {/* Порог маржинальности */}
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--mt)', marginBottom: 6 }}>
+                      Порог: позиции с маржей ≥ <span style={{color:'var(--am)'}}>{threshold}%</span> будут 🟡
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <input
+                        type="range" min={30} max={90} step={5}
+                        value={threshold}
+                        onChange={e => setThreshold(Number(e.target.value))}
+                        style={{ flex: 1 }}
+                      />
+                      <button
+                        className="btn btn-p"
+                        style={{ width: 'auto', padding: '0 12px', margin: 0, flexShrink: 0, fontSize: 12 }}
+                        onClick={() => saveThreshold(threshold)}
+                      >
+                        {thresholdSaved ? <><Check size={12}/>Сохр</> : 'Сохранить'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Таблица блюд */}
+                  <div style={{ fontSize: 10, color: 'var(--mt)', marginBottom: 8, opacity: 0.6 }}>
+                    Данные за {marginData.from}–{marginData.to} · {marginData.items.length} позиций
+                  </div>
+                  <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                    {marginData.items.filter(i => i.margin != null).map((item, i) => {
+                      const isHigh = item.margin >= threshold;
+                      return (
+                        <div key={i} style={{
+                          display: 'flex', alignItems: 'center', gap: 8,
+                          padding: '7px 0',
+                          borderBottom: '1px solid var(--bd)',
+                          opacity: isHigh ? 1 : 0.55,
+                        }}>
+                          <span style={{ fontSize: 11, fontWeight: 700,
+                            color: isHigh ? '#f0b429' : 'var(--mt)', flexShrink: 0, width: 34 }}>
+                            {item.margin}%
+                          </span>
+                          {isHigh && <Star size={10} color="#f0b429" style={{flexShrink:0}}/>}
+                          <span style={{ flex: 1, fontSize: 12, color: 'var(--pp)',
+                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {item.name}
+                          </span>
+                          <span style={{ fontSize: 10, color: 'var(--mt)', flexShrink: 0 }}>
+                            {(item.revenue / 1000).toFixed(0)}k₽
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div className="alert warn" style={{ fontSize: 12, marginBottom: 12, display:'flex',gap:4 }}>
+                  <AlertTriangle size={13}/>
+                  iiko не передал данные о себестоимости (ProductCostBase). Используйте ручной список ниже.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Ручной fallback-список */}
+          <div style={{ marginTop: 20, borderTop: '1px solid var(--bd)', paddingTop: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--mt)', marginBottom: 8 }}>
+              Ручной список{marginData?.hasMarginData ? ' (fallback если нет данных iiko)' : ''}
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <input
+                value={marginItemInput}
+                onChange={e => setMarginItemInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addMarginItem()}
+                placeholder="Название блюда точно как в iiko…"
+                style={{
+                  flex: 1, background: 'var(--bg)', border: '1px solid var(--bd)',
+                  borderRadius: 8, padding: '9px 12px', color: 'var(--pp)',
+                  fontSize: 13, fontFamily: 'inherit',
+                }}
+              />
+              <button className="btn btn-p"
+                style={{ width: 'auto', padding: '0 14px', margin: 0, flexShrink: 0 }}
+                onClick={addMarginItem} disabled={!marginItemInput.trim()}>
+                <Plus size={14}/>
+              </button>
+            </div>
+            {(marginItems || []).length === 0 && (
+              <div style={{ fontSize: 12, color: 'var(--mt)' }}>Список пуст</div>
+            )}
+            {(marginItems || []).map((name, i) => (
+              <div key={i} style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '7px 0', borderBottom: '1px solid var(--bd)',
+              }}>
+                <Star size={11} color="var(--am)" style={{ flexShrink: 0 }}/>
+                <span style={{ flex: 1, fontSize: 13, color: 'var(--pp)' }}>{name}</span>
+                <button onClick={() => removeMarginItem(name)}
+                  style={{ background:'transparent', border:'none', color:'var(--mt)',
+                    cursor:'pointer', display:'flex', padding:'2px 4px' }}>
+                  <X size={13}/>
+                </button>
+              </div>
+            ))}
+            {marginItemsSaved && (
+              <div className="alert ok" style={{ marginTop: 10, fontSize: 12 }}>
+                <CheckCircle size={12}/> Сохранено
+              </div>
+            )}
           </div>
         </div>
       )}

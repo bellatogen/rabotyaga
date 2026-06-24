@@ -203,10 +203,99 @@ export const sendTestPush = async (name) => {
   return res.json();
 };
 
+// ── Бот-чаты и макросы рассылки (только менеджер) ──
+export const getBotChats = async () => {
+  const res = await fetch(`${API_BASE}/bot-chats`, FETCH_OPTS);
+  if (!res.ok) throw new Error('Unauthorized');
+  return res.json();
+};
+export const addBotChat = async (name, chatId) => {
+  const res = await fetch(`${API_BASE}/bot-chats`, {
+    ...FETCH_OPTS, method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, chatId }),
+  });
+  const d = await res.json();
+  if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+  return d;
+};
+export const deleteBotChat = async (id) => {
+  const res = await fetch(`${API_BASE}/bot-chats/${encodeURIComponent(id)}`, { ...FETCH_OPTS, method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete chat');
+  return res.json();
+};
+export const getBotMacros = async () => {
+  const res = await fetch(`${API_BASE}/bot-macros`, FETCH_OPTS);
+  if (!res.ok) throw new Error('Unauthorized');
+  return res.json();
+};
+export const addBotMacro = async (macro) => {
+  const res = await fetch(`${API_BASE}/bot-macros`, {
+    ...FETCH_OPTS, method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(macro),
+  });
+  const d = await res.json();
+  if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+  return d;
+};
+export const updateBotMacro = async (id, patch) => {
+  const res = await fetch(`${API_BASE}/bot-macros/${encodeURIComponent(id)}`, {
+    ...FETCH_OPTS, method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  const d = await res.json();
+  if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+  return d;
+};
+export const deleteBotMacro = async (id) => {
+  const res = await fetch(`${API_BASE}/bot-macros/${encodeURIComponent(id)}`, { ...FETCH_OPTS, method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete macro');
+  return res.json();
+};
+
+// ── Настройки пушей: расписание + шаблоны (push_settings:v1, только менеджер) ──
+export const getPushSettings = async () => {
+  const res = await fetch(`${API_BASE}/push-settings`, FETCH_OPTS);
+  if (!res.ok) throw new Error('Unauthorized');
+  return res.json();
+};
+export const savePushSettings = async (settings) => {
+  const res = await fetch(`${API_BASE}/push-settings`, {
+    ...FETCH_OPTS, method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  const d = await res.json();
+  if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+  return d;
+};
+
 // ── iiko basket analysis (market basket / ассоциативные правила) ──
 // force=true — игнорировать кэш на сервере (20ч), пересчитать
 export async function iikoBasket(force = false) {
   const url = `${API_BASE}/iiko/basket${force ? '?force=1' : ''}`;
+  const res  = await fetch(url, FETCH_OPTS);
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+  return json;
+}
+
+// ── iiko анализ маржинальности за 30 дней (Умные соты — авто-порог) ──
+// force=true — сбросить кэш (24ч TTL), пересчитать
+export async function iikoMarginData(force = false) {
+  const url = `${API_BASE}/iiko/margin-data${force ? '?force=1' : ''}`;
+  const res  = await fetch(url, FETCH_OPTS);
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+  return json;
+}
+
+// ── iiko ABC-анализ продаж за сегодня (Умные соты) ──
+// force=true — сбросить кэш на сервере (30 мин TTL), пересчитать
+export async function iikoSalesABC(force = false) {
+  const url = `${API_BASE}/iiko/sales-abc${force ? '?force=1' : ''}`;
   const res  = await fetch(url, FETCH_OPTS);
   const json = await res.json();
   if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
