@@ -70,14 +70,17 @@ export function filterDrinkSnack(pairs = [], dishTypeMap = null) {
   return pairs.filter(p => isDrinkSnack(p, dishTypeMap));
 }
 
-// Отсортированный пул пар напиток+закуска (не ограниченный по n).
+// Отсортированный пул пар напиток+закуска — «серые лошадки» первыми.
+// Серая лошадка = высокая маржа + редко заказывают (маржа↓ / count↑).
 // Не делает fallback на пиво+пиво — лучше вернуть пустой список.
 export function drinkFoodPool(pairs = [], dishTypeMap = null) {
   const pool = pairs.filter(p => isDrinkSnack(p, dishTypeMap));
+  // Сначала маржа убывает, при равной марже — редко заказываемые (count↑ = популярные → вниз)
   return [...pool].sort((a, b) => {
     const ma = a.margin ?? -1, mb = b.margin ?? -1;
     if (mb !== ma) return mb - ma;
-    return (b.score || 0) - (a.score || 0);
+    // Одинаковая маржа: предпочитаем реже заказываемые (серые лошадки)
+    return (a.count || 0) - (b.count || 0);
   });
 }
 
@@ -86,27 +89,36 @@ export function pickDailySets(pairs = [], n = 3, dishTypeMap = null, offset = 0)
   return drinkFoodPool(pairs, dishTypeMap).slice(offset, offset + n);
 }
 
-// Топ-N маржинальных позиций по отдельности (когда пар нет).
-// Из всех блюд в парах, которые выглядят как напитки — исключаем, берём только остальные;
-// если вообще нет закусок — берём маржинальные напитки (лучше что-то, чем ничего).
-export function pickTopMarginItems(pairs = [], n = 3, dishTypeMap = null) {
+// Топ маржинальных позиций по отдельности с пагинацией (когда пар нет).
+// Серые лошадки: маржа↓ / count↑ (редко заказываемые маржинальные — не топ-продавцы).
+export function buildSoloPool(pairs = [], dishTypeMap = null) {
   const seen = new Set();
   const items = [];
   for (const p of pairs) {
-    for (const [name, typeKey] of [[p.a, p.typeA], [p.b, p.typeB]]) {
+    for (const side of ['a', 'b']) {
+      const name    = p[side];
+      const typeKey = side === 'a' ? p.typeA : p.typeB;
+      const margin  = side === 'a' ? p.marginA : p.marginB;
+      const count   = p.count || 0;
       if (seen.has(name)) continue;
       seen.add(name);
       const type = (dishTypeMap && dishTypeMap[name]) || typeKey;
-      const margin = name === p.a ? p.marginA : p.marginB;
-      items.push({ name, type, margin: margin ?? p.margin ?? null });
+      items.push({ name, type, margin: margin ?? p.margin ?? null, count });
     }
   }
-  // Предпочитаем закуски, потом всё остальное
+  // Предпочитаем закуски, потом всё; при равной марже — реже заказываемые
   const food  = items.filter(i => i.type === 'food' || looksLikeFood(i.name));
-  const mixed = food.length >= n ? food : items;
-  return [...mixed]
-    .sort((a, b) => (b.margin ?? -1) - (a.margin ?? -1))
-    .slice(0, n);
+  const pool  = food.length > 0 ? food : items;
+  return [...pool].sort((a, b) => {
+    const ma = a.margin ?? -1, mb = b.margin ?? -1;
+    if (mb !== ma) return mb - ma;
+    return (a.count || 0) - (b.count || 0); // реже = серая лошадка
+  });
+}
+
+// Совместимость — старый вызов
+export function pickTopMarginItems(pairs = [], n = 3, dishTypeMap = null) {
+  return buildSoloPool(pairs, dishTypeMap).slice(0, n);
 }
 
 // Ключи топ-N по марже среди переданных пар — для аннотации «маржинальная позиция».

@@ -58,7 +58,7 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
 
     {/* 3. События сегодня (кликабельны → вкладка «События») */}
     {todayEvents.length>0&&<div className="sec">
-      <div className="sec-head"><span className="sec-lbl" style={{color:'var(--cu)'}}><CalendarDays size={12}/>События сегодня</span><span className="sec-cnt">{todayEvents.length}</span></div>
+      <div className="sec-head"><span className="sec-lbl" style={{color:'var(--cu)'}}><CalendarDays size={12}/>События сегодня</span></div>
       {todayEvents.map(ev=>{const t=eventTypeById(ev.type);return(
         <div key={ev.id} className="ev-clickable" onClick={()=>onEventClick&&onEventClick(ev)}
           style={{display:'flex',gap:10,padding:'10px 12px',background:'var(--sf)',

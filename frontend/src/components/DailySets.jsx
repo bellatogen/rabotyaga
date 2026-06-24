@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Sparkles, Plus, Check, TrendingUp, RefreshCw } from 'lucide-react';
 import { iikoBasket } from '../services/api.js';
-import { drinkFoodPool, pickTopMarginItems, topMarginKeys, pairKey, setGoText } from '../utils/setsUtils.js';
+import { drinkFoodPool, buildSoloPool, topMarginKeys, pairKey, setGoText } from '../utils/setsUtils.js';
 
 const PAGE = 3; // пар на страницу
 
@@ -27,18 +27,17 @@ export function DailySets({ onGoAdd }) {
   if (!raw) return null;
 
   const typeMap = raw.dishTypeMap || null;
-  const pool    = drinkFoodPool(raw.pairs || [], typeMap);  // только напиток+закуска
-  const hasPairs = pool.length > 0;
-
-  // Если пар нет — топ маржинальных позиций по отдельности
-  const soloItems = hasPairs ? [] : pickTopMarginItems(raw.pairs || [], PAGE, typeMap);
+  const pool      = drinkFoodPool(raw.pairs || [], typeMap);  // только напиток+закуска
+  const hasPairs  = pool.length > 0;
+  const soloPool  = hasPairs ? [] : buildSoloPool(raw.pairs || [], typeMap);
 
   // Ничего показывать не можем
-  if (!hasPairs && soloItems.length === 0) return null;
+  if (!hasPairs && soloPool.length === 0) return null;
 
-  const page   = pool.slice(offset, offset + PAGE);
-  const total  = pool.length;
-  const canNext = hasPairs && total > PAGE;
+  const activePool = hasPairs ? pool : soloPool;
+  const total      = activePool.length;
+  const page       = activePool.slice(offset, offset + PAGE);
+  const canNext    = total > PAGE;
 
   const nextPage = () => setOffset(o => (o + PAGE) >= total ? 0 : o + PAGE);
 
@@ -119,7 +118,7 @@ export function DailySets({ onGoAdd }) {
       })}
 
       {/* Режим одиночных позиций (нет пар напиток+закуска) */}
-      {!hasPairs && soloItems.map((item, i) => (
+      {!hasPairs && page.map((item, i) => (
         <div key={i} style={{
           display: 'flex', alignItems: 'center', gap: 10,
           padding: '10px 12px', background: 'var(--sf)', border: '1px solid var(--am)',
