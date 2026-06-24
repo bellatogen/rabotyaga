@@ -189,8 +189,8 @@ app.post('/api/sync/schedule', requireManager, async (req, res) => {
   }
 });
 
-// Авто-синхронизация раз в 12 часов
-// Стартовый sync: расписание + план выручки из Google Sheets, задержка 10с после старта
+// Авто-синхронизация раз в 12 часов: расписание + план выручки из Google Sheets
+// Стартовый sync: задержка 10с после старта
 setTimeout(() => {
   syncSchedule(data, saveData).catch(e => console.error('[scheduleSync] startup error:', e.message));
   syncRevenuePlan(data, saveData).catch(e => console.error('[revenueSync] startup error:', e.message));
@@ -199,6 +199,21 @@ setTimeout(() => {
     syncRevenuePlan(data, saveData).catch(e => console.error('[revenueSync] interval error:', e.message));
   }, 12 * 60 * 60 * 1000);
 }, 10000);
+
+// Авто-синхронизация ФАКТА выручки из iiko каждые 2 часа
+// Стартовый sync: задержка 30с (после auth и планового sync)
+setTimeout(() => {
+  if (process.env.IIKO_URL && process.env.IIKO_LOGIN) {
+    iiko.syncRevenue(data, saveData)
+      .then(r => console.log(`[iiko/auto] старт: обновлено ${r.updated} дней`))
+      .catch(e => console.error('[iiko/auto] startup error:', e.message));
+    setInterval(() => {
+      iiko.syncRevenue(data, saveData)
+        .then(r => console.log(`[iiko/auto] интервал: обновлено ${r.updated} дней`))
+        .catch(e => console.error('[iiko/auto] interval error:', e.message));
+    }, 2 * 60 * 60 * 1000);
+  }
+}, 30000);
 
 // ── iiko — только авторизованные ──
 app.post('/api/iiko/revenue/sync', requireAuth, async (req, res) => {
