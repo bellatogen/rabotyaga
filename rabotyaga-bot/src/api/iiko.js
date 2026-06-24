@@ -22,14 +22,47 @@ function sha1(str) {
 // ── Классификация категории блюда iiko → напиток / закуска / прочее ──
 // Правило сэтов: пара показывается только если это напиток + закуска.
 // Сопоставление по ключевым словам в названии категории (регистронезависимо).
-const DRINK_RE = /бар|напит|пиво|пив\b|пенн|коктейл|вино|виск|ром\b|водк|лимонад|\bчай|кофе|сидр|\bэль|лагер|безалког|морс|\bсок|тоник|джин|текил|ликёр|ликер|\bшот|настойк|drink|craft|крафт|разлив|draft|драфт|бутылочн/i;
-const FOOD_RE  = /кухн|закус|\bеда|бургер|пицц|салат|снэк|снек|тапас|гриль|горяч|блюд|паст\b|\bсыр|мяс|\bфри|начос|сухар|food|стартер|основ|десерт|брускет|сэндвич|сендвич|хот-?дог|кухня|перекус|кулинар/i;
+const DRINK_RE = /бар|напит|пиво|пив\b|пенн|коктейл|вино|виск|ром\b|водк|лимонад|\bчай|кофе|сидр|\bэль|лагер|безалког|морс|\bсок|тоник|джин|текил|ликёр|ликер|\bшот|настойк|drink|крафт|разлив|draft|драфт|бутылочн/i;
+const FOOD_RE  = /кухн|закус|\bеда|бургер|пицц|салат|снэк|снек|тапас|гриль|горяч|блюд|паст\b|\bсыр|мяс|\bфри|начос|сухар|food|стартер|основ|десерт|брускет|сэндвич|сендвич|хот-?дог|кулинар|перекус/i;
+
+// Категории iiko, где смешаны напитки и закуски — нужна классификация по названию блюда
+const AMBIGUOUS_CATS = new Set(['пивная карта', 'без скидки', 'спец.предложения', 'сэты/спец.предложения', 'неиспользуемые', '']);
 
 function classifyCat(cat) {
   if (!cat) return 'other';
-  const c = String(cat).toLowerCase();
+  const c = String(cat).toLowerCase().trim();
+  if (AMBIGUOUS_CATS.has(c)) return 'ambiguous'; // сигнал: смотри на название блюда
   if (DRINK_RE.test(c)) return 'drink';
   if (FOOD_RE.test(c))  return 'food';
+  return 'other';
+}
+
+// Классификация по НАЗВАНИЮ блюда — используется когда категория неинформативна.
+// Правила специфичны для формата iiko «Пивной Карты»:
+//   • "драфт" или "с собой" в названии → разливное/навынос пиво → напиток
+//   • единица веса (г, гр, кг) → закуска/снек
+//   • затем — общие ключевые слова
+const DISH_DRINK_RE = /драфт|с\s+собой|навынос|\bдрафт\b|разлив|пиво|пив\b|лагер|стаут|портер|вайс|хефе|пилснер|пилс|ипа\b|ipa\b|эль\b|ale\b|сидр|cider|крик|gose|weiss|витте|трипель|дуббель|квадр|хеллес|хелль|дункель|урвайс|шенк|медовух|виноград|виноград/i;
+const DISH_FOOD_RE  = /оливк|джерки|суджук|бастурм|ребр|рёбр|брискет|фисташк|арахис|миндал|копчен|вялен|соленый|маринов|колбас|сосиск|чипс|принглс|орех|ореховый|снек|закуск|сыр\b|бретцель|оленин|утк|пастрам|огурц|соус|сэндвич|сендвич|шоколад|мёд|мед\b/i;
+
+function classifyDish(dishName, catName) {
+  const catType = classifyCat(catName);
+  // Если категория однозначная — доверяем ей
+  if (catType !== 'ambiguous' && catType !== 'other') return catType;
+  // Мерч, неизвестное — пропускаем
+  const cl = String(catName || '').toLowerCase().trim();
+  if (cl === 'мерч') return 'other';
+
+  const n = String(dishName || '').toLowerCase();
+  // Вес (г/гр/кг) → закуска (порция, снек)
+  if (/\d+\s*(кг|гр|г\b)/.test(n)) return 'food';
+  // Объём + контейнер → напиток
+  if (DISH_DRINK_RE.test(n)) return 'drink';
+  // Закусочные ключевые слова
+  if (DISH_FOOD_RE.test(n)) return 'food';
+  // Общий дринк-паттерн
+  if (DRINK_RE.test(n)) return 'drink';
+  if (FOOD_RE.test(n))  return 'food';
   return 'other';
 }
 
@@ -266,8 +299,9 @@ function loadDishTypeMap(data) {
       const parsed = JSON.parse(dc);
       for (const { dish, cat } of (parsed.categories || [])) {
         if (!dish || map[dish]) continue;
-        const t = classifyCat(cat);
-        if (t !== 'other') map[dish] = t;
+        // classifyDish: учитывает имя блюда для неоднозначных категорий (пивная карта, без скидки)
+        const t = classifyDish(dish, cat);
+        if (t !== 'other' && t !== 'ambiguous') map[dish] = t;
       }
     }
   } catch { /* кэш повреждён — игнорируем */ }
@@ -278,13 +312,13 @@ function loadDishTypeMap(data) {
 // Результат кэшируется в KV (обновляется раз в 20 часов).
 async function getBasketPairs(data, saveData) {
   // Проверяем кэш
-  const CACHE_KEY = 'basket:pairs:v1';
+  const CACHE_KEY = 'basket:pairs:v4'; // v4 — classifyDish по имени блюда для неоднозначных категорий
   const cached = data.kv?.[CACHE_KEY];
   if (cached) {
     const parsed = JSON.parse(cached);
     const ageH = (Date.now() - new Date(parsed.ts).getTime()) / 3_600_000;
-      // v<3 — старая схема без кросс-референса типов/dishTypeMap, пересчитываем
-      if (ageH < 20 && parsed.v === 3) return parsed;
+      // v<4 — старая схема без classifyDish, пересчитываем
+      if (ageH < 20 && parsed.v === 4) return parsed;
   }
 
   if (!IIKO_URL || !IIKO_LOGIN) {
@@ -374,7 +408,7 @@ async function getBasketPairs(data, saveData) {
   if (totalOrders < 10) {
     // Кэшируем даже пустой результат — иначе каждый вызов без данных бьёт в iiko.
     // Пользователь может сбросить кэш кнопкой «Обновить» (force=1).
-      const result = { pairs: [], totalChecks, from, to, hasCategories: hasExtra, dishTypeMap: {}, v: 3, ts: new Date().toISOString() };
+      const result = { pairs: [], totalChecks, from, to, hasCategories: hasExtra, dishTypeMap: {}, v: 4, ts: new Date().toISOString() };
     if (data && saveData) { data.kv[CACHE_KEY] = JSON.stringify(result); saveData(); }
     return result;
   }
@@ -412,10 +446,11 @@ async function getBasketPairs(data, saveData) {
       const score   = lift * support * Math.sqrt(count);
       // Категории + маржа для правила «напиток+закуска» и ранжирования
       const catA = dishCat[a] || '', catB = dishCat[b] || '';
-      let typeA = classifyCat(catA), typeB = classifyCat(catB);
-      // Кросс-референс: если категория контейнерная/неизвестная — берём тип из ABC/dish_cats
-      if (!hasExtra || typeA === 'other') typeA = fallbackTypeMap[a] || typeA;
-      if (!hasExtra || typeB === 'other') typeB = fallbackTypeMap[b] || typeB;
+      // classifyDish: сначала категория, при "ambiguous"/"other" — по названию блюда
+      let typeA = classifyDish(a, catA), typeB = classifyDish(b, catB);
+      // Кросс-референс: если и classifyDish не смог — берём тип из ABC/dish_cats кэша
+      if (typeA === 'other') typeA = fallbackTypeMap[a] || typeA;
+      if (typeB === 'other') typeB = fallbackTypeMap[b] || typeB;
       const drinkSnack = (typeA === 'drink' && typeB === 'food') ||
                          (typeA === 'food'  && typeB === 'drink');
       const marginA = dishMargin(a), marginB = dishMargin(b);
@@ -638,11 +673,13 @@ async function getSalesABC(data, saveData) {
     from = d3; to = d0;
   }
 
-  // Карта dish → 'drink'|'food'|'other' по реальной категории iiko.
+  // Карта dish → 'drink'|'food'|'other' по реальной категории + имени блюда.
   // Используется basket-анализом как кросс-референс (контейнерные категории «с собой» ломают фильтр сэтов).
+  // classifyDish: при неоднозначной категории («пивная карта», «без скидки») смотрит на название блюда.
   const dishTypeMap = {};
   for (const [name, cat] of Object.entries(dishCats || {})) {
-    dishTypeMap[name] = classifyCat(cat);
+    const t = classifyDish(name, cat);
+    dishTypeMap[name] = (t === 'ambiguous') ? 'other' : t;
   }
 
   // Сортируем по убыванию продаж для ABC

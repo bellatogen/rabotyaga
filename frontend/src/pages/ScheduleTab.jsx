@@ -7,7 +7,6 @@ import { staffCheck } from '../utils/staffUtils.js';
 import { isToday, isDone } from '../utils/taskUtils.js';
 import { hmm, rangeDays } from '../utils/dateUtils.js';
 import { RevenueCard } from '../components/RevenueCard.jsx';
-import { Ring } from '../components/Ring.jsx';
 import { classifyEvent } from '../constants/events.js';
 import { MonthAnalytics } from '../components/analytics/MonthAnalytics.jsx';
 import { revColor, kRub } from '../utils/revenueUtils.js';
@@ -393,7 +392,6 @@ export function DayDetail({date,schedule,events,tasks,history,revenue,handovers,
 }
 
 function DashboardTab({schedule,members,ds,isManager,hourNorms={},onSetHourNorm}){
-  const[view,setView]=useState("bars");
   const[editingNorm,setEditingNorm]=useState(null);
   const[normDraft,setNormDraft]=useState({min:'',max:''});
   const month=ds.slice(0,7);
@@ -413,25 +411,21 @@ function DashboardTab({schedule,members,ds,isManager,hourNorms={},onSetHourNorm}
   const dayHours=d=>(schedule[d]||[]).reduce((a,s)=>a+(s.end?hmm(s.end)/60:0),0);
   const maxDay=Math.max(1,...week.map(dayHours));
   const col=m=>m.hours>m.nrm.max?"var(--rs)":m.hours>=m.nrm.min?"var(--hp)":"var(--am)";
-  const VIEWS=[["bars","Список"],["days","Дни"],["rings","Кольца"]];
   return(<div className="sec">
     <div className="sec-head">
       <span className="sec-lbl"><Clock size={12}/>Дашборд · {totalH}ч / мес</span>
-      <div style={{display:"flex",gap:3}}>
-        {VIEWS.map(([id,l])=>(
-          <button key={id} onClick={()=>setView(id)} style={{
-            padding:"3px 9px",fontSize:11,fontWeight:600,borderRadius:6,border:"1px solid",
-            cursor:"pointer",fontFamily:"inherit",letterSpacing:".02em",
-            background:view===id?"var(--cu)":"transparent",
-            color:view===id?"var(--bg)":"var(--mt)",
-            borderColor:view===id?"var(--cu)":"var(--bd)",
-            transition:"all .15s"
-          }}>{l}</button>
-        ))}
-      </div>
     </div>
 
-    {view==="bars"&&stats.map(m=>{const denom=m.nrm.max>0?m.nrm.max:1;const editing=isManager&&editingNorm===m.name;return(<div className="pr" key={m.name}>
+    <div style={{display:"flex",alignItems:"flex-end",gap:6,height:120,padding:"8px 0 4px",borderBottom:"1px solid var(--bd)"}}>
+      {week.map(d=>{const h=dayHours(d);const dt=new Date(d);return(<div key={d} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,height:"100%",justifyContent:"flex-end"}}>
+        <span className="mono" style={{fontSize:10,color:"var(--am)"}}>{h?Math.round(h):""}</span>
+        <div style={{width:"70%",height:`${h/maxDay*100}%`,minHeight:h?4:0,background:"linear-gradient(180deg,var(--cu),var(--cu2))",borderRadius:"4px 4px 0 0",transition:"height .4s ease"}}/>
+        <span style={{fontSize:10,color:"var(--mt)"}}>{["вс","пн","вт","ср","чт","пт","сб"][dt.getDay()]}</span>
+      </div>);})}
+    </div>
+    <div className="bar-pct" style={{textAlign:"center",margin:"7px 0 16px"}}>Часы персонала по дням за неделю</div>
+
+    {stats.map(m=>{const denom=m.nrm.max>0?m.nrm.max:1;const editing=isManager&&editingNorm===m.name;return(<div className="pr" key={m.name}>
       <div className="pr-nm"><span>{m.name}</span><span className="mono" style={{fontWeight:600,fontSize:14,color:col(m)}}>{m.hours}ч</span></div>
       <div className="bar-bg"><div className="bar-fill" style={{width:`${Math.min(m.hours/denom*100,100)}%`,background:col(m),transition:"width .4s ease"}}/></div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4,gap:6}}>
@@ -450,25 +444,6 @@ function DashboardTab({schedule,members,ds,isManager,hourNorms={},onSetHourNorm}
         </span>}
       </div>
     </div>);})}
-
-    {view==="days"&&<div>
-      <div style={{display:"flex",alignItems:"flex-end",gap:6,height:140,padding:"8px 0",borderBottom:"1px solid var(--bd)"}}>
-        {week.map(d=>{const h=dayHours(d);const dt=new Date(d);return(<div key={d} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,height:"100%",justifyContent:"flex-end"}}>
-          <span className="mono" style={{fontSize:10,color:"var(--am)"}}>{h?Math.round(h):""}</span>
-          <div style={{width:"70%",height:`${h/maxDay*100}%`,minHeight:h?4:0,background:"linear-gradient(180deg,var(--cu),var(--cu2))",borderRadius:"4px 4px 0 0",transition:"height .4s ease"}}/>
-          <span style={{fontSize:10,color:"var(--mt)"}}>{["вс","пн","вт","ср","чт","пт","сб"][dt.getDay()]}</span>
-        </div>);})}
-      </div>
-      <div className="info-box" style={{marginTop:12}}>Часы персонала по дням за неделю. Видно перегруз/недогруз смен.</div>
-    </div>}
-
-    {view==="rings"&&<div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(110px,1fr))",gap:12,justifyItems:"center"}}>
-      {stats.map(m=>{const pct=m.nrm.max>0?m.hours/m.nrm.max:0;return(<div key={m.name} style={{textAlign:"center"}}>
-        <Ring pct={pct} color={col(m)} top={`${m.hours}`} bottom={`/${m.nrm.max}ч`} label={`${m.name}: ${m.hours} из ${m.nrm.max} часов`}/>
-        <div style={{fontSize:13,fontWeight:600,marginTop:4}}>{m.name}</div>
-        <div style={{fontSize:10,color:"var(--mt)"}}>{m.shifts} смен</div>
-      </div>);})}
-    </div>}
 
     {subShifts>0&&<div className="info-box" style={{marginTop:14}}>Подмены из других проектов за месяц: <b style={{color:"var(--cu)"}}>{subShifts}</b> смен (в нормы команды не входят).</div>}
   </div>);

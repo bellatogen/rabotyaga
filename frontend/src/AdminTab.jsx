@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { FileText, Users, BarChart2, RefreshCw, AlertTriangle, CheckCircle, Calendar, Download, Check, Bell, BellOff, TrendingUp, Star, X, Plus } from 'lucide-react';
-import { kvGet, kvSet, iikoMarginData } from './services/api.js';
+import { FileText, Users, BarChart2, RefreshCw, AlertTriangle, CheckCircle, Calendar, Download, Check, Bell, BellOff, TrendingUp, Star, X, Plus, Send } from 'lucide-react';
+import { kvGet, kvSet, iikoMarginData, sendTestPush } from './services/api.js';
 
 const API = '/api';
 
@@ -27,6 +27,7 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
 
   // Сотрудники
   const [employees, setEmployees]   = useState([]);  // [{name, telegramId, push}]
+  const [sendingPush, setSendingPush] = useState({}); // { [name]: 'idle'|'loading'|'ok'|'err' }
 
   // Статистика
   const [stats, setStats]           = useState(null);
@@ -222,6 +223,18 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
     }
   }
 
+  async function sendPushTo(name) {
+    setSendingPush(prev => ({ ...prev, [name]: 'loading' }));
+    try {
+      await sendTestPush(name);
+      setSendingPush(prev => ({ ...prev, [name]: 'ok' }));
+      setTimeout(() => setSendingPush(prev => ({ ...prev, [name]: 'idle' })), 3000);
+    } catch {
+      setSendingPush(prev => ({ ...prev, [name]: 'err' }));
+      setTimeout(() => setSendingPush(prev => ({ ...prev, [name]: 'idle' })), 3000);
+    }
+  }
+
   // ── Сохранение шаблонов ──
   async function saveTemplates() {
     setSaving(true);
@@ -321,29 +334,65 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
             <div className="info-box">
               Привязок нет. Сотрудник открывает приложение через Telegram — привязка создаётся автоматически.
             </div>
-          ) : employees.map(({ name, telegramId, push }) => (
-            <div
-              key={name}
-              style={{
-                background: 'var(--sf)', borderRadius: 10,
-                padding: '10px 14px', marginBottom: 8,
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              }}
-            >
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 14 }}>{name}</div>
-                <div style={{ fontSize: 11, color: 'var(--mt)', fontFamily: 'monospace', marginTop: 2 }}>
-                  TG ID: {telegramId}
+          ) : employees.map(({ name, telegramId, push }) => {
+            const pushOn = push?.enabled !== false;
+            const notifs = push?.notifications || {};
+            const ps = sendingPush[name] || 'idle';
+            return (
+              <div
+                key={name}
+                style={{
+                  background: 'var(--sf)', borderRadius: 10,
+                  padding: '10px 14px', marginBottom: 8,
+                }}
+              >
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                  <div>
+                    <div style={{ fontWeight:600, fontSize:14 }}>{name}</div>
+                    <div style={{ fontSize:11, color:'var(--mt)', fontFamily:'monospace', marginTop:2 }}>
+                      TG ID: {telegramId}
+                    </div>
+                  </div>
+                  <div style={{ display:'flex', alignItems:'center', gap:8, flexShrink:0, marginLeft:8 }}>
+                    <div style={{ fontSize:12, color: pushOn ? '#8bc47a' : 'var(--mt)' }}>
+                      <span style={{display:'flex',alignItems:'center',gap:3}}>
+                        {pushOn ? <><Bell size={12}/>вкл</> : <><BellOff size={12}/>выкл</>}
+                      </span>
+                    </div>
+                    <button
+                      className="btn"
+                      style={{ margin:0, padding:'4px 10px', fontSize:11, opacity:ps==='loading'?0.6:1, flexShrink:0 }}
+                      disabled={ps==='loading'}
+                      onClick={() => sendPushTo(name)}
+                    >
+                      {ps==='loading' ? '...' : ps==='ok' ? '✓ Отправлено' : ps==='err' ? '✗ Ошибка' : <><Send size={11}/>&nbsp;Пуш</>}
+                    </button>
+                  </div>
                 </div>
+                {push ? (
+                  <div style={{ display:'flex', gap:6, marginTop:8, flexWrap:'wrap' }}>
+                    {Object.entries(TEMPLATE_LABELS).map(([key, label]) => {
+                      const on = notifs[key] !== false;
+                      return (
+                        <span key={key} style={{
+                          fontSize:10, padding:'2px 8px', borderRadius:10,
+                          background: on ? 'rgba(139,196,122,0.15)' : 'rgba(128,128,128,0.1)',
+                          color: on ? '#8bc47a' : 'var(--mt)',
+                          border: `1px solid ${on ? 'rgba(139,196,122,0.3)' : 'transparent'}`,
+                        }}>
+                          {on ? '✓' : '✗'} {label.split(' (')[0]}
+                        </span>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div style={{ fontSize:11, color:'var(--mt)', marginTop:6 }}>
+                    Пуши не настроены — сотрудник должен открыть уведомления в приложении
+                  </div>
+                )}
               </div>
-              <div style={{
-                fontSize: 12,
-                color: push?.enabled !== false ? '#8bc47a' : 'var(--mt)',
-              }}>
-                <span style={{display:'flex',alignItems:'center',gap:3}}>{push?.enabled !== false ? <><Bell size={12}/>вкл</> : <><BellOff size={12}/>выкл</>}</span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
