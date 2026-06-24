@@ -411,18 +411,33 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
                     </div>
                 }
                 {/* Выручка iiko */}
-                {backfillStatus.revenue?.error
+              {backfillStatus.revenue?.error
                   ? <div style={{ color: '#e07a60' }}>
-                      ⚠ iiko выручка: {backfillStatus.revenue.error}
+                    ⚠ iiko выручка: {backfillStatus.revenue.error}
                     </div>
                   : <div style={{ color: backfillStatus.revenue?.updated > 0 ? '#8bc47a' : '#e0a41e' }}>
                       💰 Выручка iiko: {backfillStatus.revenue?.updated ?? 0} дней
                       {(backfillStatus.revenue?.updated ?? 0) === 0 &&
-                        <span style={{ color: 'var(--mt)', marginLeft: 6 }}>
-                          — iiko не вернул данных. Проверьте IIKO_URL, IIKO_LOGIN, IIKO_PASSWORD в .env
-                        </span>}
+                          <span style={{ color: 'var(--mt)', marginLeft: 6 }}>
+                            — iiko не вернул данных. Проверьте IIKO_URL, IIKO_LOGIN, IIKO_PASSWORD в .env
+                          </span>}
+                      </div>
+              }
+              {/* План выручки из Google Sheets */}
+              {backfillStatus.plan?.error
+                  ? <div style={{ color: '#e07a60', marginTop: 4 }}>
+                      ⚠ план выручки: {backfillStatus.plan.error}
                     </div>
-                }
+                  : backfillStatus.plan != null && (
+                      <div style={{ color: backfillStatus.plan?.daysUpdated > 0 ? '#8bc47a' : '#e0a41e', marginTop: 4 }}>
+                        📊 План выручки: {backfillStatus.plan?.daysUpdated ?? 0} дней
+                        {backfillStatus.plan?.sheets?.length > 0 &&
+                          <span style={{ color: 'var(--mt)', marginLeft: 6 }}>
+                            ({backfillStatus.plan.sheets.join(', ')})
+                          </span>}
+                      </div>
+                    )
+              }
               </div>
             )}
             {backfillStatus?.error && (

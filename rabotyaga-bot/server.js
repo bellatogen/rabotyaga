@@ -15,7 +15,8 @@ const pushScheduler = require('./src/push/scheduler');
 const makeAdminApi  = require('./src/api/admin');
 const makeAuthApi   = require('./src/api/auth');
 const iiko          = require('./src/api/iiko');
-const { syncSchedule } = require('./src/sync/scheduleSync');
+const { syncSchedule }    = require('./src/sync/scheduleSync');
+const { syncRevenuePlan } = require('./src/sync/revenueSync');
 const { requireAuth, requireManager } = require('./src/middleware/auth');
 
 // ── Конфиг ──
@@ -180,10 +181,13 @@ app.post('/api/sync/schedule', requireManager, async (req, res) => {
 });
 
 // Авто-синхронизация раз в 12 часов
+// Стартовый sync: расписание + план выручки из Google Sheets, задержка 10с после старта
 setTimeout(() => {
   syncSchedule(data, saveData).catch(e => console.error('[scheduleSync] startup error:', e.message));
+  syncRevenuePlan(data, saveData).catch(e => console.error('[revenueSync] startup error:', e.message));
   setInterval(() => {
     syncSchedule(data, saveData).catch(e => console.error('[scheduleSync] interval error:', e.message));
+    syncRevenuePlan(data, saveData).catch(e => console.error('[revenueSync] interval error:', e.message));
   }, 12 * 60 * 60 * 1000);
 }, 10000);
 
@@ -379,9 +383,10 @@ app.post('/api/admin/backfill', requireManager, async (req, res) => {
 
   console.log(`[backfill] запуск: ${from} → ${to}`);
 
-  const [schedResult, revResult] = await Promise.allSettled([
+  const [schedResult, revResult, planResult] = await Promise.allSettled([
     syncSchedule(data, saveData, { backfill: true, fromDate: from }),
     iiko.syncRevenueRange(from, to, data, saveData),
+    syncRevenuePlan(data, saveData, { fromDate: from }),
   ]);
 
   const schedule = schedResult.status === 'fulfilled'
@@ -392,8 +397,12 @@ app.post('/api/admin/backfill', requireManager, async (req, res) => {
     ? revResult.value
     : { error: revResult.reason?.message || 'Ошибка выручки iiko' };
 
-  console.log(`[backfill] расписание: ${schedule.error || `${schedule.daysUpdated} дней`}, выручка: ${revenue.error || `${revenue.updated} дней`}`);
-  res.json({ ok: true, from, to, schedule, revenue });
+  const plan = planResult.status === 'fulfilled'
+    ? planResult.value
+    : { error: planResult.reason?.message || 'Ошибка плана выручки' };
+
+  console.log(`[backfill] расписание: ${schedule.error || `${schedule.daysUpdated} дней`}, выручка iiko: ${revenue.error || `${revenue.updated} дней`}, план: ${plan.error || `${plan.daysUpdated} дней`}`);
+  res.json({ ok: true, from, to, schedule, revenue, plan });
 });
 
 // ── SPA fallback ──
