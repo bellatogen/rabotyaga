@@ -384,95 +384,6 @@ function MiniSparkline({ values, color = 'var(--cu)', h = 24 }) {
   );
 }
 
-// ── Блок с авторитетными данными из mozg.rest ──────────────────────────────
-function MozgCard({ data, iikofact }) {
-  if (!data) return null;
-  const { fact, guests, cheque, forecast, plan, period, syncedAt } = data;
-
-  // Расхождение mozg vs iiko (%)
-  const drift = fact > 0 && iikofact > 0
-    ? Math.round((fact - iikofact) / fact * 100)
-    : null;
-  const driftAbs  = drift != null ? Math.abs(drift) : null;
-  const driftBig  = driftAbs != null && driftAbs >= 5;
-  const syncTime = syncedAt ? new Date(syncedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : null;
-  const syncDate = syncedAt ? new Date(syncedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) : null;
-
-  const Row = ({ label, value, sub, accent }) => (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-      padding: '5px 0', borderBottom: '1px solid var(--bd)' }}>
-      <span style={{ fontSize: 11, color: 'var(--mt)' }}>{label}</span>
-      <div style={{ textAlign: 'right' }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: accent || 'var(--pp)' }}>{value}</span>
-        {sub && <span style={{ fontSize: 10, color: 'var(--mt)', marginLeft: 5 }}>{sub}</span>}
-      </div>
-    </div>
-  );
-
-  const fmtRub = n => n != null ? Number(n).toLocaleString('ru-RU') + ' ₽' : '—';
-  const fmtN   = n => n != null ? Number(n).toLocaleString('ru-RU') : '—';
-
-  const planPct  = plan  > 0 && fact  != null ? Math.round(fact  / plan  * 100) : null;
-  const fcPct    = plan  > 0 && forecast != null ? Math.round(forecast / plan * 100) : null;
-
-  return (
-    <div style={{
-      background: 'var(--sf)', borderRadius: 12, border: '1px solid var(--bd)',
-      padding: '12px 14px', marginBottom: 10,
-    }}>
-      {/* Заголовок */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
-          letterSpacing: '.07em', color: 'var(--mt)', display: 'flex', alignItems: 'center', gap: 5 }}>
-          <span style={{ fontSize: 13 }}>🧠</span> Мозг
-        </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {drift != null && (
-            <span style={{
-              fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 6,
-              background: driftBig ? 'rgba(232,85,53,.15)' : 'rgba(139,196,122,.15)',
-              color: driftBig ? '#e85535' : '#8bc47a',
-            }}>
-              {driftBig ? '⚠ ' : '✓ '}iiko {drift > 0 ? '-' : '+'}{driftAbs}%
-            </span>
-          )}
-          {syncDate && (
-            <span style={{ fontSize: 9, color: 'var(--mt)', opacity: .55 }}>
-              {syncDate} {syncTime}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Выручка — большое число */}
-      <div style={{ marginBottom: 8 }}>
-        <div style={{ fontSize: 9, color: 'var(--mt)', textTransform: 'uppercase',
-          letterSpacing: '.05em', marginBottom: 2 }}>Выручка факт</div>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <span style={{ fontSize: 22, fontWeight: 700, letterSpacing: -0.5, color: 'var(--pp)' }}>
-            {fmtRub(fact)}
-          </span>
-          {planPct != null && <PctBadge pct={planPct} size={13} />}
-        </div>
-        {period?.from && (
-          <div style={{ fontSize: 9, color: 'var(--mt)', opacity: .6, marginTop: 1 }}>
-            {period.from.slice(8)} – {period.to.slice(8)} {MONTHS_RU[Number(period.from.slice(5,7))-1].toLowerCase()}
-          </div>
-        )}
-      </div>
-
-      {/* Строки метрик */}
-      <div>
-        {forecast != null && <Row label="Прогноз на месяц" value={fmtRub(forecast)}
-          sub={fcPct != null ? `${fcPct}% от плана` : null} accent="var(--cu)" />}
-        {plan != null && <Row label="План на месяц" value={fmtRub(plan)} />}
-        {guests != null && <Row label="Гостей" value={fmtN(guests) + ' чел.'} />}
-        {cheque != null && <Row label="Средний чек" value={fmtRub(cheque)} />}
-      </div>
-    </div>
-  );
-}
-
 // ── Главный компонент ────────────────────────────────────────────────────────
 export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan = {}, onSetMonthPlan, mozgData }) {
   const [y, m] = ym.split('-').map(Number);
@@ -526,6 +437,33 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
   const neededPerDay = isCurMonth && remainDays > 0 && mGoal > totalFact
     ? Math.round((mGoal - totalFact) / remainDays)
     : 0;
+
+  // ── ПРАВИЛО: iiko / revenue:v1 — единственный источник правды для отображения ──
+  // iiko синкается по требованию (кнопка ⬇ iiko) — всегда свежее mozg.rest.
+  // mozg.rest синкается каждые 2ч и ОТСТАЁТ — не замещает iiko в отображении.
+  // Запрещено показывать одни и те же итоговые числа из разных источников одновременно.
+  // mozgData используется только как справочный дрифт-индикатор на бэкенде (server.js).
+  const hasMozg        = !!(mozgData?.fact > 0);
+  const displayFact    = totalFact;    // всегда iiko
+  const displayFcst    = projection;   // всегда iiko
+  const displayGuests  = totalGuests;  // всегда iiko
+  const displayCheck   = avgCheck;     // всегда iiko
+  const displayGoalPct = goalPct;
+  const displayFcstPct = projPct;
+  const displayPctToDate = pctToDate;
+  const displayGap     = gapToDate;
+  const displayAhead   = aheadOfDate;
+  const displayNeeded  = neededPerDay;
+  // Дрифт mozg vs iiko — только для справочного бейджа (mozg отстаёт)
+  const mozgDrift    = hasMozg && totalFact > 0
+    ? Math.round((Number(mozgData.fact) - totalFact) / Number(mozgData.fact) * 100) : null;
+  const mozgSyncTime = mozgData?.syncedAt
+    ? new Date(mozgData.syncedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : null;
+  const mozgSyncDate = mozgData?.syncedAt
+    ? new Date(mozgData.syncedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) : null;
+  const mozgPeriod   = hasMozg && mozgData.period?.from
+    ? `${mozgData.period.from.slice(8)}–${mozgData.period.to.slice(8)} ${MONTHS_RU[Number(mozgData.period.from.slice(5,7))-1].toLowerCase()}`
+    : null;
 
   // ── Конверсия плана ──
   const daysWithBoth = days.filter(d => pN(d) > 0 && fN(d) > 0);
@@ -685,9 +623,6 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
         <span style={{ fontSize: 11, color: 'var(--mt)' }}>{daysWithFact.length}/{daysInMonth} дн.</span>
       </div>
 
-      {/* Блок Мозг — авторитетные данные (если есть) */}
-      <MozgCard data={mozgData} iikofact={totalFact} />
-
       {/* Спарклайн с тултипом */}
       <Sparkline days={days} revenue={revenue} events={events} monthShort={monthShort} />
 
@@ -706,17 +641,36 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
           {goalAction}
         </div>
 
-        {/* Большое число факта + светофор */}
+        {/* Большое число факта + светофор (единственный источник правды) */}
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
           <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: -0.8, color: 'var(--pp)', lineHeight: 1 }}>
-            {fmt(totalFact)} ₽
+            {fmt(displayFact)} ₽
           </span>
-          <PctBadge pct={goalPct} size={16} />
+          <PctBadge pct={displayGoalPct} size={16} />
         </div>
 
-        {goalPct != null && (
+        {/* Атрибуция источника — mozg.rest приоритет, iiko как детальный бэкенд */}
+        {hasMozg && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, fontSize: 9, color: 'var(--mt)', opacity: .75 }}>
+            <span>🧠</span>
+            <span style={{ fontWeight: 600 }}>Мозг</span>
+            {mozgPeriod && <span>{mozgPeriod}</span>}
+            {mozgSyncDate && <span style={{ opacity: .7 }}>· {mozgSyncDate} {mozgSyncTime}</span>}
+            {mozgDrift != null && Math.abs(mozgDrift) >= 1 && (
+              <span style={{
+                fontWeight: 700, padding: '1px 5px', borderRadius: 5,
+                background: Math.abs(mozgDrift) >= 5 ? 'rgba(232,85,53,.15)' : 'rgba(139,196,122,.15)',
+                color: Math.abs(mozgDrift) >= 5 ? '#e85535' : '#8bc47a',
+              }}>
+                {mozgDrift > 0 ? '–' : '+'}{Math.abs(mozgDrift)}% vs iiko
+              </span>
+            )}
+          </div>
+        )}
+
+        {displayGoalPct != null && (
           <div style={{ marginTop: 7, marginBottom: 5 }}>
-            <PBar pct={goalPct} h={5} />
+            <PBar pct={displayGoalPct} h={5} />
           </div>
         )}
 
@@ -726,19 +680,19 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
           {isCurMonth && planToDate > 0 ? (
             <span>
               к {elapsed} {monthShort}:{' '}
-              <b style={{ color: revColor(pctToDate ?? 50), fontWeight: 700 }}>{pctToDate}%</b>
-              {gapToDate   > 0 && <span style={{ opacity: .75 }}> · -{fmt(gapToDate)} ₽</span>}
-              {aheadOfDate > 0 && <span style={{ color: '#8bc47a' }}> · +{fmt(aheadOfDate)} ₽</span>}
+              <b style={{ color: revColor(displayPctToDate ?? 50), fontWeight: 700 }}>{displayPctToDate}%</b>
+              {displayGap   > 0 && <span style={{ opacity: .75 }}> · -{fmt(displayGap)} ₽</span>}
+              {displayAhead > 0 && <span style={{ color: '#8bc47a' }}> · +{fmt(displayAhead)} ₽</span>}
             </span>
           ) : (
             <span style={{ opacity: .6 }}>{elapsed} из {daysInMonth} {plural(daysInMonth,'дня','дней','дней')}</span>
           )}
-          {!monthOver && mGoal > 0 && totalFact < mGoal && (
-            <span style={{ opacity: .7 }}>осталось {fmt(mGoal - totalFact)} ₽</span>
+          {!monthOver && mGoal > 0 && displayFact < mGoal && (
+            <span style={{ opacity: .7 }}>осталось {fmt(mGoal - displayFact)} ₽</span>
           )}
-          {monthOver && totalFact >= mGoal && (
+          {monthOver && displayFact >= mGoal && (
             <span style={{ color: '#8bc47a', display: 'flex', alignItems: 'center', gap: 3 }}>
-              <CheckCircle size={11}/>+{fmt(totalFact - mGoal)} ₽ сверх
+              <CheckCircle size={11}/>+{fmt(displayFact - mGoal)} ₽ сверх
             </span>
           )}
         </div>
@@ -751,7 +705,7 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
         )}
 
         {/* Прогноз + нужно в день */}
-        {isCurMonth && !monthOver && projection > 0 && (
+        {isCurMonth && !monthOver && displayFcst > 0 && (
           <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--bd)',
             display: 'flex', alignItems: 'center', gap: 14 }}>
             <div>
@@ -759,21 +713,21 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
                 Прогноз
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
-                <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: -0.4 }}>{fmt(projection)} ₽</span>
-                <PctBadge pct={projPct} size={11} />
+                <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: -0.4 }}>{fmt(displayFcst)} ₽</span>
+                <PctBadge pct={displayFcstPct} size={11} />
               </div>
               <div style={{ marginTop: 3 }}>
-                <PBar pct={projPct} h={3} />
+                <PBar pct={displayFcstPct} h={3} />
               </div>
             </div>
-            {neededPerDay > 0 && (
+            {displayNeeded > 0 && (
               <div style={{ marginLeft: 'auto', textAlign: 'right', flexShrink: 0 }}>
                 <div style={{ fontSize: 9, color: 'var(--mt)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 3 }}>
                   Нужно/день
                 </div>
                 <div style={{ fontSize: 16, fontWeight: 700,
-                  color: neededPerDay > avgPerDay * 1.3 ? '#e85535' : neededPerDay > avgPerDay ? '#e8a030' : '#8bc47a' }}>
-                  {kRub(neededPerDay)} ₽
+                  color: displayNeeded > avgPerDay * 1.3 ? '#e85535' : displayNeeded > avgPerDay ? '#e8a030' : '#8bc47a' }}>
+                  {kRub(displayNeeded)} ₽
                 </div>
                 <div style={{ fontSize: 9, color: 'var(--mt)', opacity: .5, marginTop: 1 }}>
                   ещё {remainDays} {plural(remainDays,'день','дня','дней')}
@@ -802,18 +756,18 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
       <div style={{ background: 'var(--sf)', borderRadius: 12, border: '1px solid var(--bd)', overflow: 'hidden' }}>
 
         {/* ─ Ряд 1: Гости + Средний чек ─ */}
-        {totalGuests > 0 && (
+        {displayGuests > 0 && (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', padding: '12px 14px', gap: 12 }}>
               <MiniStat
                 label="Гостей"
-                value={<><Users size={12} style={{ marginRight: 4, verticalAlign: -1 }}/>{fmt(totalGuests)}</>}
+                value={<><Users size={12} style={{ marginRight: 4, verticalAlign: -1 }}/>{fmt(displayGuests)}</>}
                 sub={[avgGpD && `≈ ${fmt(avgGpD)}/день`, projGuests && `прогноз ~${fmt(projGuests)}`].filter(Boolean).join(' · ')}
               />
-              {avgCheck != null && (
+              {displayCheck != null && (
                 <MiniStat
                   label="Средний чек"
-                  value={`${fmt(avgCheck)} ₽`}
+                  value={`${fmt(displayCheck)} ₽`}
                   sub={checkTrend != null
                     ? `${avgCheckFirst && fmt(avgCheckFirst)} → ${avgCheckSecond && fmt(avgCheckSecond)} ₽`
                     : `${guestDays.length} дн. с данными`}

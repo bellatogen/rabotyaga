@@ -20,7 +20,7 @@ export function DraggableSections({ order, nodes, onReorder }) {
   const prevRects = useRef({});
 
   useLayoutEffect(() => {
-    if (jiggle) return; // transform: rotate от jiggle конфликтует с translateY FLIP
+    // FLIP применяется к вложенному div — rotate снаружи, translateY внутри, конфликта нет
     Object.entries(rowEls.current).forEach(([id, el]) => {
       if (!el) return;
       const nr = el.getBoundingClientRect();
@@ -62,7 +62,7 @@ export function DraggableSections({ order, nodes, onReorder }) {
       // режим дрожания — сразу начать перетаскивание при касании
       dragIdx.current = idx;
       setDragging(idx);
-      try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch(_){/* игнорируем */}
       return;
     }
     // обычный режим — запустить таймер долгого нажатия (500 мс)
@@ -75,7 +75,7 @@ export function DraggableSections({ order, nodes, onReorder }) {
       setJiggle(true);
       dragIdx.current = idx;
       setDragging(idx);
-      try { pointerEl.current?.setPointerCapture(capturedId.current); } catch {}
+      try { pointerEl.current?.setPointerCapture(capturedId.current); } catch(_){/* игнорируем */}
     }, 500);
   };
 
@@ -115,7 +115,6 @@ export function DraggableSections({ order, nodes, onReorder }) {
         <div
           data-srow
           key={id}
-          ref={el => { rowEls.current[id] = el; }}
           className={[jiggle && 'sec-jiggle', dragging === idx && 'sec-dragging'].filter(Boolean).join(' ')}
           style={{ position: "relative", ...(jiggle && { animationDelay: `${(idx % 2) * 0.06}s` }) }}
           onPointerDown={e => onRowDown(e, idx)}
@@ -123,7 +122,7 @@ export function DraggableSections({ order, nodes, onReorder }) {
           onPointerUp={onRowUp}
           onPointerCancel={onRowUp}
         >
-          {nodes[id]}
+          <div ref={el => { rowEls.current[id] = el; }}>{nodes[id]}</div>
         </div>
       ))}
     </div>

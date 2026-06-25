@@ -42,7 +42,7 @@ body{background:var(--bg);color:var(--pp);transition:background .2s ease,color .
 .prog-fill{height:7px;border-radius:4px;background:linear-gradient(90deg,var(--cu2),var(--am));transition:width .4s;}
   .sec{padding:6px 16px 6px;}
   /* Перетаскивание блоков «Сегодня» — jiggle mode */
-  @keyframes jiggle{0%,100%{transform:rotate(-1.3deg) scale(1.01)}50%{transform:rotate(1.3deg) scale(1.01)}}
+  @keyframes jiggle{0%,100%{transform:rotate(-0.26deg) scale(1.002)}50%{transform:rotate(0.26deg) scale(1.002)}}
   .sec-jiggle{animation:jiggle .15s ease-in-out infinite;cursor:grab;user-select:none;touch-action:none;}
   .sec-jiggle.sec-dragging{animation-play-state:paused;opacity:.55;cursor:grabbing;}
   .sec-dragging{opacity:.55;}

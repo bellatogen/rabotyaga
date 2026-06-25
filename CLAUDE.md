@@ -61,6 +61,16 @@ When all of a day's regular (non-irregular) tasks are marked done, the day is co
 ### Push notifications
 `rabotyaga-bot/src/push/sender.js` is the single chokepoint all pushes go through (`sendPush()`); the per-event helpers (`sendDayBeforeShiftPush`, `sendPersonalTasksPush`, `sendCloseShiftPush`, `sendIndividualPush`) all call into it. `sendPush()` retries up to 3 times with linear backoff (1s × attempt), skipping retries on a 403 (user blocked the bot) since that's permanent. Every attempt — sent, failed, or skipped (pushes disabled) — is appended to `rabotyaga-bot/push-log.json` (separate from `data.json`, not versioned with the KV store). `src/push/scheduler.js` ticks every minute and fires the three scheduled jobs at fixed times (20:00 day-before-shift, 09:00 personal tasks, 22:00 close-shift reminder) — it duplicates `isToday()` from `App.jsx`/`server.js` a third time, so a fourth place to update if the day-matching rule changes. `GET /api/push/stats` (`src/api/push.js`) reads `push-log.json` and returns total/sent/failed/skipped counts plus a per-user breakdown.
 
+### Единый источник правды для аналитики (ОБЯЗАТЕЛЬНО)
+
+**Запрещено показывать одни и те же итоговые метрики из двух разных источников одновременно.**
+
+Иерархия источников:
+1. **iiko / `revenue:v1`** — единственный источник для отображения: выручка-факт, прогноз, гости, средний чек. Синкается по требованию (кнопка ⬇ iiko) — всегда свежее mozg.
+2. **mozg.rest** (`mozg:dashboard:v1`) — НЕ замещает iiko в UI. Используется только как справочный дрифт-индикатор на бэкенде (`server.js`): расхождение ≥5% → принудительный re-sync iiko. Отстаёт до 2 часов.
+
+Правило реализовано в `MonthAnalytics.jsx`: переменные `displayFact/displayFcst/displayGuests/displayCheck` всегда равны iiko-агрегату (`totalFact/projection/totalGuests/avgCheck`). `mozgData` — только для дрифт-бейджа. При добавлении новых метрических блоков — использовать `display*`-переменные.
+
 ### iiko OLAP data contract (read before touching `rabotyaga-bot/src/api/iiko.js`)
 The revenue/guests/basket analytics come from iikoServer's OLAP report endpoint. The field names and aggregation rules are strict — getting them wrong silently corrupts the numbers or returns HTTP 400.
 
