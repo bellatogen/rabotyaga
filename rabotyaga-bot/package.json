@@ -4,7 +4,7 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "test": "node tests/iiko.test.js"
+    "test": "node tests/iiko.test.js && node tests/db.test.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
