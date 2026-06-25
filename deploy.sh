@@ -26,7 +26,15 @@ git push origin main
 echo "🔑 Копируем .env на сервер..."
 scp rabotyaga-bot/.env root@147.45.255.158:/root/rabotyaga/rabotyaga-bot/.env
 
-echo "🚀 Деплой на сервер (образ пересобирается сам, фронт вшит внутрь)..."
-ssh root@147.45.255.158 "cd /root/rabotyaga && git pull origin main && cd rabotyaga-bot && docker compose up -d --build && docker compose logs rabotyaga-bot --tail=5 && echo '✅ Деплой завершён!'"
+COMMIT=$(git rev-parse HEAD)
+COMMIT_SHORT=$(git rev-parse --short HEAD)
+echo "🚀 Деплой на сервер (CACHEBUST=$COMMIT_SHORT — гарантирует свежий бандл фронта)..."
+# CACHEBUST инвалидирует Docker-кеш начиная с COPY frontend/ при каждом деплое,
+# не затрагивая дорогой слой npm ci.
+ssh root@147.45.255.158 "cd /root/rabotyaga && git pull origin main && cd rabotyaga-bot && \
+  docker compose build --build-arg CACHEBUST=$COMMIT && \
+  docker compose up -d && \
+  docker compose logs rabotyaga-bot --tail=5 && \
+  echo '✅ Деплой завершён! Commit: $COMMIT_SHORT'"
 
 echo "✅ Готово! Открой https://rabotyaga55.ru"

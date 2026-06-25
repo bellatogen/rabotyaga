@@ -49,7 +49,6 @@ function SpeedometerGauge({ pct = 0 }) {
 
   return (
     <div style={{position:'relative',maxWidth:230,margin:'0 auto'}}>
-    <img src={cavemanImg} alt="" style={{position:'absolute',right:-8,bottom:10,width:60,opacity:0.42,pointerEvents:'none',userSelect:'none'}}/>
     <svg viewBox="0 0 200 146" style={{width:'100%',display:'block'}}>
       {ZONES.map(z => (
         <path key={z.from} d={donut(p2d(z.from), p2d(z.to), RO, RI)}
@@ -77,8 +76,9 @@ function SpeedometerGauge({ pct = 0 }) {
       <text x={lx2} y={ly2} fontSize={7.5} fill="var(--mt)" textAnchor="middle">200%</text>
       <text x={CX} y={132} fontSize={9} fill="var(--mt)" textAnchor="middle" letterSpacing=".04em">100% = план</text>
     </svg>
+    <img src={cavemanImg} alt="" className="caveman-img" style={{position:'absolute',right:-8,bottom:10,width:60,pointerEvents:'none',userSelect:'none'}}/>
     </div>
-  );
+    );
 }
 
 // ─── Карточка выручки ────────────────────────────────────────────────────────

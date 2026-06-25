@@ -6,6 +6,9 @@ FROM node:22-alpine AS frontend
 WORKDIR /fe
 COPY frontend/package*.json ./
 RUN npm ci
+# CACHEBUST инвалидирует кеш при каждом деплое начиная отсюда,
+# но НЕ трогает дорогой слой npm ci выше.
+ARG CACHEBUST=1
 COPY frontend/ ./
 RUN npm run build
 

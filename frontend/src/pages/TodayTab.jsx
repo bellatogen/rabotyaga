@@ -1,6 +1,6 @@
 // Вкладка «Сегодня» — прогресс, события, задачи смены, выручка, гоу-лист, состав смены
 import { useState } from 'react';
-import { CheckCircle, Bell, Send, AlertTriangle, FileText, ChevronDown, ChevronUp, AlignJustify, Square, CalendarDays, MapPin, Clock, Users } from 'lucide-react';
+import { CheckCircle, Bell, Send, AlertTriangle, FileText, ChevronDown, ChevronUp, AlignJustify, Square, CalendarDays, MapPin, Clock, Users, GripVertical } from 'lucide-react';
 import { eventTypeById } from '../constants/events.js';
 import { TaskCarousel } from '../components/TaskCarousel.jsx';
 import { Avatar } from '../components/Avatar.jsx';
@@ -13,7 +13,11 @@ import { HoneycombGrid } from '../components/HoneycombGrid.jsx';
 import { DailySets } from '../components/DailySets.jsx';
 import { TaskCard } from '../components/TaskCard.jsx';
 import { DraggableTaskList } from '../components/DraggableTaskList.jsx';
+import { DraggableSections } from '../components/DraggableSections.jsx';
 import { DoneAccordion } from '../components/DoneAccordion.jsx';
+
+// Порядок перетаскиваемых блоков по умолчанию
+const SECTIONS_DEFAULT=['tasks','assigned','handovers','revenue','sets','golist','honeycomb','staff','irregular','summary'];
 
 export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,todayShifts,myStatus,myAssigned,schedule,events,todayEvents=[],statusOverrides,now,revenue,handovers,dayClosed,dayRegularCount,irregular,irregularDoneMap,pushGateOk,onSummary,taskOrder,onReorder,onDelete,onArchive,goList,onGoAdd,onGoToggle,onGoRemove,onToggle,onEdit,onViewEmployee,onHandover,onIikoLoad,onEventClick,sectionsOpen=false,tasksView='list',cards=[]}){
   // Гард: нет расписания на сегодня и нет выручки за месяц → подсказка менеджеру
@@ -24,6 +28,19 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
   const [shiftOpen, setShiftOpen] = useState(sectionsOpen);
   const [tasksOpen, setTasksOpen] = useState(sectionsOpen);
   const [viewMode,  setViewMode]  = useState(tasksView);
+  // Пользовательский порядок блоков + одноразовая подсказка (per-device)
+  const [secOrder,setSecOrder]=useState(()=>{try{const s=localStorage.getItem('rab:today:order:v1');return s?JSON.parse(s):null;}catch{return null;}});
+  const [dragHintOff,setDragHintOff]=useState(()=>{try{return localStorage.getItem('rab:today:dragHint:v1')==='1';}catch{return false;}});
+  // итоговый порядок: сохранённый (только валидные id) + новые блоки в хвост по умолчанию
+  const fullOrder=(()=>{const base=(secOrder||[]).filter(id=>SECTIONS_DEFAULT.includes(id));SECTIONS_DEFAULT.forEach(id=>{if(!base.includes(id))base.push(id);});return base;})();
+  const handleSectionReorder=(visibleIds)=>{
+    // переставляем только видимые блоки в их слотах, скрытые остаются на местах
+    const visibleSet=new Set(visibleIds);let vi=0;
+    const next=fullOrder.map(id=>visibleSet.has(id)?visibleIds[vi++]:id);
+    setSecOrder(next);
+    try{localStorage.setItem('rab:today:order:v1',JSON.stringify(next));}catch{}
+  };
+  const dismissDragHint=()=>{setDragHintOff(true);try{localStorage.setItem('rab:today:dragHint:v1','1');}catch{}};
   const check=staffCheck(ds,schedule,events);
   const todayHandovers=handovers[ds]||[];
   const regularTasks=todayTasks.filter(t=>t.kind!=="irregular");
@@ -93,8 +110,19 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
       );})}
     </div>}
 
-    {/* 4. Задачи смены — главное содержимое */}
-    <div className="sec">
+    {/* Подсказка о перетаскивании блоков (показываем один раз) */}
+    {!dragHintOff&&<div className="sec" style={{paddingTop:8,paddingBottom:0}}>
+      <div className="drag-hint">
+        <GripVertical size={14} style={{flexShrink:0,opacity:.7}}/>
+        <span>Блоки ниже можно перетаскивать — потяните за <b>⠿</b> справа, чтобы изменить порядок.</span>
+        <button className="dh-x" onClick={dismissDragHint} title="Скрыть">×</button>
+      </div>
+    </div>}
+
+    {/* Перетаскиваемые блоки «Сегодня» */}
+    <DraggableSections order={fullOrder} onReorder={handleSectionReorder} nodes={{
+      /* Задачи смены — главное содержимое */
+      tasks: (<div className="sec">
       <div style={{border:'1px solid var(--bd)',borderRadius:10,overflow:'hidden',background:'var(--sf)'}}>
         <button onClick={()=>setTasksOpen(o=>!o)} className="acc-head">
           <span style={{display:'flex',alignItems:'center',gap:6}}>
@@ -129,34 +157,27 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
           {done.length>0&&<DoneAccordion compact tasks={done} onToggle={onToggle} onEdit={onEdit} onDelete={onDelete} onArchive={onArchive}/>}
         </div>}
       </div>
-    </div>
-
-    {/* 5. Назначено вам */}
-    {myAssigned&&myAssigned.length>0&&<div className="sec">
+    </div>),
+      /* Назначено вам */
+      assigned: myAssigned&&myAssigned.length>0&&(<div className="sec">
       <div className="sec-head"><span className="sec-lbl" style={{color:"var(--am)"}}><Bell size={12}/>Назначено вам</span><span className="sec-cnt">{myAssigned.filter(t=>doneMap[t.id]).length}/{myAssigned.length}</span></div>
       {myAssigned.map(t=><TaskCard key={t.id} task={t} done={!!doneMap[t.id]} onToggle={()=>onToggle(t.id)} onEdit={onEdit?()=>onEdit(t):null} highlight/>)}
-    </div>}
-
-    {/* 6. Передано прошлой сменой */}
-    {todayHandovers.length>0&&<div className="sec">
+    </div>),
+      /* Передано прошлой сменой */
+      handovers: todayHandovers.length>0&&(<div className="sec">
       <div className="sec-head"><span className="sec-lbl"><Send size={12}/>Передано прошлой сменой</span></div>
       {todayHandovers.map(h=><div className="handover" key={h.id}>{h.text}<div className="handover-by">— {h.by}, {fmtDate(h.ts.slice(0,10))}</div></div>)}
-    </div>}
-
-    {/* 7. Выручка */}
-    <div className="sec"><RevenueCard date={ds} revenue={revenue} onIikoLoad={onIikoLoad}/></div>
-
-    {/* 8. Сэты дня */}
-    <DailySets onGoAdd={onGoAdd}/>
-
-    {/* 9. GoList */}
-    {goList&&<div className="sec"><GoListBlock items={goList} onAdd={onGoAdd} onToggle={onGoToggle} onRemove={onGoRemove} defaultOpen={sectionsOpen}/></div>}
-
-    {/* 10. Умные соты */}
-    <div className="sec"><HoneycombGrid onGoAdd={onGoAdd} defaultOpen={sectionsOpen}/></div>
-
-    {/* 11. Состав смены */}
-    <div className="sec">
+    </div>),
+      /* Выручка */
+      revenue: (<div className="sec"><RevenueCard date={ds} revenue={revenue} onIikoLoad={onIikoLoad}/></div>),
+      /* Сэты дня */
+      sets: (<DailySets onGoAdd={onGoAdd}/>),
+      /* GoList */
+      golist: goList&&(<div className="sec"><GoListBlock items={goList} onAdd={onGoAdd} onToggle={onGoToggle} onRemove={onGoRemove} defaultOpen={sectionsOpen}/></div>),
+      /* Умные соты */
+      honeycomb: (<div className="sec"><HoneycombGrid onGoAdd={onGoAdd} defaultOpen={sectionsOpen}/></div>),
+      /* Состав смены */
+      staff: (<div className="sec">
       <div style={{border:'1px solid var(--bd)',borderRadius:10,overflow:'hidden',background:'var(--sf)'}}>
         {/* Шапка-кнопка — всегда показывает аватары + имена */}
         <button onClick={()=>setShiftOpen(o=>!o)} className="acc-head">
@@ -201,18 +222,17 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
           {!isManager&&myStatus==='day_off'&&<div className="empty" style={{padding:'4px 0'}}>Выходной 🍺</div>}
         </div>}
       </div>
-    </div>
-
-    {/* 12. Нерегулярные задачи */}
-    {irregularOpen.length>0&&<div className="sec">
+    </div>),
+      /* Нерегулярные задачи */
+      irregular: irregularOpen.length>0&&(<div className="sec">
       <div className="sec-head"><span className="sec-lbl" style={{color:"#9bb0c4"}}><FileText size={12}/>Нерегулярные · требуют внимания</span><span className="sec-cnt">{irregularOpen.length}</span></div>
       <div style={{fontSize:11,color:"var(--mt)",marginBottom:8,lineHeight:1.5}}>Не влияют на закрытие смены. Остаются в списке, пока не выполнены.</div>
       {irregularOpen.map(t=><TaskCard key={t.id} task={t} done={false} onToggle={()=>onToggle(t.id,"irregular")} onEdit={onEdit?()=>onEdit(t):null}/>)}
-    </div>}
-
-    {/* 13. Кнопка итогов */}
-    {onSummary&&<div className="sec" style={{paddingBottom:8}}>
+    </div>),
+      /* Кнопка итогов */
+      summary: onSummary&&(<div className="sec" style={{paddingBottom:8}}>
       <button className="btn btn-g" onClick={onSummary}><FileText size={15}/>Итоги дня</button>
-    </div>}
+    </div>),
+    }}/>
   </>);
 }
