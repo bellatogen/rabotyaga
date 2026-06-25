@@ -15,6 +15,10 @@ function readLog() {
 // Подстановка переменных в шаблоне: {{имя}}, {{дата}}, {{день_недели}}.
 // Дата/день считаются в PUSH_TZ (дефолт Москва), а не в локали сервера (UTC на хостинге).
 const PUSH_TZ = process.env.PUSH_TZ || 'Europe/Moscow';
+// Тест-режим: если задан PUSH_ALLOWLIST (id через запятую) — пуши идут
+// только этим userId, остальным skip. Пусто = рассылка всем как обычно.
+const PUSH_ALLOWLIST = (process.env.PUSH_ALLOWLIST || '')
+  .split(',').map(s => s.trim()).filter(Boolean);
 const WEEKDAYS_RU = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
 const WD_FROM_EN = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 function substVars(tpl, userName) {
@@ -49,6 +53,11 @@ module.exports = function makeSender(data, saveData) {
   async function sendPush(bot, userId, message, type = 'test') {
     const settings = data.pushSettings?.[userId];
     const userName = Object.keys(data.bindings || {}).find(n => data.bindings[n] == userId) || null;
+
+    if (PUSH_ALLOWLIST.length && !PUSH_ALLOWLIST.includes(String(userId))) {
+      log(userId, userName, type, 'skipped', 'Не в PUSH_ALLOWLIST (тест-режим)');
+      return false;
+    }
 
     if (!settings?.enabled || !settings?.chatId) {
       log(userId, userName, type, 'skipped', 'Пуши отключены');
