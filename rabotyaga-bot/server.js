@@ -136,16 +136,127 @@ let saveTimer = null;
 // Инстанс sender создаётся здесь: data уже объявлен, saveData объявляется ниже через hoisting
 let pushSender; // будет инициализирован сразу после saveData
 
+// ── Состояние PostgreSQL (primary store; data.json — fallback-резерв) ──
+let PG_OK = false;            // доступна ли БД для записи
+let pgRetryTimer = null;      // таймер ретрая при недоступном PG
+let flushChain = Promise.resolve(); // сериализация PG-флашей (одна транзакция за раз)
+// Снимок того, что уже записано в PG — чтобы писать только изменённое.
+// pushSettings хранится в PG отдельным ключом 'pushSettings:v1' (не внутри kv).
+let lastFlushed = { kv: {}, bindings: {}, bindingsJSON: '', pushSettingsJSON: '' };
+
 function saveData() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
+    // 1. Файловый flush — всегда (disaster-recovery резерв)
     try { fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2)); }
     catch (e) { console.error('Ошибка записи data.json:', e); }
+    // 2. PG-flush — сериализованно, только если БД доступна
+    if (PG_OK) {
+      flushChain = flushChain
+        .then(() => flushToPG())
+        .catch(e => console.error('[pg] flush error:', e.message));
+    }
   }, 300);
 }
 
-// ── Авто-миграция plaintext паролей → bcrypt при старте ──
-(async () => {
+// Записать в PG только изменённые/удалённые ключи (dirty-tracking по снимку lastFlushed).
+async function flushToPG() {
+  // kv: изменённые
+  for (const [key, value] of Object.entries(data.kv)) {
+    if (lastFlushed.kv[key] !== value) {
+      await adapter.kvSet(key, value);
+      lastFlushed.kv[key] = value;
+    }
+  }
+  // kv: удалённые (есть в снимке, нет в data)
+  for (const key of Object.keys(lastFlushed.kv)) {
+    if (!(key in data.kv)) {
+      await adapter.kvDelete(key);
+      delete lastFlushed.kv[key];
+    }
+  }
+  // pushSettings → отдельный ключ pushSettings:v1
+  const psJSON = JSON.stringify(data.pushSettings || {});
+  if (psJSON !== lastFlushed.pushSettingsJSON) {
+    await adapter.kvSet('pushSettings:v1', psJSON);
+    lastFlushed.pushSettingsJSON = psJSON;
+  }
+  // bindings: дельта (upsert изменённых + деактивация удалённых)
+  const curBind = data.bindings || {};
+  const bJSON = JSON.stringify(curBind);
+  if (bJSON !== lastFlushed.bindingsJSON) {
+    for (const [name, tgId] of Object.entries(curBind)) {
+      if (lastFlushed.bindings[name] !== tgId) await adapter.bindEmployee(name, tgId);
+    }
+    for (const name of Object.keys(lastFlushed.bindings)) {
+      if (!(name in curBind)) await adapter.unbindEmployee(name);
+    }
+    lastFlushed.bindings = { ...curBind };
+    lastFlushed.bindingsJSON = bJSON;
+  }
+}
+
+// Перечитать снимок из текущего data (после hydrate, когда PG = источник истины).
+function captureSnapshot() {
+  lastFlushed.kv = { ...data.kv };
+  lastFlushed.bindings = { ...(data.bindings || {}) };
+  lastFlushed.bindingsJSON = JSON.stringify(data.bindings || {});
+  lastFlushed.pushSettingsJSON = JSON.stringify(data.pushSettings || {});
+}
+
+// PG-first загрузка при старте. Возвращает управление синхронно для остального кода;
+// до завершения PG_OK=false → saveData пишет только файл (без затирания пустого PG).
+async function hydrateFromPG() {
+  try {
+    const kvAll = await adapter.kvGetAll();        // бросит, если PG недоступен
+    const bindings = await adapter.getBindings();
+    PG_OK = true;
+
+    const keys = Object.keys(kvAll);
+    if (keys.length > 0) {
+      // PG непуст → primary, перезаписываем горячий кеш данными из БД
+      const { 'pushSettings:v1': psRaw, ...kvRest } = kvAll;
+      data.kv = kvRest;
+      data.bindings = bindings;
+      if (psRaw) { try { data.pushSettings = JSON.parse(psRaw); } catch { /* keep */ } }
+      captureSnapshot();
+      console.log(`📂 Загружено ${Object.keys(data.kv).length} kv-ключей из PostgreSQL, ${Object.keys(bindings).length} привязок`);
+    } else {
+      // PG доступен, но пуст → авто-миграция: оставляем файловые данные,
+      // снимок пустой → ближайший flush «прогреет» БД целиком.
+      lastFlushed = { kv: {}, bindings: {}, bindingsJSON: '', pushSettingsJSON: '' };
+      console.log('📂 PostgreSQL пуст — выполняю авто-миграцию из data.json при первом сохранении');
+      saveData();
+    }
+  } catch (e) {
+    PG_OK = false;
+    console.warn(`⚠️  PostgreSQL недоступен (${e.message}) — работаю на data.json, повторю подключение`);
+    schedulePGRetry();
+  }
+}
+
+// Периодическая проба восстановления соединения с PG.
+function schedulePGRetry() {
+  if (pgRetryTimer) return;
+  pgRetryTimer = setInterval(async () => {
+    try {
+      const kvAll = await adapter.kvGetAll();
+      clearInterval(pgRetryTimer); pgRetryTimer = null;
+      // Снимок пустой → следующий flush выльет весь текущий data в БД.
+      // (Файл за время простоя мог уйти вперёд PG — файл считается свежее.)
+      const keys = Object.keys(kvAll);
+      lastFlushed = { kv: {}, bindings: {}, bindingsJSON: '', pushSettingsJSON: '' };
+      PG_OK = true;
+      console.log(`[pg] соединение восстановлено (${keys.length} ключей в БД) — прогреваю БД из памяти`);
+      saveData();
+    } catch { /* ещё недоступна — ждём следующего тика */ }
+  }, 15000);
+}
+
+// ── Авто-миграция plaintext паролей → bcrypt ──
+// Вызывается ПОСЛЕ hydrateFromPG (в bootstrap), чтобы хешировать актуальный
+// auth:v1 из БД, а не файловый снимок — иначе гонка за ключ при PG-загрузке.
+async function migrateAuthPasswords() {
   try {
     const auth = JSON.parse(data.kv['auth:v1'] || '{}');
     let migrated = 0;
@@ -161,7 +272,7 @@ function saveData() {
       console.log(`[auth] мигрировано паролей plaintext→bcrypt: ${migrated}`);
     }
   } catch (e) { console.error('[auth] ошибка миграции паролей:', e.message); }
-})();
+}
 
 // Инициализируем sender и push API (data + saveData уже готовы)
 // adapter — для дублирования пуш-логов в таблицу push_log
@@ -706,20 +817,30 @@ app.use((req, res, next) => {
 });
 
 // ── Запуск ──
-bot.launch().catch(err => console.error('⚠️  Ошибка запуска бота (сервер продолжает работу):', err.message));
-pushScheduler.startScheduler(bot, data, pushSender, saveData);
+let httpServer;
+(async () => {
+  // PG-first загрузка ДО приёма запросов — иначе клиент увидит файловые данные,
+  // пока БД не подхватилась. При недоступном PG hydrate тихо откатывается на файл.
+  await hydrateFromPG();
+  // bcrypt-миграция — на актуальных (после hydrate) данных, без гонки за auth:v1.
+  await migrateAuthPasswords();
 
-const httpServer = app.listen(PORT, () => {
-  console.log(`🚀 Сервер запущен на порту ${PORT}`);
-  console.log(`📁 Данные: ${DATA_FILE}`);
-  console.log(`🖥  Фронтенд: ${FRONTEND_DIST}`);
-  console.log(`🌐 Web App URL: ${WEBAPP_URL}`);
-  console.log(`🔒 JWT_SECRET: ${process.env.JWT_SECRET ? 'из .env ✅' : 'dev-ключ ⚠️'}`);
-});
+  bot.launch().catch(err => console.error('⚠️  Ошибка запуска бота (сервер продолжает работу):', err.message));
+  pushScheduler.startScheduler(bot, data, pushSender, saveData);
+
+  httpServer = app.listen(PORT, () => {
+    console.log(`🚀 Сервер запущен на порту ${PORT}`);
+    console.log(`📁 Данные: ${DATA_FILE} (+ PostgreSQL: ${PG_OK ? 'primary ✅' : 'недоступна, fallback ⚠️'})`);
+    console.log(`🖥  Фронтенд: ${FRONTEND_DIST}`);
+    console.log(`🌐 Web App URL: ${WEBAPP_URL}`);
+    console.log(`🔒 JWT_SECRET: ${process.env.JWT_SECRET ? 'из .env ✅' : 'dev-ключ ⚠️'}`);
+  });
+})();
 
 function shutdown(signal) {
   bot.stop(signal);
-  httpServer.close(() => process.exit(0));
+  // httpServer может быть ещё не создан, если сигнал пришёл до завершения bootstrap.
+  if (httpServer) httpServer.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 5000).unref();
 }
 process.once('SIGINT',  () => shutdown('SIGINT'));
