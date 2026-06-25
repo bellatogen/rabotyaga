@@ -8,7 +8,7 @@ import { isToday, isDone } from '../utils/taskUtils.js';
 import { hmm, rangeDays } from '../utils/dateUtils.js';
 import { RevenueCard } from '../components/RevenueCard.jsx';
 import { classifyEvent } from '../constants/events.js';
-import { EVENT_ICON_MAP } from '../utils/eventIcons.jsx';
+import { getEventIcon } from '../utils/eventIcons.jsx';
 import stereo55Img from '../assets/stereo55.png';
 import { MonthAnalytics } from '../components/analytics/MonthAnalytics.jsx';
 import { revColor, kRub } from '../utils/revenueUtils.js';
@@ -54,7 +54,7 @@ function CalEventBadge({ eventStr }) {
   if (et.id === 'stereo') return (
     <img src={stereo55Img} className="stereo-badge-img" alt="Стерео 55" />
   );
-  const Icon = EVENT_ICON_MAP[et.id];
+  const Icon = getEventIcon(et.id);
   return (
     <span style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 9, fontWeight: 700, color: et.color, lineHeight: 1.2, marginTop: 2 }}>
       {Icon && <Icon size={8} strokeWidth={2.5} />}
@@ -196,7 +196,7 @@ function CalendarTab({schedule,events,revenue,ds,onOpenDay,isManager,monthPlan={
         <div className="cal-tt-row"><span className="cal-tt-mt">₽ План</span><span>{Number(tooltip.rev.plan).toLocaleString("ru-RU")} ₽</span></div>
         {tooltip.rev.fact!=null&&tooltip.rev.fact!==""&&<div className="cal-tt-row"><span className="cal-tt-mt" style={{display:'flex',alignItems:'center',gap:3}}><TrendingUp size={11}/>Факт</span><span style={{color:tooltip.pct!=null?revColor(tooltip.pct):"var(--pp)",fontWeight:600}}>{Number(tooltip.rev.fact).toLocaleString("ru-RU")} ₽{tooltip.pct!=null?` · ${Math.round(tooltip.pct)}%`:""}</span></div>}
       </div>}
-      {tooltip.event&&(()=>{const et=classifyEvent(tooltip.event);const Icon=et&&EVENT_ICON_MAP[et.id];return(<div style={{marginTop:6,paddingTop:6,borderTop:"1px solid var(--bd)"}}><div className="cal-tt-ev-pill" style={{color:et?et.color:"var(--cu)",background:et?et.bg:"rgba(76,175,130,.1)"}}>{et?.id==='stereo'?<img src={stereo55Img} className="stereo-badge-img" alt="" style={{width:14,height:14,borderRadius:'50%',objectFit:'cover',flexShrink:0}}/>:Icon?<Icon size={12} strokeWidth={2} style={{flexShrink:0}}/>:null}<span>{tooltip.event}</span></div></div>);})()}
+      {tooltip.event&&(()=>{const et=classifyEvent(tooltip.event);const Icon=et&&getEventIcon(et.id);return(<div style={{marginTop:6,paddingTop:6,borderTop:"1px solid var(--bd)"}}><div className="cal-tt-ev-pill" style={{color:et?et.color:"var(--cu)",background:et?et.bg:"rgba(76,175,130,.1)"}}>{et?.id==='stereo'?<img src={stereo55Img} className="stereo-badge-img" alt="" style={{width:14,height:14,borderRadius:'50%',objectFit:'cover',flexShrink:0}}/>:Icon?<Icon size={12} strokeWidth={2} style={{flexShrink:0}}/>:null}<span>{tooltip.event}</span></div></div>);})()}
     </div>}
 
     {/* ── Mobile bottom sheet ── */}

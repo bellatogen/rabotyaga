@@ -10,7 +10,7 @@ import {
 import { EVENT_TYPES, classifyEvent } from '../../constants/events.js';
 import { MONTHS_RU } from '../../constants/locale.js';
 import { revColor, kRub } from '../../utils/revenueUtils.js';
-import { EVENT_ICON_MAP } from '../../utils/eventIcons.jsx';
+import { getEventIcon } from '../../utils/eventIcons.jsx';
 
 const MAX_MONTHLY = 30_000_000;
 const DOW_LABELS  = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
@@ -181,7 +181,7 @@ function Sparkline({ days, revenue, events, monthShort }) {
           {activeEv && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10,
               color: activeEv.color, fontWeight: 600, flexShrink: 0 }}>
-              {(() => { const Icon = EVENT_ICON_MAP[activeEv.id] || CalendarDays; return <Icon size={11} />; })()}
+              {(() => { const Icon = getEventIcon(activeEv.id) || CalendarDays; return <Icon size={11} />; })()}
               {activeEv.shortName}
             </div>
           )}
@@ -191,7 +191,7 @@ function Sparkline({ days, revenue, events, monthShort }) {
         activeTypes.length > 0 && (
           <div style={{ display: 'flex', gap: 10, fontSize: 9, color: 'var(--mt)', flexWrap: 'wrap', marginBottom: 2 }}>
             {activeTypes.map(et => {
-              const Icon = EVENT_ICON_MAP[et.id] || CalendarDays;
+              const Icon = getEventIcon(et.id) || CalendarDays;
               return (
                 <span key={et.id} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                   <Icon size={9} color={et.color} />
@@ -313,7 +313,7 @@ function WeekdayChart({ days, revenue, monthShort, events }) {
                   {fmt(f)} ₽
                 </span>
                 {pct != null && <PctBadge pct={pct} size={10} />}
-                {ev && (() => { const Icon = EVENT_ICON_MAP[ev.id] || CalendarDays; return <Icon size={10} color={ev.color} style={{ flexShrink: 0 }} />; })()}
+                {ev && (() => { const Icon = getEventIcon(ev.id) || CalendarDays; return <Icon size={10} color={ev.color} style={{ flexShrink: 0 }} />; })()}
                 {isB && <span style={{ fontSize: 9, color: '#8bc47a', flexShrink: 0 }}>★</span>}
               </div>
             );
@@ -536,7 +536,7 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
     const twf = td.filter(d => fN(d) > 0);
     const tot = twf.reduce((s, d) => s + fN(d), 0);
     return {
-      Icon: EVENT_ICON_MAP[type.id] || CalendarDays,
+      Icon: getEventIcon(type.id) || CalendarDays,
       shortName: type.shortName, color: type.color,
       count: td.length, avgFact: twf.length ? Math.round(tot / twf.length) : null,
     };

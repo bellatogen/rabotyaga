@@ -1,18 +1,21 @@
 // Маппинг типов событий → lucide-иконки.
 // Единый источник для ScheduleTab (CalEventBadge, тултип) и MonthAnalytics.
-import { Wine, Brain, Target, Mic, Handshake, ClipboardList, CalendarDays, Music } from 'lucide-react';
+//
+// ВАЖНО: намеренно не используем export const (module-scope const вызывает
+// TDZ в Rollup/Vite при определённом порядке модулей в чанке).
+// export function хоистится → нет TDZ.
+import { Wine, Brain, Target, Mic, Handshake, ClipboardList, Music } from 'lucide-react';
 
-export const EVENT_ICON_MAP = {
-  istoriya: Wine,
-  stereo:   Music,
-  pubquiz:  Brain,
-  darts:    Target,
-  guest:    Mic,
-  collab:   Handshake,
-  inventa:  ClipboardList,
-};
-
-/** Иконка для типа события (fallback — CalendarDays) */
+/** Иконка-компонент для typeId события. Возвращает null если тип не найден. */
 export function getEventIcon(typeId) {
-  return EVENT_ICON_MAP[typeId] ?? CalendarDays;
+  switch (typeId) {
+    case 'istoriya': return Wine;
+    case 'stereo':   return Music;
+    case 'pubquiz':  return Brain;
+    case 'darts':    return Target;
+    case 'guest':    return Mic;
+    case 'collab':   return Handshake;
+    case 'inventa':  return ClipboardList;
+    default:         return null;
+  }
 }
