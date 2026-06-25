@@ -1,6 +1,6 @@
 // RevenueCard — спидометр выручки (план/факт/дельта/YoY) + кнопка ⬇ iiko
-import { useState } from 'react';
-import { Calendar, TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Calendar, TrendingUp, TrendingDown, AlertTriangle, ChevronLeft, ChevronRight, Users } from 'lucide-react';
 import { fmtDate } from '../utils/dateUtils.js';
 import cavemanImg from '../assets/caveman.png';
 
@@ -85,42 +85,85 @@ function SpeedometerGauge({ pct = 0 }) {
 export function RevenueCard({ date, revenue, onIikoLoad }) {
   const [loading, setLoading] = useState(false);
   const [err, setErr]         = useState(null);
+  const [viewDate, setViewDate] = useState(date);
 
-  const r    = revenue[date] || {};
+  // Синхронизируем viewDate при смене date (смена суток)
+  useEffect(() => { setViewDate(date); }, [date]);
+
+  // Все даты с данными + сегодня, по возрастанию
+  const allDates = [...new Set([
+    ...Object.keys(revenue || {}).filter(d => {
+      const rv = revenue[d];
+      return rv && ((rv.plan != null && rv.plan !== '') || (rv.fact != null && rv.fact !== ''));
+    }),
+    date,
+  ])].sort();
+
+  const idx     = allDates.indexOf(viewDate);
+  const safeIdx = idx >= 0 ? idx : allDates.indexOf(date);
+  const hasPrev = safeIdx > 0;
+  const hasNext = safeIdx < allDates.length - 1;
+  const isToday = viewDate === date;
+
+  const r    = revenue[viewDate] || {};
   const plan = r.plan != null && r.plan !== '' ? Number(r.plan) : null;
   const fact = r.fact != null && r.fact !== '' ? Number(r.fact) : null;
   const ly   = r.lastYear != null ? Number(r.lastYear) : null;
+  const guests   = r.guests != null && r.guests !== '' ? Number(r.guests) : null;
 
-  const pct     = fact != null && plan ? Math.round(fact / plan * 100) : null;
-  const delta   = fact != null && plan ? fact - plan : null;
-  const yoyDiff = fact != null && ly   ? fact - ly   : null;
+  const pct      = fact != null && plan ? Math.round(fact / plan * 100) : null;
+  const delta    = fact != null && plan ? fact - plan : null;
+  const yoyDiff  = fact != null && ly   ? fact - ly   : null;
+  const avgCheck = guests != null && guests > 0 && fact != null ? Math.round(fact / guests) : null;
 
   const fmt      = n => Number(n).toLocaleString('ru-RU');
   const sign     = n => n >= 0 ? `+${fmt(n)}` : fmt(n);
   const pctColor = p => p >= 100 ? '#72cc54' : p >= 80 ? '#e0a41e' : '#e8593c';
-  const prevYear = new Date(date + 'T00:00:00').getFullYear() - 1;
+  const prevYear = new Date(viewDate + 'T00:00:00').getFullYear() - 1;
 
   const loadIiko = async () => {
     setLoading(true); setErr(null);
     try {
-      const res  = await fetch(`/api/iiko/revenue/${date}`, { credentials:'include' });
+      const res  = await fetch(`/api/iiko/revenue/${viewDate}`, { credentials:'include' });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-      onIikoLoad && onIikoLoad(date, json);
+      onIikoLoad && onIikoLoad(viewDate, json);
     } catch (e) { setErr(e.message); }
     finally { setLoading(false); }
   };
 
+  // Навигационная строка с датой
+  const navBtn = (dir, enabled, onClick) => (
+    <button onClick={onClick} disabled={!enabled}
+      style={{background:'transparent',border:'none',padding:'4px 6px',
+        cursor:enabled?'pointer':'default',color:enabled?'var(--ft)':'var(--bd)',
+        borderRadius:6,display:'flex',alignItems:'center',flexShrink:0}}>
+      {dir === 'prev' ? <ChevronLeft size={16}/> : <ChevronRight size={16}/>}
+    </button>
+  );
+
+  const navBar = (
+    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8,gap:2}}>
+      {navBtn('prev', hasPrev, () => setViewDate(allDates[safeIdx - 1]))}
+      <div style={{fontSize:12,fontWeight:600,color:'var(--mt)',textAlign:'center',flex:1,letterSpacing:'.02em'}}>
+        {isToday ? <>Сегодня · <span style={{opacity:.7}}>{fmtDate(viewDate)}</span></> : fmtDate(viewDate)}
+      </div>
+      {navBtn('next', hasNext, () => setViewDate(allDates[safeIdx + 1]))}
+    </div>
+  );
+
   if (!plan) return (
     <div style={{padding:'12px 0'}}>
+      {navBar}
       <div className="alert warn" style={{margin:0}}>
-        <span>План выручки на {fmtDate(date)} не задан — управляющий вводит в карточке дня (График → день).</span>
+        <span>План выручки на {fmtDate(viewDate)} не задан — управляющий вводит в карточке дня (График → день).</span>
       </div>
     </div>
   );
 
   return (
     <div className="rev-card">
+      {navBar}
       <SpeedometerGauge pct={pct || 0}/>
 
       {/* Факт / план */}
@@ -129,7 +172,7 @@ export function RevenueCard({ date, revenue, onIikoLoad }) {
           <div style={{fontSize:10,fontWeight:600,letterSpacing:'.08em',color:'var(--mt)',marginBottom:3}}>ФАКТ</div>
           <div className="mono" style={{fontSize:24,fontWeight:700,lineHeight:1,
             color: pct != null ? pctColor(pct) : 'var(--pp)'}}>
-            {fact != null ? `${fmt(fact)} ₽` : '—'}
+            {fact != null ? `${fmt(fact)} ₽` : '—'}
           </div>
           {pct != null && (
             <div className="mono" style={{fontSize:13,fontWeight:600,color:pctColor(pct),marginTop:4}}>
@@ -139,7 +182,7 @@ export function RevenueCard({ date, revenue, onIikoLoad }) {
         </div>
         <div style={{textAlign:'right',flexShrink:0}}>
           <div style={{fontSize:10,fontWeight:600,letterSpacing:'.08em',color:'var(--mt)',marginBottom:3,opacity:.6}}>ПЛАН</div>
-          <div className="mono" style={{fontSize:15,fontWeight:500,opacity:.5}}>{fmt(plan)} ₽</div>
+          <div className="mono" style={{fontSize:15,fontWeight:500,opacity:.5}}>{fmt(plan)} ₽</div>
           <button onClick={loadIiko} disabled={loading}
             style={{marginTop:8,background:'transparent',border:'1px solid var(--bd)',borderRadius:7,
               padding:'3px 8px',fontSize:11,color:'var(--mt)',cursor:'pointer',
@@ -173,6 +216,26 @@ export function RevenueCard({ date, revenue, onIikoLoad }) {
           <span>{fmt(ly)} ₽</span>
           {yoyDiff != null && (
             <span style={{color:yoyDiff>=0?'#72cc54':'#e8593c',fontWeight:600}}>({sign(yoyDiff)} ₽)</span>
+          )}
+        </div>
+      )}
+
+      {/* Гости + Средний чек */}
+      {(guests != null || avgCheck != null) && (
+        <div style={{display:'flex',gap:16,marginTop:10,padding:'8px 10px',
+          background:'var(--bg)',borderRadius:8,border:'1px solid var(--bd)'}}>
+          {guests != null && (
+            <div style={{display:'flex',alignItems:'center',gap:5,fontSize:12}}>
+              <Users size={12} style={{color:'var(--mt)',opacity:.7,flexShrink:0}}/>
+              <span style={{color:'var(--mt)',opacity:.7}}>гостей</span>
+              <span className="mono" style={{fontWeight:600}}>{fmt(guests)}</span>
+            </div>
+          )}
+          {avgCheck != null && (
+            <div style={{display:'flex',alignItems:'center',gap:5,fontSize:12}}>
+              <span style={{color:'var(--mt)',opacity:.7}}>ср. чек</span>
+              <span className="mono" style={{fontWeight:600}}>{fmt(avgCheck)} ₽</span>
+            </div>
           )}
         </div>
       )}

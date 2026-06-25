@@ -177,12 +177,25 @@ body{background:var(--bg);color:var(--pp);transition:background .2s ease,color .
     .cal-cell:hover{border-color:var(--cu);}
     .cal-help-btn:hover{border-color:var(--cu);color:var(--cu);}
 }
-/* Тултип календаря — тематичный (var-цвета), позиция задаётся инлайн */
-.cal-tooltip{position:fixed;z-index:9999;min-width:210px;max-width:300px;background:var(--sf);color:var(--pp);border:1px solid var(--bd);border-radius:12px;padding:11px 13px;box-shadow:0 12px 40px rgba(0,0,0,.35);font-size:13px;line-height:1.5;pointer-events:none;animation:tooltipFade .15s ease-out;}
-.cal-tt-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;border-bottom:1px solid var(--bd);padding-bottom:7px;margin-bottom:7px;}
-.cal-tt-row{display:flex;justify-content:space-between;gap:12px;padding:1px 0;}
+/* Тултип календаря — изящный (var-цвета), позиция задаётся инлайн */
+.cal-tooltip{
+  position:fixed;z-index:9999;min-width:220px;max-width:300px;
+  background:var(--sf);color:var(--pp);
+  border:1px solid var(--bd);
+  border-radius:18px;
+  padding:14px 16px;
+  box-shadow:0 2px 8px rgba(0,0,0,.12),0 8px 24px rgba(0,0,0,.18),0 20px 56px rgba(0,0,0,.22);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  font-size:13px;line-height:1.55;pointer-events:none;
+  animation:tooltipPop .2s cubic-bezier(.34,1.3,.64,1);
+}
+.cal-tt-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;border-bottom:1px solid var(--bd);padding-bottom:8px;margin-bottom:8px;}
+.cal-tt-row{display:flex;justify-content:space-between;gap:12px;padding:2px 0;}
 .cal-tt-mt{color:var(--mt);}
-@keyframes tooltipFade{from{opacity:0}to{opacity:1}
+.cal-tt-ev-pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:4px 9px;border-radius:10px;}
+@keyframes tooltipPop{
+  from{opacity:0;scale:.93;filter:blur(2px)}
+  to{opacity:1;scale:1;filter:blur(0)}
 }
 @media(hover:hover) and (pointer:fine){
   .swipe-actions button:hover{filter:brightness(1.1);}
@@ -191,6 +204,18 @@ body{background:var(--bg);color:var(--pp);transition:background .2s ease,color .
   button:not(:disabled):hover{opacity:.8;}
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* Бейдж «Стерео 55» — пивная крышка. Светлый режим: чёрная крышка на белом.
+   Тёмный: инвертируем → белая крышка, белый фон скрыт через mix-blend-mode */
+.stereo-badge-img{
+  width:22px;height:22px;display:block;margin-top:2px;
+  object-fit:cover;border-radius:50%;
+  filter:none;
+}
+/* Dark по умолчанию (тема :root) */
+:root .stereo-badge-img{filter:invert(1) brightness(1.1);}
+@media(prefers-color-scheme:light){.stereo-badge-img{filter:none;}}
+[data-theme="dark"] .stereo-badge-img{filter:invert(1) brightness(1.1);}
+[data-theme="light"] .stereo-badge-img{filter:none;}
 
 /* UI-2: Отключаем анимации для пользователей с "Уменьшить движение"
    (iOS: Настройки → Универсальный доступ → Движение) */

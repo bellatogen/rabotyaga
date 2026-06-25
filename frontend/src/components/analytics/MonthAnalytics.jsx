@@ -5,27 +5,16 @@
 import { useState } from 'react';
 import {
   BarChart2, Users, AlertTriangle, CheckCircle, X,
-  TrendingUp, TrendingDown, Minus,
-  Wine, Music, Brain, Target, Mic, Handshake, ClipboardList, CalendarDays,
+  TrendingUp, TrendingDown, Minus, CalendarDays,
 } from 'lucide-react';
 import { EVENT_TYPES, classifyEvent } from '../../constants/events.js';
 import { MONTHS_RU } from '../../constants/locale.js';
 import { revColor, kRub } from '../../utils/revenueUtils.js';
+import { EVENT_ICON_MAP } from '../../utils/eventIcons.jsx';
 
 const MAX_MONTHLY = 30_000_000;
 const DOW_LABELS  = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 const DOW_FULL    = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
-
-// Маппинг типов событий на lucide-иконки
-const EVENT_ICON_MAP = {
-  istoriya: Wine,
-  stereo:   Music,
-  pubquiz:  Brain,
-  darts:    Target,
-  guest:    Mic,
-  collab:   Handshake,
-  inventa:  ClipboardList,
-};
 
 // ── Утилиты ─────────────────────────────────────────────────────────────────
 
