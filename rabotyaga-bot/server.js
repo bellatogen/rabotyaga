@@ -203,15 +203,43 @@ setTimeout(() => {
 }, 10000);
 
 // Авто-синхронизация из mozg.rest каждые 2 часа (если заданы MOZG_LOGIN/PASSWORD)
+// После каждого mozgSync сравниваем факт Мозга с суммой iiko (revenue:v1).
+// Расхождение ≥5% → принудительный re-sync iiko (Мозг как эталон).
+function mozgSyncWithDriftCheck() {
+  return syncMozgDashboard(data, saveData).then(r => {
+    const fmtN = n => n?.toLocaleString('ru-RU');
+    console.log(`[mozg/auto] факт ${fmtN(r.fact)}₽, план ${fmtN(r.plan)}₽`);
+
+    if (!r.fact || !process.env.IIKO_URL) return r;
+
+    // Суммируем iiko-факт за текущий месяц из revenue:v1
+    const ym = r.ym; // 'YYYY-MM'
+    let rev = {};
+    try { rev = JSON.parse(data.kv['revenue:v1'] || '{}'); } catch { return r; }
+    const iikoFact = Object.entries(rev)
+      .filter(([d]) => d.startsWith(ym))
+      .reduce((s, [, v]) => s + (Number(v?.fact) || 0), 0);
+
+    if (iikoFact === 0) return r;
+
+    const drift = Math.abs(r.fact - iikoFact) / r.fact;
+    if (drift >= 0.05) {
+      console.log(`[mozg/auto] расхождение ${Math.round(drift * 100)}% (мозг ${fmtN(r.fact)}₽ vs iiko ${fmtN(iikoFact)}₽) → re-sync iiko`);
+      iiko.syncRevenue(data, saveData)
+        .then(res => console.log(`[mozg/auto] iiko re-sync: обновлено ${res.updated} дней`))
+        .catch(e => console.error('[mozg/auto] iiko re-sync error:', e.message));
+    } else {
+      console.log(`[mozg/auto] расхождение ${Math.round(drift * 100)}% — норма`);
+    }
+    return r;
+  });
+}
+
 setTimeout(() => {
   if (process.env.MOZG_LOGIN && process.env.MOZG_PASSWORD) {
-    syncMozgDashboard(data, saveData)
-      .then(r => console.log(`[mozg/auto] старт: факт ${r.fact?.toLocaleString('ru-RU')}₽`))
-      .catch(e => console.error('[mozg/auto] startup error:', e.message));
+    mozgSyncWithDriftCheck().catch(e => console.error('[mozg/auto] startup error:', e.message));
     setInterval(() => {
-      syncMozgDashboard(data, saveData)
-        .then(r => console.log(`[mozg/auto] интервал: факт ${r.fact?.toLocaleString('ru-RU')}₽`))
-        .catch(e => console.error('[mozg/auto] interval error:', e.message));
+      mozgSyncWithDriftCheck().catch(e => console.error('[mozg/auto] interval error:', e.message));
     }, 2 * 60 * 60 * 1000);
   }
 }, 20000);
@@ -266,7 +294,7 @@ app.post('/api/iiko/revenue/sync', requireAuth, async (req, res) => {
 // Анализ корзины: пары блюд (кэш 20 ч)
 app.get('/api/iiko/basket', requireAuth, async (req, res) => {
   // force=1 — сбросить кэш и пересчитать
-  if (req.query.force === '1') delete data.kv['basket:pairs:v1'];
+  if (req.query.force === '1') delete data.kv['basket:pairs:v4'];
   try {
     const result = await iiko.getBasketPairs(data, saveData);
     res.json(result);

@@ -396,9 +396,16 @@ function MiniSparkline({ values, color = 'var(--cu)', h = 24 }) {
 }
 
 // ── Блок с авторитетными данными из mozg.rest ──────────────────────────────
-function MozgCard({ data }) {
+function MozgCard({ data, iikofact }) {
   if (!data) return null;
   const { fact, guests, cheque, forecast, plan, period, syncedAt } = data;
+
+  // Расхождение mozg vs iiko (%)
+  const drift = fact > 0 && iikofact > 0
+    ? Math.round((fact - iikofact) / fact * 100)
+    : null;
+  const driftAbs  = drift != null ? Math.abs(drift) : null;
+  const driftBig  = driftAbs != null && driftAbs >= 5;
   const syncTime = syncedAt ? new Date(syncedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : null;
   const syncDate = syncedAt ? new Date(syncedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) : null;
 
@@ -430,11 +437,22 @@ function MozgCard({ data }) {
           letterSpacing: '.07em', color: 'var(--mt)', display: 'flex', alignItems: 'center', gap: 5 }}>
           <span style={{ fontSize: 13 }}>🧠</span> Мозг
         </span>
-        {syncDate && (
-          <span style={{ fontSize: 9, color: 'var(--mt)', opacity: .55 }}>
-            обновлено {syncDate} в {syncTime}
-          </span>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {drift != null && (
+            <span style={{
+              fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 6,
+              background: driftBig ? 'rgba(232,85,53,.15)' : 'rgba(139,196,122,.15)',
+              color: driftBig ? '#e85535' : '#8bc47a',
+            }}>
+              {driftBig ? '⚠ ' : '✓ '}iiko {drift > 0 ? '-' : '+'}{driftAbs}%
+            </span>
+          )}
+          {syncDate && (
+            <span style={{ fontSize: 9, color: 'var(--mt)', opacity: .55 }}>
+              {syncDate} {syncTime}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Выручка — большое число */}
@@ -679,7 +697,7 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
       </div>
 
       {/* Блок Мозг — авторитетные данные (если есть) */}
-      <MozgCard data={mozgData} />
+      <MozgCard data={mozgData} iikofact={totalFact} />
 
       {/* Спарклайн с тултипом */}
       <Sparkline days={days} revenue={revenue} events={events} monthShort={monthShort} />
