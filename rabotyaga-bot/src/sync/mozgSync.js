@@ -154,17 +154,22 @@ async function fetchReport(formName, params) {
 // JS-коде рендера графиков). Используем точные паттерны из реального ответа.
 
 function parseDashboard(html) {
-  // Факт: total.fact.summary.realsum
-  const factRev = html.match(/"realsum":(\d+),"realsum_kit"/);
-  // Гости: total.fact.summary.guests
-  const factGst = html.match(/"guests":(\d+),"order_count"/);
-  // Средний чек: total.fact.summary.cheque
-  const factChq = html.match(/"cheque":([\d.]+),"kit_qntt"/);
-  // Количество чеков: total.fact.summary.order_count
-  const factOrd = html.match(/"order_count":(\d+),"cheque"/);
-  // Прогноз на конец месяца: forecast.realsum
+  // Факт: total.fact.summary — уникальный ключ hllg_guest_type рядом с realsum
+  // Структура: ..."hllg_guest_type":"guest","realsum":5251300,"realsum_kit":...
+  const factRev = html.match(/"hllg_guest_type":"guest","realsum":(\d+)/);
+
+  // Гости и чеки: в том же summary, после realsum идут guests и order_count
+  // Структура: ..."guests":4291,"order_count":3946,"cheque":1223.79...
+  const factGst = html.match(/"guests":(\d+),"order_count":\d+,"cheque"/);
+  const factOrd = html.match(/"order_count":(\d+),"cheque":([\d.]+)/);
+  const factChq = factOrd ? factOrd[2] : null;
+
+  // Прогноз на конец месяца: forecast.realsum (первое вхождение в JSON)
+  // Структура: ..."forecast":{"realsum":6628867.49...,"guests":4291}
   const fcMatch  = html.match(/"forecast":\{"realsum":([\d.]+),"guests":(\d+)/);
+
   // План на месяц: plan.hllgs.1.forecast.realsum
+  // Структура: ..."plan":{"hllgs":{"1":{"forecast":{"realsum":7426950,...
   const planMatch = html.match(/"plan":\{"hllgs":\{"1":\{"forecast":\{"realsum":(\d+)/);
 
   if (!factRev) return null;
@@ -172,7 +177,7 @@ function parseDashboard(html) {
   return {
     fact:     Number(factRev[1]),
     guests:   factGst  ? Number(factGst[1])                      : null,
-    cheque:   factChq  ? Math.round(Number(factChq[1]))          : null,
+    cheque:   factChq  ? Math.round(Number(factChq))             : null,
     orders:   factOrd  ? Number(factOrd[1])                      : null,
     forecast: fcMatch  ? Math.round(Number(fcMatch[1]))          : null,
     plan:     planMatch ? Number(planMatch[1])                   : null,
