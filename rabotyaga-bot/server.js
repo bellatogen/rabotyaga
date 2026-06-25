@@ -247,12 +247,17 @@ function schedulePGRetry() {
     try {
       const kvAll = await adapter.kvGetAll();
       clearInterval(pgRetryTimer); pgRetryTimer = null;
-      // Снимок пустой → следующий flush выльет весь текущий data в БД.
-      // (Файл за время простоя мог уйти вперёд PG — файл считается свежее.)
-      const keys = Object.keys(kvAll);
-      lastFlushed = { kv: {}, bindings: {}, bindingsJSON: '', pushSettingsJSON: '' };
+      // Память (работала на файле во время простоя) — источник истины.
+      // Кладём СНИМОК текущего PG в lastFlushed.kv, чтобы ближайший flush привёл
+      // БД к состоянию памяти: изменённые перезапишутся, а осиротевшие ключи
+      // (удалённые в памяти за время простоя) корректно удалятся через kvDelete.
+      // Пустой снимок не дал бы цикл удалений — ключи воскресали бы (фикс C1).
+      const { 'pushSettings:v1': _ps, ...kvRest } = kvAll;
+      lastFlushed.kv = kvRest;
+      // bindings/pushSettings прогреваем целиком (upsert идемпотентен).
+      lastFlushed.bindings = {}; lastFlushed.bindingsJSON = ''; lastFlushed.pushSettingsJSON = '';
       PG_OK = true;
-      console.log(`[pg] соединение восстановлено (${keys.length} ключей в БД) — прогреваю БД из памяти`);
+      console.log(`[pg] соединение восстановлено (${Object.keys(kvAll).length} ключей в БД) — синхронизирую БД с памятью`);
       saveData();
     } catch { /* ещё недоступна — ждём следующего тика */ }
   }, 15000);
