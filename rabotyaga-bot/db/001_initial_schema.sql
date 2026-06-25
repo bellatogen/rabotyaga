@@ -38,7 +38,9 @@ CREATE TABLE IF NOT EXISTS employee_bindings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name VARCHAR(255) NOT NULL UNIQUE,
   phone VARCHAR(20),
-  telegram_id BIGINT UNIQUE,
+  -- БЕЗ UNIQUE: приложение допускает несколько имён на один Telegram
+  -- (напр. один человек привязан как «developer», «Антон», «Павел»).
+  telegram_id BIGINT,
   telegram_username VARCHAR(255),
   role VARCHAR(50),
   active BOOLEAN DEFAULT true,

@@ -35,10 +35,13 @@ function substVars(tpl, userName) {
     .replace(/\{\{день_недели\}\}/g, wd);
 }
 
-module.exports = function makeSender(data, saveData) {
+// adapter (db/adapter.js) — опционален: если PG недоступен/не передан,
+// пуш-лог пишется только в push-log.json (файл = fallback-резерв).
+module.exports = function makeSender(data, saveData, adapter = null) {
 
   // Пишем запись в push-log.json с форматом, который ждёт /api/push/stats:
   // { userId, userName, type, status: 'sent'|'failed'|'skipped', error?, ts }
+  // Дублируем в таблицу push_log через adapter.logPush (fire-and-forget).
   function log(userId, userName, type, status, error = null) {
     const logs = readLog();
     const entry = { userId, userName, type, status, ts: new Date().toISOString() };
@@ -46,6 +49,11 @@ module.exports = function makeSender(data, saveData) {
     logs.unshift(entry);
     if (logs.length > 500) logs.length = 500;
     try { fs.writeFileSync(LOG_FILE, JSON.stringify(logs, null, 2)); } catch {}
+    // PG-дубль: ошибка БД не должна ломать отправку пуша.
+    if (adapter) {
+      adapter.logPush(userName, userId, type, status, error)
+        .catch(e => console.error('[pg] logPush:', e.message));
+    }
   }
 
   // Отправить пуш с ретраем до 3 раз (линейный backoff 1s·attempt).

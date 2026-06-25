@@ -18,6 +18,19 @@ class DataAdapter {
     );
   }
 
+  // Все kv-ключи разом — для PG-first загрузки при старте сервера.
+  async kvGetAll() {
+    const res = await pool.query('SELECT key, value FROM kv_store');
+    const out = {};
+    res.rows.forEach(row => { out[row.key] = row.value; });
+    return out;
+  }
+
+  // Удаление ключа — иначе удалённое в памяти «воскресает» после рестарта.
+  async kvDelete(key) {
+    await pool.query('DELETE FROM kv_store WHERE key = $1', [key]);
+  }
+
   // Employee bindings: name -> telegramId
   async getBindings() {
     const res = await pool.query(
@@ -25,16 +38,29 @@ class DataAdapter {
     );
     const bindings = {};
     res.rows.forEach(row => {
-      bindings[row.name] = row.telegram_id;
+      // telegram_id из PG приходит строкой (BIGINT). Нормализуем к числу,
+      // чтобы тип совпадал с data.json и не плодил баги сравнения на фронте.
+      // Telegram ID < 2^53, поэтому Number безопасен.
+      bindings[row.name] = Number(row.telegram_id);
     });
     return bindings;
   }
 
   async bindEmployee(name, telegramId) {
+    // active = true в т.ч. реактивирует ранее отвязанного сотрудника.
     await pool.query(
-      `INSERT INTO employee_bindings (name, telegram_id) VALUES ($1, $2)
-       ON CONFLICT (name) DO UPDATE SET telegram_id = $2, updated_at = NOW()`,
+      `INSERT INTO employee_bindings (name, telegram_id, active) VALUES ($1, $2, true)
+       ON CONFLICT (name) DO UPDATE SET telegram_id = $2, active = true, updated_at = NOW()`,
       [name, telegramId]
+    );
+  }
+
+  // Отвязка сотрудника: помечаем active=false (getBindings фильтрует active=true).
+  // Мягкое удаление сохраняет telegram_id для истории пушей.
+  async unbindEmployee(name) {
+    await pool.query(
+      'UPDATE employee_bindings SET active = false, updated_at = NOW() WHERE name = $1',
+      [name]
     );
   }
 
