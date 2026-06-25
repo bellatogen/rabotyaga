@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Sparkles, Plus, Check, TrendingUp, RefreshCw } from 'lucide-react';
 import { iikoBasket } from '../services/api.js';
 import { drinkFoodPool, buildSoloPool, topMarginKeys, pairKey, setGoText } from '../utils/setsUtils.js';
+import { MERCH } from '../constants/merch.js';
 
 const PAGE = 3; // пар на страницу
 
@@ -31,10 +32,15 @@ export function DailySets({ onGoAdd }) {
   const hasPairs  = pool.length > 0;
   const soloPool  = hasPairs ? [] : buildSoloPool(raw.pairs || [], typeMap);
 
-  // Ничего показывать не можем
-  if (!hasPairs && soloPool.length === 0) return null;
+  // Базовый пул из iiko: либо пары «напиток+закуска», либо одиночные маржинальные позиции.
+  const basePool   = (hasPairs ? pool : soloPool).map(p => ({ ...p, kind: hasPairs ? 'pair' : 'solo' }));
+  // Мерч всегда в ротации — чтобы всегда было что покрутить, даже когда сэтов мало.
+  const merchPool  = MERCH.map(m => ({ ...m, kind: 'merch' }));
+  const activePool = [...basePool, ...merchPool];
 
-  const activePool = hasPairs ? pool : soloPool;
+  // Блок пуст только если совсем нечего показать (даже мерча нет) — практически не случается.
+  if (activePool.length === 0) return null;
+
   const total      = activePool.length;
   // Ротация пула: сдвигаем стартовую позицию на 1 и берём PAGE элементов с wraparound
   const rotated    = [...activePool.slice(offset), ...activePool.slice(0, offset)];
@@ -43,11 +49,11 @@ export function DailySets({ onGoAdd }) {
 
   const nextPage = () => setOffset(o => (o + 1) % total);
 
-  const marginTop = topMarginKeys(page, PAGE);
+  const marginTop = topMarginKeys(page.filter(p => p.kind === 'pair'), PAGE);
 
-  const add = p => {
-    onGoAdd && onGoAdd(setGoText(p));
-    setAdded(prev => new Set([...prev, pairKey(p)]));
+  const addItem = (key, goText) => {
+    onGoAdd && onGoAdd(goText);
+    setAdded(prev => new Set([...prev, key]));
   };
 
   return (
@@ -73,39 +79,102 @@ export function DailySets({ onGoAdd }) {
       </div>
       <div style={{ fontSize: 11, color: 'var(--mt)', marginBottom: 8, lineHeight: 1.45 }}>
         {hasPairs
-          ? 'Пары «напиток + закуска», которые чаще берут вместе и дают маржу.'
-          : 'Позиции с высокой маржой — предлагай гостям активно.'}
+          ? 'Пары «напиток + закуска» с маржой. Листай — дальше мерч и другие варианты.'
+          : 'Маржинальные позиции и мерч — предлагай гостям. Листай для новых вариантов.'}
       </div>
 
-      {/* Режим пар */}
-      {hasPairs && page.map((p, i) => {
-        const key     = pairKey(p);
+      {page.map((item, i) => {
+        // ── Пара «напиток + закуска» ──
+        if (item.kind === 'pair') {
+          const p       = item;
+          const key     = pairKey(p);
+          const isAdded = added.has(key);
+          const conf    = Math.max(p.confAB || 0, p.confBA || 0);
+          const isTop   = marginTop.has(key);
+          return (
+            <div key={`pair:${key}:${i}`} style={{
+              display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10,
+              padding: '10px 12px', background: 'var(--sf)', border: '1px solid var(--am)',
+              borderRadius: 10, marginBottom: 8,
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4, lineHeight: 1.35 }}>
+                  {p.a}<span style={{ color: 'var(--mt)', fontWeight: 400, margin: '0 5px' }}>+</span>{p.b}
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {conf > 0 && <span style={{ fontSize: 11, color: 'var(--mt)' }}>
+                    вместе в <span style={{ color: 'var(--am)', fontWeight: 700 }}>{conf}%</span> случаев
+                  </span>}
+                  {p.margin != null && (
+                    <span style={{ fontSize: 11, color: isTop ? 'var(--cu)' : 'var(--mt)',
+                      fontWeight: isTop ? 700 : 400, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                      {isTop && <TrendingUp size={11}/>}маржа ~{p.margin}%
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button onClick={() => !isAdded && addItem(key, setGoText(p))} disabled={isAdded}
+                style={{ flexShrink: 0,
+                  background: isAdded ? 'rgba(76,175,130,.15)' : 'transparent',
+                  border: `1px solid ${isAdded ? 'var(--cu)' : 'var(--bd)'}`,
+                  borderRadius: 7, padding: '5px 8px', cursor: isAdded ? 'default' : 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 3,
+                  color: isAdded ? 'var(--cu)' : 'var(--mt)',
+                  fontSize: 11, fontWeight: 600, fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+                {isAdded ? <><Check size={12}/>В листе</> : <><Plus size={12}/>GoList</>}
+              </button>
+            </div>
+          );
+        }
+
+        // ── Мерч ──
+        if (item.kind === 'merch') {
+          const key     = `merch:${item.name}`;
+          const isAdded = added.has(key);
+          return (
+            <div key={`${key}:${i}`} style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '10px 12px', background: 'var(--sf)', border: '1px solid var(--bd)',
+              borderRadius: 10, marginBottom: 8,
+            }}>
+              <span style={{ fontSize: 20, flexShrink: 0 }}>{item.emoji}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.35 }}>{item.name}</div>
+                <div style={{ fontSize: 11, color: 'var(--mt)', marginTop: 2 }}>Мерч — допродажа к чеку</div>
+              </div>
+              <button onClick={() => !isAdded && addItem(key, item.go)} disabled={isAdded}
+                style={{ flexShrink: 0,
+                  background: isAdded ? 'rgba(76,175,130,.15)' : 'transparent',
+                  border: `1px solid ${isAdded ? 'var(--cu)' : 'var(--bd)'}`,
+                  borderRadius: 7, padding: '5px 8px', cursor: isAdded ? 'default' : 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 3,
+                  color: isAdded ? 'var(--cu)' : 'var(--mt)',
+                  fontSize: 11, fontWeight: 600, fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+                {isAdded ? <><Check size={12}/>В листе</> : <><Plus size={12}/>GoList</>}
+              </button>
+            </div>
+          );
+        }
+
+        // ── Одиночная маржинальная позиция ──
+        const key     = `solo:${item.name}`;
         const isAdded = added.has(key);
-        const conf    = Math.max(p.confAB || 0, p.confBA || 0);
-        const isTop   = marginTop.has(key);
         return (
-          <div key={i} style={{
-            display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10,
+          <div key={`${key}:${i}`} style={{
+            display: 'flex', alignItems: 'center', gap: 10,
             padding: '10px 12px', background: 'var(--sf)', border: '1px solid var(--am)',
             borderRadius: 10, marginBottom: 8,
           }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4, lineHeight: 1.35 }}>
-                {p.a}<span style={{ color: 'var(--mt)', fontWeight: 400, margin: '0 5px' }}>+</span>{p.b}
-              </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                {conf > 0 && <span style={{ fontSize: 11, color: 'var(--mt)' }}>
-                  вместе в <span style={{ color: 'var(--am)', fontWeight: 700 }}>{conf}%</span> случаев
-                </span>}
-                {p.margin != null && (
-                  <span style={{ fontSize: 11, color: isTop ? 'var(--cu)' : 'var(--mt)',
-                    fontWeight: isTop ? 700 : 400, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                    {isTop && <TrendingUp size={11}/>}маржа ~{p.margin}%
-                  </span>
-                )}
-              </div>
+              <div style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.35 }}>{item.name}</div>
+              {item.margin != null && (
+                <div style={{ fontSize: 11, color: 'var(--cu)', fontWeight: 700,
+                  display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 3 }}>
+                  <TrendingUp size={11}/>маржа ~{item.margin}%
+                </div>
+              )}
             </div>
-            <button onClick={() => !isAdded && add(p)} disabled={isAdded}
+            <button onClick={() => !isAdded && addItem(key, `${item.name} — рекомендуй гостям`)} disabled={isAdded}
               style={{ flexShrink: 0,
                 background: isAdded ? 'rgba(76,175,130,.15)' : 'transparent',
                 border: `1px solid ${isAdded ? 'var(--cu)' : 'var(--bd)'}`,
@@ -118,33 +187,6 @@ export function DailySets({ onGoAdd }) {
           </div>
         );
       })}
-
-      {/* Режим одиночных позиций (нет пар напиток+закуска) */}
-      {!hasPairs && page.map((item, i) => (
-        <div key={i} style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          padding: '10px 12px', background: 'var(--sf)', border: '1px solid var(--am)',
-          borderRadius: 10, marginBottom: 8,
-        }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.35 }}>{item.name}</div>
-            {item.margin != null && (
-              <div style={{ fontSize: 11, color: 'var(--cu)', fontWeight: 700,
-                display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 3 }}>
-                <TrendingUp size={11}/>маржа ~{item.margin}%
-              </div>
-            )}
-          </div>
-          <button
-            onClick={() => { onGoAdd && onGoAdd(`${item.name} — рекомендуй гостям`); }}
-            style={{ flexShrink: 0, background: 'transparent', border: '1px solid var(--bd)',
-              borderRadius: 7, padding: '5px 8px', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: 3,
-              color: 'var(--mt)', fontSize: 11, fontWeight: 600, fontFamily: 'inherit' }}>
-            <Plus size={12}/>GoList
-          </button>
-        </div>
-      ))}
     </div>
   );
 }
