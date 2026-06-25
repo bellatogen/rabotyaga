@@ -1,6 +1,6 @@
 // Вкладка «Сегодня» — прогресс, события, задачи смены, выручка, гоу-лист, состав смены
 import { useState } from 'react';
-import { CheckCircle, Bell, Send, AlertTriangle, FileText, ChevronDown, ChevronUp, AlignJustify, Square, CalendarDays, MapPin, Clock, Users, GripVertical } from 'lucide-react';
+import { CheckCircle, Bell, Send, AlertTriangle, FileText, ChevronDown, ChevronUp, AlignJustify, Square, CalendarDays, MapPin, Clock, Users } from 'lucide-react';
 import { eventTypeById } from '../constants/events.js';
 import { TaskCarousel } from '../components/TaskCarousel.jsx';
 import { Avatar } from '../components/Avatar.jsx';
@@ -113,8 +113,7 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
     {/* Подсказка о перетаскивании блоков (показываем один раз) */}
     {!dragHintOff&&<div className="sec" style={{paddingTop:8,paddingBottom:0}}>
       <div className="drag-hint">
-        <GripVertical size={14} style={{flexShrink:0,opacity:.7}}/>
-        <span>Блоки ниже можно перетаскивать — потяните за <b>⠿</b> справа, чтобы изменить порядок.</span>
+        <span>Зажмите любой блок, чтобы войти в режим перестановки.</span>
         <button className="dh-x" onClick={dismissDragHint} title="Скрыть">×</button>
       </div>
     </div>}
