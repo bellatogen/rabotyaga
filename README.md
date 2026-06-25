@@ -61,6 +61,55 @@ npm install && npm run dev
 ./deploy.sh   # build frontend → обновить Docker-образ → рестартовать контейнер
 ```
 
+### Хранилище данных: PostgreSQL + data.json
+
+PostgreSQL — основное хранилище (primary store). `data.json` остаётся как
+disaster-recovery резерв: при недоступной БД сервер продолжает работать на файле,
+а при восстановлении соединения автоматически прогревает БД из памяти.
+
+Конфигурация — через `DATABASE_URL` (или `POSTGRES_PASSWORD`, из которого
+`docker-compose.yml` собирает URL). См. `rabotyaga-bot/.env.example`.
+
+**Первый запуск с PostgreSQL:**
+
+```bash
+cd rabotyaga-bot
+
+# 1. (если остался orphan-контейнер с прошлых попыток) удалить его и старый том
+docker rm -f rabotyaga-postgres 2>/dev/null
+docker volume rm rabotyaga-bot_postgres_data 2>/dev/null   # имя тома: docker volume ls
+
+# 2. задать пароль БД в .env
+echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)" >> .env
+
+# 3. поднять стек — postgres применит схемы db/*.sql на чистом томе,
+#    бот стартует после healthcheck БД
+docker compose up -d
+```
+
+Миграция данных из `data.json` в пустую БД происходит **автоматически** при первом
+старте сервера (он видит пустой PG + непустой `data.json` → прогревает БД). Если
+нужно залить данные явно (повторно/идемпотентно), есть скрипт:
+
+```bash
+docker compose exec rabotyaga-bot node db/migrate-from-json.js
+```
+
+**Проверка успешной миграции:**
+
+```bash
+docker compose ps                                  # оба контейнера healthy
+docker compose exec postgres psql -U rabotyaga -tAc \
+  "SELECT COUNT(*) FROM kv_store"                  # = числу kv-ключей + pushSettings:v1
+docker compose exec postgres psql -U rabotyaga -tAc \
+  "SELECT COUNT(*) FROM employee_bindings"         # = числу привязок
+# в логах старта: «📂 Загружено N kv-ключей из PostgreSQL»
+docker compose restart rabotyaga-bot               # данные переживают рестарт
+```
+
+> ⚠️ `auth:v1` (хеши паролей) хранится в БД, но защищён `KV_BLACKLIST` —
+> никогда не отдаётся/не принимается через `/api/kv/:key`.
+
 ## Структура
 
 ```
