@@ -37,7 +37,7 @@ export function ScheduleTab({schedule,events,revenue,ds,members,onOpenDay,isMana
         </span>
       </div>
     </div>}
-    {sub=="calendar"&&<CalendarTab schedule={schedule} events={events} revenue={revenue} ds={ds} onOpenDay={onOpenDay} isManager={isManager} monthPlan={monthPlan} onSetMonthPlan={onSetMonthPlan}/>}
+    {sub=="calendar"&&<CalendarTab schedule={schedule} events={events} revenue={revenue} ds={ds} onOpenDay={onOpenDay} isManager={isManager} monthPlan={monthPlan} onSetMonthPlan={onSetMonthPlan} mozgDashboard={mozgDashboard}/>}
     {sub==="dashboard"&&<DashboardTab schedule={schedule} members={members} ds={ds} isManager={isManager} hourNorms={hourNorms} onSetHourNorm={onSetHourNorm}/>}
   </>);
 }
@@ -56,7 +56,7 @@ function CalEventBadge({ eventStr }) {
   return <span className="cal-ev">{eventStr}</span>;
 }
 
-function CalendarTab({schedule,events,revenue,ds,onOpenDay,isManager,monthPlan={},onSetMonthPlan}){
+function CalendarTab({schedule,events,revenue,ds,onOpenDay,isManager,monthPlan={},onSetMonthPlan,mozgDashboard={}}){
   // Инициализация из текущей даты — не хардкодим месяц
   const[ym,setYm]=useState(()=>ds.slice(0,7));
   const[tooltip,setTooltip]=useState(null);   // только desktop hover
