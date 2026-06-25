@@ -6,14 +6,42 @@ services:
       dockerfile: rabotyaga-bot/Dockerfile
     container_name: rabotyaga-bot
     restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy     # бот стартует только после готовности БД
     ports:
       - "${PORT:-3001}:3001"
     volumes:
-      - ./data.json:/app/data.json     # данные переживают пересборку образа
+      - ./data.json:/app/data.json     # disaster-recovery резерв (PostgreSQL — primary)
       - ./.env:/app/.env
     environment:
       - NODE_ENV=production
       - PORT=3001
+      # PostgreSQL: хост = имя сервиса в compose-сети
+      - DATABASE_URL=${DATABASE_URL:-postgresql://rabotyaga:${POSTGRES_PASSWORD:-changeme}@postgres:5432/rabotyaga}
       - IIKO_URL=${IIKO_URL:-}
       - IIKO_LOGIN=${IIKO_LOGIN:-}
       - IIKO_PASSWORD=${IIKO_PASSWORD:-}
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: rabotyaga-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: rabotyaga
+      POSTGRES_USER: rabotyaga
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # init-скрипты применяются ТОЛЬКО на пустом volume (первый старт)
+      - ./db/001_initial_schema.sql:/docker-entrypoint-initdb.d/001.sql
+      - ./db/002_data_sources.sql:/docker-entrypoint-initdb.d/002.sql
+      - ./db/003_theme_presets.sql:/docker-entrypoint-initdb.d/003.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rabotyaga"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  postgres_data:
