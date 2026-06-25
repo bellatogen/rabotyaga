@@ -3,6 +3,8 @@ export default {
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   moduleNameMapper: {
     '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
+    // Статические ассеты → заглушка, иначе jest парсит бинарник как JS.
+    '\\.(png|jpe?g|gif|svg|webp|avif|ico)$': '<rootDir>/__mocks__/fileMock.js',
   },
   transform: {
     '^.+\\.(js|jsx)$': 'babel-jest',

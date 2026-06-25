@@ -461,9 +461,6 @@ export function MonthAnalytics({ revenue, events = {}, ym, ds, isManager, monthP
     ? new Date(mozgData.syncedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : null;
   const mozgSyncDate = mozgData?.syncedAt
     ? new Date(mozgData.syncedAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) : null;
-  const mozgPeriod   = hasMozg && mozgData.period?.from
-    ? `${mozgData.period.from.slice(8)}–${mozgData.period.to.slice(8)} ${MONTHS_RU[Number(mozgData.period.from.slice(5,7))-1].toLowerCase()}`
-    : null;
 
   // ── Конверсия плана ──
   const daysWithBoth = days.filter(d => pN(d) > 0 && fN(d) > 0);
@@ -653,22 +650,19 @@ export function MonthAnalytics({ revenue, events = {}, ym, ds, isManager, monthP
           <PctBadge pct={displayGoalPct} size={16} />
         </div>
 
-        {/* Атрибуция источника — mozg.rest приоритет, iiko как детальный бэкенд */}
-        {hasMozg && (
+        {/* Источник факта — iiko (единственный источник правды, см. CLAUDE.md).
+            mozg показывается ТОЛЬКО как справочный дрифт-индикатор расхождения,
+            без атрибуции факта мозгу. Бейдж появляется лишь при расхождении ≥1%. */}
+        {hasMozg && mozgDrift != null && Math.abs(mozgDrift) >= 1 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, fontSize: 9, color: 'var(--mt)', opacity: .75 }}>
-            <span>🧠</span>
-            <span style={{ fontWeight: 600 }}>Мозг</span>
-            {mozgPeriod && <span>{mozgPeriod}</span>}
-            {mozgSyncDate && <span style={{ opacity: .7 }}>· {mozgSyncDate} {mozgSyncTime}</span>}
-            {mozgDrift != null && Math.abs(mozgDrift) >= 1 && (
-              <span style={{
-                fontWeight: 700, padding: '1px 5px', borderRadius: 5,
-                background: Math.abs(mozgDrift) >= 5 ? 'rgba(232,85,53,.15)' : 'rgba(139,196,122,.15)',
-                color: Math.abs(mozgDrift) >= 5 ? '#e85535' : '#8bc47a',
-              }}>
-                {mozgDrift > 0 ? '+' : '–'}{Math.abs(mozgDrift)}% vs iiko
-              </span>
-            )}
+            <span style={{
+              fontWeight: 700, padding: '1px 5px', borderRadius: 5,
+              background: Math.abs(mozgDrift) >= 5 ? 'rgba(232,85,53,.15)' : 'rgba(139,196,122,.15)',
+              color: Math.abs(mozgDrift) >= 5 ? '#e85535' : '#8bc47a',
+            }}>
+              {mozgDrift > 0 ? '+' : '–'}{Math.abs(mozgDrift)}%
+            </span>
+            <span style={{ opacity: .7 }}>Мозг vs iiko{mozgSyncDate ? ` · синк ${mozgSyncDate} ${mozgSyncTime}` : ''}</span>
           </div>
         )}
 

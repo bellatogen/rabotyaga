@@ -4,7 +4,8 @@ import { fmtDate, addDays } from './dateUtils.js';
 
 export const todayStr = () => new Date().toISOString().slice(0, 10);
 
-export const isDone = (v) => v === true || (v && typeof v === 'object' && !!v.done);
+// !!(...) гарантирует boolean: без него isDone(undefined) возвращал undefined, не false.
+export const isDone = (v) => v === true || !!(v && typeof v === 'object' && v.done);
 
 export const isToday = (task, ds = todayStr()) => {
   if (task.kind === 'irregular') return false;

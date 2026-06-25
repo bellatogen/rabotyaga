@@ -85,7 +85,9 @@ describe('taskUtils', () => {
   describe('formatDate', () => {
     it('should format date correctly', () => {
       const result = formatDate('2026-06-20');
-      expect(result).toMatch(/Сб[т|р].*июн/i);
+      // Устойчивый матч (не привязан к формату weekday в разных версиях ICU):
+      // достаточно дня недели «сб», числа 20 и месяца «июн».
+      expect(result).toMatch(/сб.*20.*июн/i);
     });
   });
 });
