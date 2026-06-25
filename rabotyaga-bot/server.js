@@ -16,6 +16,7 @@ const pushScheduler = require('./src/push/scheduler');
 const makeAdminApi  = require('./src/api/admin');
 const makeAuthApi   = require('./src/api/auth');
 const iiko          = require('./src/api/iiko');
+const adapter       = require('./db/adapter');
 const { syncSchedule }    = require('./src/sync/scheduleSync');
 const { syncRevenuePlan } = require('./src/sync/revenueSync');
 const { syncMozgDashboard } = require('./src/sync/mozgSync');
@@ -163,7 +164,8 @@ function saveData() {
 })();
 
 // Инициализируем sender и push API (data + saveData уже готовы)
-pushSender = makePushSender(data, saveData);
+// adapter — для дублирования пуш-логов в таблицу push_log
+pushSender = makePushSender(data, saveData, adapter);
 app.use('/api/push', makePushApi(pushSender));
 
 // ── Монтируем роутеры (требующие data) ──
