@@ -140,6 +140,7 @@ let pushSender; // будет инициализирован сразу посл
 let PG_OK = false;            // доступна ли БД для записи
 let pgRetryTimer = null;      // таймер ретрая при недоступном PG
 let flushChain = Promise.resolve(); // сериализация PG-флашей (одна транзакция за раз)
+let flushPending = false;     // coalescing: не ставить новый flush, пока один в очереди
 // Снимок того, что уже записано в PG — чтобы писать только изменённое.
 // pushSettings хранится в PG отдельным ключом 'pushSettings:v1' (не внутри kv).
 let lastFlushed = { kv: {}, bindings: {}, bindingsJSON: '', pushSettingsJSON: '' };
@@ -150,11 +151,14 @@ function saveData() {
     // 1. Файловый flush — всегда (disaster-recovery резерв)
     try { fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2)); }
     catch (e) { console.error('Ошибка записи data.json:', e); }
-    // 2. PG-flush — сериализованно, только если БД доступна
-    if (PG_OK) {
+    // 2. PG-flush — сериализованно + coalescing, только если БД доступна.
+    // flushPending сбрасывается в начале задачи (до flushToPG), поэтому записи,
+    // пришедшие во время самого flush, поставят следующий — ничего не теряется.
+    if (PG_OK && !flushPending) {
+      flushPending = true;
       flushChain = flushChain
-        .then(() => flushToPG())
-        .catch(e => console.error('[pg] flush error:', e.message));
+        .then(() => { flushPending = false; return flushToPG(); })
+        .catch(e => { flushPending = false; console.error('[pg] flush error:', e.message); });
     }
   }, 300);
 }
@@ -239,6 +243,7 @@ async function hydrateFromPG() {
 function schedulePGRetry() {
   if (pgRetryTimer) return;
   pgRetryTimer = setInterval(async () => {
+    // (таймер не держит event loop — см. .unref() ниже)
     try {
       const kvAll = await adapter.kvGetAll();
       clearInterval(pgRetryTimer); pgRetryTimer = null;
@@ -251,6 +256,7 @@ function schedulePGRetry() {
       saveData();
     } catch { /* ещё недоступна — ждём следующего тика */ }
   }, 15000);
+  pgRetryTimer.unref(); // не блокировать выход процесса
 }
 
 // ── Авто-миграция plaintext паролей → bcrypt ──
@@ -490,7 +496,7 @@ app.put('/api/kv/:key', requireAuth, (req, res) => {
 });
 
 // ── Health (открытый — нужен для пинга с фронта) ──
-app.get('/api/health', (req, res) => res.json({ ok: true, ts: Date.now() }));
+app.get('/api/health', (req, res) => res.json({ ok: true, ts: Date.now(), pg: PG_OK }));
 
 // ── Bind: привязка Telegram — только авторизованные ──
 app.post('/api/bind', requireAuth, (req, res) => {

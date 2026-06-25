@@ -38,7 +38,10 @@ class DataAdapter {
     );
     const bindings = {};
     res.rows.forEach(row => {
-      bindings[row.name] = row.telegram_id;
+      // telegram_id из PG приходит строкой (BIGINT). Нормализуем к числу,
+      // чтобы тип совпадал с data.json и не плодил баги сравнения на фронте.
+      // Telegram ID < 2^53, поэтому Number безопасен.
+      bindings[row.name] = Number(row.telegram_id);
     });
     return bindings;
   }
