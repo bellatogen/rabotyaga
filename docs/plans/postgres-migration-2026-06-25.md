@@ -81,7 +81,13 @@ PostgreSQL — primary store, in-memory `data` — горячий кеш, `data.
 sender.js пишет лог в push-log.json (sender.js:44). Добавить `adapter.logPush(...)` рядом; передать `adapter` в `makeSender(data, saveData, adapter)`. Файл push-log.json остаётся как fallback (согласовано с принципом «файл = резерв»). Не плодить сложность переключателями «файл/PG/оба» — просто оба вызова подряд, оба в try/catch.
 
 ### Порядок развёртывания (критично)
-Миграция данных (`migrate-from-json.js`) выполняется **до** первого старта сервера с включённым PG — иначе пустой PG перезатрёт data.json через flush. README фиксирует: deploy → `docker compose exec rabotyaga-bot node db/migrate-from-json.js` → restart.
+Миграция данных должна пройти **до** того как бот стартует и загружается из PG — иначе пустой PG перезатрёт data.json через flush.
+
+⚠️ **Наивный `docker compose exec rabotyaga-bot node migrate` САМОРАЗРУШИТЕЛЕН**: с `depends_on: service_healthy` бот автостартует вместе с PG и уже загрузится из пустого PG до того как этот exec отработает. Два варианта решения (выбор имплементатору):
+- **А. Двухшаговый up:** `docker compose up -d postgres` → дождаться healthy → `docker compose run --rm rabotyaga-bot node db/migrate-from-json.js` → `docker compose up -d rabotyaga-bot`. Бот стартует уже после наполнения PG.
+- **Б. Защита в коде (предпочтительно):** на старте, если PG доступен но **пуст** (0 ключей), а data.json непустой — не принимать пустой PG как истину: загрузиться из файла и «прогреть» PG первым flush (фактически авто-миграция). Делает exec-миграцию излишней, но скрипт остаётся для явного/повторного прогона.
+
+Вариант Б убирает хрупкий ручной порядок и согласуется с графул-fallback логикой из Item 4. Принять решение ДО Item 1 (влияет на форму docker-compose: нужен ли one-shot/run-сервис).
 
 ## Work Items
 
@@ -109,32 +115,29 @@ sender.js пишет лог в push-log.json (sender.js:44). Добавить `a
 **Size:** S.
 **Коммит:** `fix: sender.js logs pushes to postgres push_log`.
 
-### Item 4 — проверить scheduler.js
-**Goal:** подтвердить отсутствие loadData()/fs-чтения; убедиться что saveData()-вызов корректно триггерит dirty-flush.
-**Done when:** scheduler.js не содержит `loadData()`/`fs.readFileSync`; `tickMacros` пишет `data.kv['bot_macros:v1']` и вызывает `saveData()` → ключ попадает в PG; никаких прямых файловых записей помимо saveData.
-**Key files:** `rabotyaga-bot/src/push/scheduler.js:125,237,306`, `rabotyaga-bot/server.js:708`.
-**Dependencies:** Item 5 (dirty-tracking, чтобы проверить сквозной путь в PG) — функционально независим, но валидируется после Item 5.
-**Size:** S.
-**Коммит:** `fix: verify scheduler.js writes through saveData to postgres`.
-
-### Item 5 — подключить adapter к server.js (старт + dirty-tracking saveData)
-**Goal:** PG-first загрузка на старте с fallback на файл; dirty-tracking запись в PG при каждом flush.
-**Done when:** на старте данные грузятся из PG (`adapter.kvGet`/`getBindings`) с логом `📂 Загружено N kv-ключей из PostgreSQL`; при недоступном PG — fallback на `fs.readFileSync` + лог-предупреждение, сервер не падает; `saveData()` остаётся без аргументов, его debounce-колбэк диффает снимок и пишет только изменённые ключи + bindings + pushSettings:v1 через adapter; ошибка PG-записи логируется, файловый flush не ломается; `auth:v1` пишется в PG напрямую, но остаётся в KV_BLACKLIST для /api/kv; данные переживают `docker compose restart`.
-**Key files:** `rabotyaga-bot/server.js:26,31,122-132,138,358,367`, `rabotyaga-bot/db/adapter.js`, `rabotyaga-bot/db/pool.js`.
+### Item 4 — подключить adapter к server.js (старт + dirty-tracking saveData)
+**Goal:** PG-first загрузка на старте с fallback на файл; dirty-tracking запись в PG при каждом flush. Включает пред-шаг: добавить в adapter.js `kvDelete(key)` и деактивацию binding (если рантайм-удаление подтверждено — см. Open Questions).
+**Включает проверку scheduler.js** (ранее отдельный шаг, влит сюда — это валидация сквозного пути, не отдельная работа): подтвердить scheduler.js без loadData()/fs-чтения, `tickMacros` (scheduler.js:125) пишет `bot_macros:v1` через saveData() → ключ доходит до PG.
+**Done when:** на старте данные грузятся из PG (`adapter.kvGet`/`getBindings`) с логом `📂 Загружено N kv-ключей из PostgreSQL`; при недоступном PG — fallback на `fs.readFileSync` + лог-предупреждение, сервер не падает; PG-загрузка и заполнение lastFlushed завершаются ДО первого saveData (вкл. bcrypt-IIFE server.js:147); `saveData()` без аргументов, его debounce-колбэк диффает снимок, флаши сериализованы, пишет только изменённые/удалённые ключи + bindings + pushSettings:v1; PG_OK двусторонний с ретрай-пробой; ошибка PG-записи логируется, файловый flush не ломается; `auth:v1` пишется в PG напрямую, но остаётся в KV_BLACKLIST для /api/kv; данные переживают `docker compose restart`.
+**Key files:** `rabotyaga-bot/server.js:26,31,122-132,138,147,358,367,708`, `rabotyaga-bot/db/adapter.js`, `rabotyaga-bot/db/pool.js`, `rabotyaga-bot/src/push/scheduler.js:125`.
 **Dependencies:** Item 1, Item 2.
 **Size:** L.
 **Коммит:** `feat: connect adapter.js to server.js startup and saveData()`.
 
-### Item 6 — README + деплой-процедура
-**Goal:** задокументировать setup PG, шаг миграции, удаление orphan-контейнера.
-**Done when:** README описывает: переменную DATABASE_URL, `docker compose up`, первый деплой `docker compose exec rabotyaga-bot node db/migrate-from-json.js` ДО рестарта с PG, шаг удаления orphan `rabotyaga-postgres` контейнера+volume (`docker rm -f rabotyaga-postgres && docker volume rm <vol>`), чеклист проверки (COUNT kv_store, employee_bindings, restart-persistence).
+### Item 5 — README + деплой-процедура
+**Goal:** задокументировать setup PG, правильный порядок миграции, удаление orphan-контейнера.
+**Done when:** README описывает: переменную DATABASE_URL; удаление orphan `rabotyaga-postgres` контейнера+volume ПЕРВЫМ шагом (`docker rm -f rabotyaga-postgres && docker volume rm <vol>`); процедуру первого деплоя в выбранном варианте (А двухшаговый up или Б авто-миграция в коде, см. «Порядок развёртывания») — без саморазрушительного exec; чеклист проверки (COUNT kv_store == ключи data.json, employee_bindings, restart-persistence).
 **Key files:** `rabotyaga-bot/README.md` или корневой `README.md`.
-**Dependencies:** Items 1–5.
+**Dependencies:** Items 1–4.
 **Size:** S.
 **Коммит:** `docs: update README with postgres setup and migration steps`.
 
-## Open Questions
-- Двойная запись пуш-логов (файл + PG) — оставляю на переходный период (файл = fallback). Если решим только-PG, убрать `fs.writeFileSync` в sender.js:44 отдельным коммитом после стабилизации.
+## Решённые вопросы (проверено по коду)
+
+- **Удаление ключей/привязок в рантайме — ДА, есть.** `delete data.kv['basket:pairs:v4'|...]` (server.js:297,320,332,345 — сброс кешей iiko); `DELETE /api/bind/:name` → `delete data.bindings[name]` (server.js:393). → Item 4 ОБЯЗАН добавить `adapter.kvDelete(key)` и удаление/деактивацию binding, иначе удалённое воскресает после рестарта (напр. отвязанный сотрудник снова привязан). Пред-шаг подтверждён, не сокращается.
+- **Автостарт compose — postgres сейчас в compose ОТСУТСТВУЕТ** (только сервис `rabotyaga-bot` + маунт data.json). Добавляем PG с нуля; с `depends_on` бот будет автостартить вместе с базой. → Выбран **Вариант Б (защита в коде)**: на старте при доступном-но-пустом PG и непустом data.json грузиться из файла и прогревать PG (авто-миграция). Убирает хрупкий ручной порядок; one-shot-сервис в docker-compose не обязателен.
+
+## Open Questions (не блокирующие)
 - SSL для прод-подключения к PG: внутри docker-compose сети не нужен; нужен только если PG вынесут на отдельный managed-хост Timeweb. Отметить, не реализовывать сейчас.
 - push_schedule UNIQUE(schedule_date, scheduled_time, employee_id) vs adapter пишет employee_name (adapter.js:77) — вне скоупа KV-миграции, но баг существует; зафиксировать как отдельную задачу.
 
