@@ -92,7 +92,7 @@ function MiniStat({ label, value, sub, delta, align = 'left' }) {
 }
 
 // ── Спарклайн с тапабельным тултипом ────────────────────────────────────────
-function Sparkline({ days, revenue, events, monthShort }) {
+function Sparkline({ days, revenue, events = {}, monthShort }) {
   const [active, setActive] = useState(null); // index
   const fN    = d => Number(revenue[d]?.fact) || 0;
   const pN    = d => Number(revenue[d]?.plan) || 0;
@@ -385,7 +385,7 @@ function MiniSparkline({ values, color = 'var(--cu)', h = 24 }) {
 }
 
 // ── Главный компонент ────────────────────────────────────────────────────────
-export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan = {}, onSetMonthPlan, mozgData }) {
+export function MonthAnalytics({ revenue, events = {}, ym, ds, isManager, monthPlan = {}, onSetMonthPlan, mozgData }) {
   const [y, m] = ym.split('-').map(Number);
   const daysInMonth = new Date(y, m, 0).getDate();
   const days = Array.from({ length: daysInMonth }, (_, i) =>
@@ -446,17 +446,17 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
   const hasMozg        = !!(mozgData?.fact > 0);
   const displayFact    = totalFact;    // всегда iiko
   const displayFcst    = projection;   // всегда iiko
-  const displayGuests  = totalGuests;  // всегда iiko
-  const displayCheck   = avgCheck;     // всегда iiko
   const displayGoalPct = goalPct;
+  // displayGuests/displayCheck объявлены НИЖЕ — после totalGuests/avgCheck (иначе TDZ)
   const displayFcstPct = projPct;
   const displayPctToDate = pctToDate;
   const displayGap     = gapToDate;
   const displayAhead   = aheadOfDate;
   const displayNeeded  = neededPerDay;
-  // Дрифт mozg vs iiko — только для справочного бейджа (mozg отстаёт)
+  // Дрифт mozg vs iiko — только для справочного бейджа (mozg отстаёт).
+  // База процента — iiko (totalFact), т.к. лейбл «vs iiko».
   const mozgDrift    = hasMozg && totalFact > 0
-    ? Math.round((Number(mozgData.fact) - totalFact) / Number(mozgData.fact) * 100) : null;
+    ? Math.round((Number(mozgData.fact) - totalFact) / totalFact * 100) : null;
   const mozgSyncTime = mozgData?.syncedAt
     ? new Date(mozgData.syncedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : null;
   const mozgSyncDate = mozgData?.syncedAt
@@ -486,6 +486,10 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
   const gGuests     = guestDays.reduce((s, d) => s + gN(d), 0);
   const gFact       = guestDays.reduce((s, d) => s + fN(d), 0);
   const avgCheck    = gGuests > 0 ? Math.round(gFact / gGuests) : null;
+  // ПРАВИЛО iiko: display* для гостей/чека — здесь, после объявления источников.
+  // Раньше стояли выше (стр. ~449) и падали с ReferenceError (TDZ) на каждом рендере.
+  const displayGuests  = totalGuests;  // всегда iiko
+  const displayCheck   = avgCheck;     // всегда iiko
   const avgGpD      = guestDays.length > 0 ? Math.round(totalGuests / guestDays.length) : null;
   const projGuests  = isCurMonth && avgGpD && remainDays > 0 && !monthOver
     ? Math.round(totalGuests + avgGpD * remainDays)
@@ -662,7 +666,7 @@ export function MonthAnalytics({ revenue, events, ym, ds, isManager, monthPlan =
                 background: Math.abs(mozgDrift) >= 5 ? 'rgba(232,85,53,.15)' : 'rgba(139,196,122,.15)',
                 color: Math.abs(mozgDrift) >= 5 ? '#e85535' : '#8bc47a',
               }}>
-                {mozgDrift > 0 ? '–' : '+'}{Math.abs(mozgDrift)}% vs iiko
+                {mozgDrift > 0 ? '+' : '–'}{Math.abs(mozgDrift)}% vs iiko
               </span>
             )}
           </div>
