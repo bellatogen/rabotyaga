@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Язык общения (ALWAYS ACTIVE)
+
+Все ответы, комментарии в коде, коммит-сообщения, документация и чат — **только на русском**. Украинский и английский запрещены. Исключение: технические идентификаторы (имена переменных, ключи API, названия библиотек) — они остаются как есть в коде.
+
 ## Agent self-assessment rule (ALWAYS ACTIVE)
 
 Before delivering any implementation, Claude must self-assess quality on a 100-point scale covering: correctness, security, edge cases, consistency with existing code, no regressions. If score < 95 → iterate silently until 95–98 before presenting output. Never ship below 95. State the score when presenting completed work.
