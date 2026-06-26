@@ -1,6 +1,6 @@
 // Вкладка «Команда» — состав, статистика, карточки, журнал
 import { useState } from 'react';
-import { Users, Plus, Trash2, Key, BarChart2, TrendingUp, TrendingDown, Minus, Award, Eye, EyeOff, Lock, LockOpen, AlertTriangle } from 'lucide-react';
+import { Users, Plus, Trash2, Key, BarChart2, TrendingUp, TrendingDown, Minus, Award, Eye, Lock, LockOpen, AlertTriangle } from 'lucide-react';
 import { Avatar } from '../components/Avatar.jsx';
 import { ROLES, ALL_PERMS } from '../constants/roles.js';
 import { SHIFT_STATUSES } from '../constants/shifts.js';
@@ -24,18 +24,17 @@ export function TeamHubTab({canTeam,canStats,isManager,who,eventsLog,tasks,histo
       account={rest.account} isManager={isManager} isDeveloper={rest.isDeveloper} auth={rest.auth} acl={rest.acl}
       onAddMember={rest.onAddMember} onRemoveMember={rest.onRemoveMember}
       onResetPassword={rest.onResetPassword} onToggleAclPwd={rest.onToggleAclPwd}
-      onUpdateProfile={rest.onUpdateProfile} onAddOverride={rest.onAddOverride} onRemoveOverride={rest.onRemoveOverride}/>}
+      onUpdateProfile={rest.onUpdateProfile} onAddOverride={rest.onAddOverride} onRemoveOverride={rest.onRemoveOverride} onView={onView}/>}
     {sub==="stats"&&canStats&&<StatsTab tasks={tasks} history={history} ds={ds} members={rest.members} schedule={schedule} cards={cards} onView={onView}/>}
     {sub==="cards"&&isManager&&<CardsTab cards={cards} members={rest.members} setCardModal={setCardModal} onRevoke={onRevoke}/>}
     {sub==="logs"&&<LogsTab tasks={tasks} history={history} members={rest.members} who={who} isManager={isManager} ds={ds} eventsLog={eventsLog}/>}
   </>);
 }
 
-function TeamTab({profiles,members,statusOverrides,account,isDeveloper,auth,acl,onResetPassword,onToggleAclPwd,onUpdateProfile,onAddOverride,onRemoveOverride,onAddMember,onRemoveMember}){
+function TeamTab({profiles,members,statusOverrides,account,isDeveloper,auth,acl,onResetPassword,onToggleAclPwd,onUpdateProfile,onAddOverride,onRemoveOverride,onAddMember,onRemoveMember,onView}){
   const[editing,setEditing]=useState(null);
   const[newName,setNewName]=useState("");
   const seePwd=canViewPasswords(account,acl||{});
-  const ACCOUNTS=[...members,"manager","developer"];
   const addNew=()=>{if(newName.trim()){onAddMember(newName);setNewName("");}};
   return(<div className="sec">
     <div className="sec-head"><span className="sec-lbl"><Users size={12}/>Состав команды</span><span className="sec-cnt">{members.length}</span></div>
@@ -44,12 +43,17 @@ function TeamTab({profiles,members,statusOverrides,account,isDeveloper,auth,acl,
         style={{flex:1,background:"var(--bg)",border:"1px solid var(--bd)",borderRadius:8,padding:"10px 12px",color:"var(--pp)",fontSize:14,fontFamily:"inherit"}}/>
       <button className="btn btn-p" style={{width:"auto",padding:"0 16px",margin:0}} onClick={addNew}><Plus size={16}/></button>
     </div>}
-    {members.map(name=>{const p=profiles.find(x=>x.name===name)||{name,role:"barman",perms:ROLES.barman.perms};const ov=statusOverrides.find(o=>o.name===name);const isEditing=editing===name;
+    {members.map(name=>{const p=profiles.find(x=>x.name===name)||{name,role:"barman",perms:ROLES.barman.perms};const ov=statusOverrides.find(o=>o.name===name);const isEditing=editing===name;const hasPwd=!!(auth&&auth[name]);
       return(<div className="pr" key={name}>
-        <div className="pr-nm"><span>{name}</span>
+        {/* Единая строка сотрудника: профиль + статус пароля + вход в личную карточку */}
+        <div className="pr-nm" style={{display:"flex",alignItems:"center",gap:8}}>
+          <Avatar name={name} size={30}/>
+          <span style={{flex:1,minWidth:0,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis"}}>{name}</span>
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
             {ov&&<span style={{fontSize:11,padding:"2px 7px",borderRadius:8,background:"rgba(201,125,60,.15)",color:"var(--cu)"}}>{SHIFT_STATUSES[ov.status]?.label}</span>}
             <span style={{fontSize:11,color:"var(--mt)"}}>{ROLES[p.role]?.label}</span>
+            {seePwd&&<span title={hasPwd?"пароль задан":"пароль не задан"} style={{display:"flex",alignItems:"center",color:hasPwd?"var(--hp)":"var(--mt)"}}>{hasPwd?<Lock size={12}/>:<LockOpen size={12}/>}</span>}
+            {onView&&<button onClick={()=>onView(name)} title="Личная карточка" style={{background:"transparent",border:"1px solid var(--bd)",borderRadius:6,color:"var(--mt)",padding:"3px 6px",cursor:"pointer",display:"flex",alignItems:"center"}}><Eye size={13}/></button>}
             <button onClick={()=>setEditing(isEditing?null:name)} style={{background:"transparent",border:"1px solid var(--bd)",borderRadius:6,color:"var(--mt)",padding:"3px 8px",fontSize:11,cursor:"pointer"}}>{isEditing?"готово":"изм."}</button>
           </div></div>
         {isEditing&&<div style={{marginTop:8}}>
@@ -61,19 +65,24 @@ function TeamTab({profiles,members,statusOverrides,account,isDeveloper,auth,acl,
           {ALL_PERMS.map(perm=><label key={perm.id} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 0",fontSize:13,cursor:"pointer"}}>
             <input type="checkbox" checked={p.perms.includes(perm.id)||p.perms.includes("*")} onChange={e=>{const np=e.target.checked?[...p.perms,perm.id]:p.perms.filter(x=>x!==perm.id);onUpdateProfile({...p,perms:np});}} style={{width:16,height:16,accentColor:"var(--hp)"}}/>
             <span style={{color:"var(--pp)"}}>{perm.label}</span></label>)}
+          {seePwd&&<div style={{marginTop:12,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,padding:"8px 10px",background:"var(--bg)",borderRadius:8,border:"1px solid var(--bd)"}}>
+            <span style={{fontSize:13,color:hasPwd?"var(--hp)":"var(--mt)",display:"flex",alignItems:"center",gap:5}}>{hasPwd?<><Lock size={12}/>пароль задан</>:<><LockOpen size={12}/>пароль не задан</>}</span>
+            {hasPwd&&<button onClick={()=>onResetPassword(name)} style={{background:"transparent",border:"1px solid rgba(158,63,43,.35)",color:"#e07a60",borderRadius:6,padding:"4px 10px",fontSize:12,cursor:"pointer"}}>сбросить пароль</button>}
+          </div>}
           {onRemoveMember&&<button onClick={()=>{if(confirm(`Удалить сотрудника ${name} из команды?`))onRemoveMember(name);}} style={{marginTop:12,width:"100%",background:"transparent",border:"1px solid rgba(176,74,54,.4)",color:"#e07a60",borderRadius:8,padding:"9px",fontSize:13,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:6}}><Trash2 size={14}/>Удалить из команды</button>}
         </div>}
       </div>);})}
 
-    <div className="sec-head" style={{margin:"16px 0 9px"}}><span className="sec-lbl"><Key size={12}/>Пароли и доступы</span></div>
-    {isDeveloper&&<label style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0",fontSize:13,cursor:"pointer"}}>
-      <input type="checkbox" checked={!!(acl&&acl.managerCanViewPasswords)} onChange={e=>onToggleAclPwd(e.target.checked)} style={{width:16,height:16,accentColor:"var(--hp)"}}/>
-      <span>Управляющий может видеть пароли</span></label>}
-    {!seePwd&&<div className="info-box" style={{fontSize:12}}>У тебя нет права видеть пароли. Это право выдаёт разработчик.</div>}
+    {/* Системные аккаунты (manager/developer) — нет профиля, только доступ */}
     {seePwd&&<>
-      <div className="info-box" style={{fontSize:12}}>Пароли хранятся bcrypt-хешами на сервере — просмотр невозможен. Можно только сбросить (сотрудник задаст новый при следующем входе).</div>
-      {ACCOUNTS.map(a=><PwdRow key={a} account={a} hasPassword={!!(auth&&auth[a])} onReset={()=>onResetPassword(a)}/>)}
+      <div className="sec-head" style={{margin:"16px 0 9px"}}><span className="sec-lbl"><Key size={12}/>Системные аккаунты</span></div>
+      {isDeveloper&&<label style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0",fontSize:13,cursor:"pointer"}}>
+        <input type="checkbox" checked={!!(acl&&acl.managerCanViewPasswords)} onChange={e=>onToggleAclPwd(e.target.checked)} style={{width:16,height:16,accentColor:"var(--hp)"}}/>
+        <span>Управляющий может видеть пароли</span></label>}
+      <div className="info-box" style={{fontSize:12}}>Пароли — bcrypt-хеши на сервере, просмотр невозможен. Можно только сбросить.</div>
+      {["manager","developer"].map(a=><PwdRow key={a} account={a} hasPassword={!!(auth&&auth[a])} onReset={()=>onResetPassword(a)}/>)}
     </>}
+    {!seePwd&&isDeveloper&&<div className="info-box" style={{fontSize:12,marginTop:12}}>Права на просмотр паролей выдаёт разработчик.</div>}
   </div>);
 }
 
