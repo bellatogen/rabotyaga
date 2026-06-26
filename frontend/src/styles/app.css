@@ -253,11 +253,9 @@ body{background:var(--bg);color:var(--pp);transition:background .2s ease,color .
 
 /* Маскот-кавемен у спидометра */
 .caveman-img {
-  opacity: 0.55;
-  /* розовый тинт кейвмена (#ff69b4) */
-  filter: brightness(0) saturate(100%) invert(62%) sepia(45%) saturate(2800%) hue-rotate(295deg) brightness(101%) contrast(101%);
+  opacity: 0.42;
 }
 [data-theme="dark"] .caveman-img {
-  opacity: 0.85;
-  filter: brightness(0) saturate(100%) invert(62%) sepia(45%) saturate(2800%) hue-rotate(295deg) brightness(101%) contrast(101%);
+  opacity: 0.8;
+  filter: brightness(0) invert(1);
 }
