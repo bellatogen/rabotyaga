@@ -5,6 +5,8 @@ export default {
     '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
     // Статические ассеты → заглушка, иначе jest парсит бинарник как JS.
     '\\.(png|jpe?g|gif|svg|webp|avif|ico)$': '<rootDir>/__mocks__/fileMock.js',
+    // services/api.js использует import.meta.env (Vite) → мок-заглушка для тестов.
+    '(^|/)services/api(\\.js)?$': '<rootDir>/__mocks__/apiMock.js',
   },
   transform: {
     '^.+\\.(js|jsx)$': 'babel-jest',
