@@ -472,10 +472,9 @@ export function MonthAnalytics({ revenue, events = {}, ym, ds, isManager, monthP
   const totalLY  = lyDays.reduce((s, d) => s + lyN(d), 0);
   const totalFLY = lyDays.reduce((s, d) => s + fN(d), 0);
   const lyDelta  = totalLY > 0 ? Math.round((totalFLY / totalLY - 1) * 100) : null;
-  // Экстраполяция прошлого года до сопоставимого числа дней
-  const lyScaled = lyDays.length > 0
-    ? Math.round(totalLY / lyDays.length * daysWithFact.length)
-    : 0;
+  // Число и процент — на одной базе: реальные совпадающие дни (lyDays).
+  // Раньше показывали экстраполяцию на daysWithFact.length, а процент считали по
+  // совпадающим дням → разные базы, знак противоречил числу (см. баг «vs 2025»).
 
   // ── Гости и средний чек ──
   const totalGuests = days.reduce((s, d) => s + gN(d), 0);
@@ -740,7 +739,7 @@ export function MonthAnalytics({ revenue, events = {}, ym, ds, isManager, monthP
           <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--bd)',
             fontSize: 11, color: 'var(--mt)', opacity: .55,
             display: 'flex', gap: 8, alignItems: 'center' }}>
-            <span>vs {prevYear}: {fmt(lyScaled)} ₽</span>
+            <span>vs {prevYear}: {fmt(totalLY)} ₽</span>
             <span style={{ color: lyDelta > 0 ? '#8bc47a' : '#e85535', fontWeight: 700, filter: 'brightness(1.35)' }}>
               {lyDelta > 0 ? '+' : ''}{lyDelta}%
             </span>
