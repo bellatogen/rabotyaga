@@ -535,6 +535,17 @@ app.put('/api/kv/:key', requireAuth, (req, res) => {
 // ── Health (открытый — нужен для пинга с фронта) ──
 app.get('/api/health', (req, res) => res.json({ ok: true, ts: Date.now(), pg: PG_OK }));
 
+// ── Roster (открытый — нужен login-экрану ДО авторизации) ──
+// Возвращает только имена состава для пикера входа. Ничего чувствительного:
+// имена и так попадают в клиентский бандл (DEFAULT_MEMBERS). Без этого
+// эндпоинта незалогиненный/инкогнито-пользователь не видит добавленных
+// сотрудников — GET /api/kv/:key требует авторизацию и отдаёт 403.
+app.get('/api/roster', (req, res) => {
+  let members = [];
+  try { members = JSON.parse(data.kv['members:v1'] || '[]'); } catch {}
+  res.json({ members: Array.isArray(members) ? members : [] });
+});
+
 // ── Bind: привязка Telegram — только авторизованные ──
 app.post('/api/bind', requireAuth, (req, res) => {
   const { name, telegramId } = req.body;

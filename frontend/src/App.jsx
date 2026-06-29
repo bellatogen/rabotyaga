@@ -15,7 +15,7 @@ import { afterPushGate, getShiftStatus } from './utils/staffUtils.js';
 import { DEFAULT_HOUR_NORMS } from './constants/staff.js';
 import { processCard } from './utils/cardUtils.js';
 import { applyTheme, THEME_KEY } from './utils/theme.js';
-  import { ld, sv, pingServer, tgBind, authLogin, authLogout, authMe, authHasPassword, authChangePassword, authResetPassword, notifyShiftClosed } from './services/api.js';
+  import { ld, sv, pingServer, tgBind, authLogin, authLogout, authMe, authHasPassword, authChangePassword, authResetPassword, notifyShiftClosed, fetchRoster } from './services/api.js';
 import { usePersist } from './hooks/usePersist.js';
 import { Mascot } from './components/Mascot.jsx';
 import { TodayTab } from './pages/TodayTab.jsx';
@@ -107,10 +107,9 @@ export default function App(){
   // если ничего не изменилось (иначе usePersist гнал бы лишние PUT каждые 12с).
   useEffect(()=>{if(!picking)return;let on=true;
     const refresh=async()=>{try{
-      const[mem,profs]=await Promise.all([ld("members:v1",DEFAULT_MEMBERS),ld("profiles:v1",DEFAULT_PROFILES)]);
+      const mem=await fetchRoster(); // публичный ростер — работает до авторизации (members:v1 за auth)
       if(!on)return;
       if(Array.isArray(mem))setMembers(prev=>JSON.stringify(prev)===JSON.stringify(mem)?prev:mem);
-      if(Array.isArray(profs))setProfiles(prev=>JSON.stringify(prev)===JSON.stringify(profs)?prev:profs);
       const accs=[...(Array.isArray(mem)?mem:DEFAULT_MEMBERS),'manager','developer'];
       const hp=await Promise.all(accs.map(a=>authHasPassword(a).then(has=>({a,has})).catch(()=>({a,has:false}))));
       if(!on)return;

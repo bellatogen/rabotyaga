@@ -89,6 +89,16 @@ export async function authMe() {
   } catch { return null; }
 }
 
+/** Список состава для экрана входа (публичный, работает ДО авторизации). */
+export async function fetchRoster() {
+  try {
+    const r = await fetch(`${API_BASE}/roster`, FETCH_OPTS);
+    if (!r.ok) return null;
+    const d = await r.json();
+    return Array.isArray(d.members) ? d.members : null;
+  } catch { return null; }
+}
+
 /** Проверить, задан ли пароль у аккаунта. */
 export async function authHasPassword(account) {
   try {
