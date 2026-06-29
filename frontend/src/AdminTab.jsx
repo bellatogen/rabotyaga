@@ -567,9 +567,11 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
         <div>
           <div className="sec-lbl" style={{ marginBottom: 6 }}>Маржинальность меню</div>
           <div className="info-box" style={{ marginBottom: 14, fontSize: 12, lineHeight: 1.5 }}>
-            iiko автоматически вычисляет маржу по каждому блюду за 30 дней.
-            Позиции с маржей выше порога помечаются 🟡 в «Умных сотах».
-            Если iiko не передаёт себестоимость — добавьте позиции вручную в разделе ниже.
+            iiko автоматически вычисляет маржу по каждому блюду за 30 дней
+            (выручка − себестоимость). Позиции с маржей выше порога
+            помечаются 🟡 в «Умных сотах». Себестоимость берётся из закупочных
+            цен / техкарт iiko — если их нет, маржа не посчитается; тогда
+            заполните закупочные цены в iiko либо ведите список вручную ниже.
           </div>
 
           {/* Кнопка синхронизации */}
@@ -594,6 +596,12 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
           {/* Авто данные iiko */}
           {marginData && (
             <div>
+              {marginData.reason === 'partial' && (
+                <div className="alert" style={{ fontSize: 12, marginBottom: 12, display:'flex', gap:4 }}>
+                  <AlertTriangle size={13}/>
+                  Себестоимость заведена у {marginData.coveredCount} из {marginData.totalCount} блюд. Остальным задайте закупочные цены в iiko.
+                </div>
+              )}
               {marginData.hasMarginData ? (
                 <>
                   {/* Порог маржинальности */}
@@ -620,7 +628,7 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
 
                   {/* Таблица блюд */}
                   <div style={{ fontSize: 10, color: 'var(--mt)', marginBottom: 8, opacity: 0.6 }}>
-                    Данные за {marginData.from}–{marginData.to} · {marginData.items.length} позиций
+                    Данные за {marginData.from}–{marginData.to} · маржа у {marginData.coveredCount} из {marginData.totalCount} позиций
                   </div>
                   <div style={{ maxHeight: 320, overflowY: 'auto' }}>
                     {marginData.items.filter(i => i.margin != null).map((item, i) => {
@@ -650,9 +658,14 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
                   </div>
                 </>
               ) : (
-                <div className="alert warn" style={{ fontSize: 12, marginBottom: 12, display:'flex',gap:4 }}>
+                <div className={marginData.reason === 'no_sales' ? 'alert' : 'alert warn'}
+                  style={{ fontSize: 12, marginBottom: 12, display:'flex', gap:4 }}>
                   <AlertTriangle size={13}/>
-                  iiko не передал данные о себестоимости (ProductCostBase). Используйте ручной список ниже.
+                  {marginData.reason === 'field_unsupported'
+                    ? 'iiko на этой лицензии не отдаёт себестоимость (ProductCostBase). Включите поле в настройках iiko OLAP или ведите ручной список ниже.'
+                    : marginData.reason === 'no_sales'
+                    ? `Нет продаж за период ${marginData.from}–${marginData.to} — маржу считать не из чего.`
+                    : 'iiko отдаёт продажи, но себестоимость = 0 у всех блюд. Заведите закупочные цены / техкарты в номенклатуре iiko и синхронизируйте снова. Либо ведите ручной список ниже.'}
                 </div>
               )}
             </div>
