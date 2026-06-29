@@ -14,6 +14,21 @@ const iiko = require('./iiko');
 
 const OWNERSHIPS = new Set(['own', 'external']);
 
+// Нормализует iikoProductId (строка | массив | null) для хранения.
+// Массив: тримит, фильтрует пустые. Строка: тримит или null. null → null.
+function normalizeIikoId(v) {
+  if (v == null) return null;
+  if (Array.isArray(v)) {
+    const arr = v.map((s) => (typeof s === 'string' ? s.trim() : '')).filter(Boolean);
+    return arr.length > 0 ? arr : null;
+  }
+  if (typeof v === 'string') {
+    const s = v.trim();
+    return s || null;
+  }
+  return null;
+}
+
 module.exports = function makeTapsRouter(data, saveData) {
   const router = express.Router();
   const bad = (res, msg) => res.status(400).json({ error: msg });
@@ -42,7 +57,10 @@ module.exports = function makeTapsRouter(data, saveData) {
     if (b.position !== undefined && (!Number.isFinite(b.position) || b.position <= 0)) return 'position должен быть числом > 0';
     if (b.salesPerMonth !== undefined && b.salesPerMonth !== null && (!Number.isFinite(b.salesPerMonth) || b.salesPerMonth < 0)) return 'salesPerMonth должен быть числом >= 0 или null';
     if (b.newPrice !== undefined && b.newPrice !== null && (!Number.isFinite(b.newPrice) || b.newPrice < 0)) return 'newPrice должен быть числом >= 0 или null';
-    if (b.iikoProductId !== undefined && b.iikoProductId !== null && typeof b.iikoProductId !== 'string') return 'iikoProductId должен быть строкой или null';
+    if (b.iikoProductId !== undefined && b.iikoProductId !== null) {
+      if (typeof b.iikoProductId !== 'string' && !Array.isArray(b.iikoProductId)) return 'iikoProductId должен быть строкой, массивом строк или null';
+      if (Array.isArray(b.iikoProductId) && !b.iikoProductId.every((s) => typeof s === 'string')) return 'iikoProductId: массив должен содержать только строки';
+    }
     return null;
   }
 
@@ -81,11 +99,12 @@ module.exports = function makeTapsRouter(data, saveData) {
   });
 
   // ── POST /refresh-sales — подтянуть продажи за 30 дней из IIKO ──
-  // Только для кранов с iikoProductId; сопоставление по DishName. Остальные не трогаем.
+  // Суммирует counts по ВСЕМ DishName крана (мульти-маппинг). Краны без маппинга не трогаем.
+  // Возвращает { updated, unmatched: [{tap,tapName,dishName}], details }.
   router.post('/refresh-sales', requireAuth, async (req, res) => {
     const taps = model.loadTaps(data);
-    const mapped = taps.filter((t) => t.iikoProductId);
-    if (mapped.length === 0) {
+    const hasMapped = taps.some((t) => model.tapIikoNames(t).length > 0);
+    if (!hasMapped) {
       return res.json({ success: true, updated: 0, message: 'Нет кранов с маппингом iikoProductId' });
     }
     try {
@@ -96,17 +115,30 @@ module.exports = function makeTapsRouter(data, saveData) {
       const { counts } = await iiko.getDishSalesCounts(from, to);
 
       let updated = 0;
+      const unmatched = [];  // [{tap, tapName, dishName}] — имена, не найденные в counts
       const details = [];
       for (const t of taps) {
-        if (!t.iikoProductId) continue;
-        const count = counts[t.iikoProductId];
-        if (count == null) { details.push({ id: t.id, name: t.name, matched: false }); continue; }
-        t.salesPerMonth = count; // продажи за 30 дней ≈ продажи/мес
+        const names = model.tapIikoNames(t);
+        if (names.length === 0) continue;
+        // Суммируем продажи по всем именам крана.
+        let total = 0;
+        const tapUnmatched = [];
+        for (const dishName of names) {
+          if (counts[dishName] != null) {
+            total += counts[dishName];
+          } else {
+            tapUnmatched.push(dishName);
+          }
+        }
+        t.salesPerMonth = total;
         updated++;
-        details.push({ id: t.id, name: t.name, matched: true, salesPerMonth: count });
+        details.push({ id: t.id, name: t.name, salesPerMonth: total, unmatched: tapUnmatched });
+        for (const dishName of tapUnmatched) {
+          unmatched.push({ tap: t.id, tapName: t.name, dishName });
+        }
       }
       if (updated > 0) { model.setTaps(data, taps); saveData(); }
-      res.json({ success: true, updated, from, to, details });
+      res.json({ success: true, updated, from, to, details, unmatched });
     } catch (err) {
       console.error('[taps/refresh-sales]', err.message);
       res.status(err.status || 500).json({ error: err.message });
@@ -130,7 +162,7 @@ module.exports = function makeTapsRouter(data, saveData) {
       cost: b.cost,
       discountApplies: b.discountApplies != null ? b.discountApplies : true,
       salesPerMonth: b.salesPerMonth != null ? b.salesPerMonth : null,
-      iikoProductId: b.iikoProductId != null ? b.iikoProductId : null,
+      iikoProductId: normalizeIikoId(b.iikoProductId),
       isAnchor: b.isAnchor != null ? b.isAnchor : false,
       isStrategicHold: b.isStrategicHold != null ? b.isStrategicHold : false,
       newPrice: b.newPrice != null ? b.newPrice : null,
@@ -149,8 +181,9 @@ module.exports = function makeTapsRouter(data, saveData) {
     const tap = taps.find((t) => t.id === req.params.id);
     if (!tap) return res.status(404).json({ error: 'Кран не найден' });
     const b = req.body || {};
-    const fields = ['position', 'ownership', 'price', 'cost', 'discountApplies', 'salesPerMonth', 'iikoProductId', 'isAnchor', 'isStrategicHold', 'newPrice'];
+    const fields = ['position', 'ownership', 'price', 'cost', 'discountApplies', 'salesPerMonth', 'isAnchor', 'isStrategicHold', 'newPrice'];
     for (const f of fields) if (b[f] !== undefined) tap[f] = b[f];
+    if (b.iikoProductId !== undefined) tap.iikoProductId = normalizeIikoId(b.iikoProductId);
     if (b.name !== undefined) tap.name = b.name.trim();
     model.setTaps(data, taps);
     saveData();

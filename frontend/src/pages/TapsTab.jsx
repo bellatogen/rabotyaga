@@ -17,6 +17,24 @@ const lbl = { fontSize: 12, color: 'var(--mt)', marginBottom: 4, display: 'block
 const fmtRub = (n) => (n == null ? '—' : Math.round(n).toLocaleString('ru-RU') + ' ₽');
 const fmtPct = (n) => (n == null ? '—' : n.toFixed(1) + '%');
 
+// Проверить наличие маппинга IIKO: string | string[] | null — defensive.
+const hasIikoNames = (v) => {
+  if (!v) return false;
+  if (Array.isArray(v)) return v.some((s) => s && String(s).trim());
+  return typeof v === 'string' && v.trim().length > 0;
+};
+// Нормализовать iikoProductId (string|string[]|null) в текст textarea (по имени на строку).
+const iikoToText = (v) => {
+  if (!v) return '';
+  if (Array.isArray(v)) return v.filter(Boolean).join('\n');
+  return String(v);
+};
+// Текст textarea → массив строк (null если пусто).
+const textToIiko = (s) => {
+  const arr = String(s || '').split('\n').map((x) => x.trim()).filter(Boolean);
+  return arr.length > 0 ? arr : null;
+};
+
 // Ранг бейджа для сортировки «что требует действия — наверху».
 const badgeRank = { '🔴': 0, '🟡': 1, '🟢': 2 };
 
@@ -28,7 +46,8 @@ function toRaw(d) {
     cost: Number(d.cost) || 0,
     salesPerMonth: (d.salesPerMonth === '' || d.salesPerMonth == null) ? null : (Number(d.salesPerMonth) || 0),
     newPrice: (d.newPrice === '' || d.newPrice == null) ? null : Number(d.newPrice),
-    iikoProductId: (d.iikoProductId && String(d.iikoProductId).trim()) ? String(d.iikoProductId).trim() : null,
+    // iikoProductId хранится как массив строк (текст textarea разбивается по \n).
+    iikoProductId: textToIiko(d.iikoProductId),
     discountApplies: !!d.discountApplies,
     isAnchor: !!d.isAnchor,
     isStrategicHold: !!d.isStrategicHold,
@@ -192,7 +211,7 @@ function TapCard({ t, config, open, onToggle, onSave }) {
             <span style={{ fontSize: 12, color: 'var(--mt)' }}>№{t.position}</span>
             <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--pp)' }}>{t.name}</span>
             <span style={pill(t.ownership === 'own' ? 'var(--cu)' : 'var(--mt)')}>{t.ownership === 'own' ? 'свой' : 'чужой'}</span>
-            {t.iikoProductId && <span style={pill('var(--cu)')}><Link2 size={11} /> IIKO</span>}
+            {hasIikoNames(t.iikoProductId) && <span style={pill('var(--cu)')}><Link2 size={11} /> IIKO</span>}
           </div>
           <div style={{ display: 'flex', gap: 14, marginTop: 6, flexWrap: 'wrap' }}>
             <Stat label="% факт" value={fmtPct(t.marginFactPct)} color={accent} />
@@ -228,7 +247,8 @@ function TapDetail({ t, config, onSave }) {
     price: String(t.price ?? ''),
     cost: String(t.cost ?? ''),
     salesPerMonth: t.salesPerMonth == null ? '' : String(t.salesPerMonth),
-    iikoProductId: t.iikoProductId ?? '',
+    // iikoProductId: string[]|string|null → текст textarea (по имени на строку)
+    iikoProductId: iikoToText(t.iikoProductId),
     newPrice: t.newPrice == null ? '' : String(t.newPrice),
     discountApplies: !!t.discountApplies,
     isAnchor: !!t.isAnchor,
@@ -250,7 +270,8 @@ function TapDetail({ t, config, onSave }) {
 
   // Live-расчёт по черновику — единый источник computeTap.
   const live = useMemo(() => computeTap(toRaw(d), config), [d, config]);
-  const hasIiko = !!(d.iikoProductId && d.iikoProductId.trim());
+  // hasIiko: есть ли хоть одна непустая строка в textarea
+  const hasIiko = textToIiko(d.iikoProductId) !== null;
 
   const onSubmit = () => {
     const raw = toRaw(d);
@@ -325,9 +346,14 @@ function TapDetail({ t, config, onSave }) {
           </select>
         </div>
         <div style={{ gridColumn: '1 / -1' }}>
-          <label style={lbl}>IIKO маппинг (DishName)</label>
-          <input style={inp} value={d.iikoProductId} onChange={(e) => set('iikoProductId', e.target.value)}
-            placeholder="имя позиции в IIKO (пусто = не привязан)" />
+          <label style={lbl}>IIKO маппинг — точные DishName (по одному на строку)</label>
+          <textarea
+            style={{ ...inp, minHeight: 90, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.45 }}
+            value={d.iikoProductId}
+            onChange={(e) => set('iikoProductId', e.target.value)}
+            placeholder={'Дримтим Порт Пилснер 0,5 драфт\nДримтим Порт Пилснер 0,25 драфт\n…'}
+          />
+          <div style={{ fontSize: 11, color: 'var(--mt)', marginTop: 3 }}>Точные DishName из iiko, по одному на строку. Пусто = не привязан.</div>
         </div>
       </div>
 

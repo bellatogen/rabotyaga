@@ -20,7 +20,7 @@ const DEFAULT_CONFIG = { greenThreshold: 70, yellowThreshold: 60, discountRate: 
 
 // Сид 21 крана. Поля: position, name, ownership, price, cost, discountApplies,
 // salesPerMonth, isAnchor. Остальное добивается при сидировании:
-// iikoProductId=null, isStrategicHold=false, newPrice=null. id = `t${position}`.
+// iikoProductId=null|string|string[], isStrategicHold=false, newPrice=null. id = `t${position}`.
 const SEED_TAPS_RAW = [
   { position: 1,  name: 'Дримтим Локал Лагер',      ownership: 'own',      price: 430, cost: 110, discountApplies: true,  salesPerMonth: 1393, isAnchor: true  },
   { position: 2,  name: 'Дримтим Порт Пилснер',     ownership: 'own',      price: 430, cost: 140, discountApplies: true,  salesPerMonth: 2649, isAnchor: true  },
@@ -103,6 +103,17 @@ function ensureTapModel(data, saveData) {
   return data;
 }
 
+// ── Нормализация iikoProductId ──
+// tapIikoNames(tap) → массив непустых строк DishName для матчинга в IIKO.
+// Принимает string | string[] | null — возвращает всегда Array<string>.
+function tapIikoNames(tap) {
+  const v = tap && tap.iikoProductId;
+  if (!v) return [];
+  if (Array.isArray(v)) return v.filter((s) => typeof s === 'string' && s.trim()).map((s) => s.trim());
+  if (typeof v === 'string' && v.trim()) return [v.trim()];
+  return [];
+}
+
 module.exports = {
   KEYS,
   DEFAULT_CONFIG,
@@ -111,4 +122,5 @@ module.exports = {
   ensureTapModel,
   loadTaps, setTaps,
   loadConfig, setConfig,
+  tapIikoNames,
 };
