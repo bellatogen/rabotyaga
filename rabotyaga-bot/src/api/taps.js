@@ -130,9 +130,13 @@ module.exports = function makeTapsRouter(data, saveData) {
             tapUnmatched.push(dishName);
           }
         }
-        t.salesPerMonth = total;
+        // iiko DishAmountInt = объём в базовых единицах 0,25 л (не порции 0,5).
+        // Порции 0,5 = total × 0,5 — универсально для любого объёма (0,25/0,33/0,5/1/1,5),
+        // абонемент 1,5 л автоматически = 3 порции по 0,5.
+        const portions05 = Math.round(total * 0.5);
+        t.salesPerMonth = portions05;
         updated++;
-        details.push({ id: t.id, name: t.name, salesPerMonth: total, unmatched: tapUnmatched });
+        details.push({ id: t.id, name: t.name, salesPerMonth: portions05, rawUnits025: total, unmatched: tapUnmatched });
         for (const dishName of tapUnmatched) {
           unmatched.push({ tap: t.id, tapName: t.name, dishName });
         }
