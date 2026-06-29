@@ -313,18 +313,17 @@ app.use('/api/push', makePushApi(pushSender, data, saveData, bot));
 app.use('/api/auth',  makeAuthApi(data, saveData));
 app.use('/api/admin', requireManager, makeAdminApi(data, saveData));
 
-// ── Квест-система (геймификация): инициализация модели + роутеры ──
-// ensureQuestModel идемпотентен: засевает пул/награды при первом старте,
-// не затирая существующие данные. Авторизация — внутри роутеров (requireAuth/requireManager).
-ensureQuestModel(data, saveData);
+// ── Квест-система (геймификация): роутеры ──
+// ВАЖНО: ensureQuestModel ВЫЗЫВАЕТСЯ В BOOTSTRAP ПОСЛЕ hydrateFromPG (см. ниже),
+// иначе засеянные ключи затираются снимком из PG и никогда не персистятся.
+// Авторизация — внутри роутеров (requireAuth/requireManager).
 app.use('/api/quests',  makeQuestsApi(data, saveData));
 app.use('/api/rewards', makeRewardsApi(data, saveData));
 app.use('/api/xp',      makeXpApi(data, saveData));
 
-// —— Кокпит кранов: инициализация конфига (идемпотентно) + роутер ——
-// taps:v1 сидируется миграцией (scripts/migrate-taps.js), здесь только tap_config:v1.
+// —— Кокпит кранов: роутер ——
+// ensureTapModel также в BOOTSTRAP после hydrateFromPG (см. ниже).
 // Авторизация — внутри роутера (requireAuth; шеф-бармен имеет запись).
-ensureTapModel(data, saveData);
 app.use('/api/taps',    makeTapsApi(data, saveData));
 
 // ── Синхронизация расписания — только авторизованные ──
@@ -831,6 +830,10 @@ let httpServer;
   // push_settings:v1 + data.pushSettings + profiles:v1 (после hydrate, чтобы
   // мигрировать актуальные данные, а не файловый снимок).
   ensurePushModel(data, saveData);
+  // Квест-система и кокпит кранов: идемпотентный сид ПОСЛЕ hydrateFromPG —
+  // иначе hydrate затрёт засеянные ключи до первого флаша в PG.
+  ensureQuestModel(data, saveData);
+  ensureTapModel(data, saveData);
 
   bot.launch().catch(err => console.error('⚠️  Ошибка запуска бота (сервер продолжает работу):', err.message));
   pushScheduler.startScheduler(bot, data, pushSender, saveData);
