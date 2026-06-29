@@ -37,6 +37,9 @@ services:
       - ./db/001_initial_schema.sql:/docker-entrypoint-initdb.d/001.sql
       - ./db/002_data_sources.sql:/docker-entrypoint-initdb.d/002.sql
       - ./db/003_theme_presets.sql:/docker-entrypoint-initdb.d/003.sql
+      # 004 — мультитенантность (SEC-8). Только на ПУСТОМ volume (развёртывание с нуля);
+      # на существующем боевом volume миграцию гонят вручную. Идемпотентна.
+      - ./db/004_multitenancy.sql:/docker-entrypoint-initdb.d/004.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U rabotyaga"]
       interval: 5s
