@@ -189,7 +189,6 @@
     <div class="tabs">
       <button class="tab active" data-tab="employees">👥 Сотрудники</button>
       <button class="tab" data-tab="templates">📝 Шаблоны</button>
-      <button class="tab" data-tab="schedule">⏰ Расписание</button>
       <button class="tab" data-tab="logs">📊 Логи</button>
       <button class="tab" data-tab="themes">🎨 Темы</button>
     </div>
@@ -199,15 +198,6 @@
       <div class="card"><div class="card-title">📬 Личные задачи</div><div class="form-group"><textarea id="tpl-personalTasks"></textarea><div class="hint">Переменная {tasks} — список задач</div></div></div>
       <div class="card"><div class="card-title">⏰ Закрытие смены</div><div class="form-group"><textarea id="tpl-closeShiftReminder"></textarea></div></div>
       <button class="btn btn-success" onclick="saveTemplates()" style="width:100%;justify-content:center;">💾 Сохранить шаблоны</button>
-    </div>
-    <div id="schedule" class="panel">
-      <div class="card">
-        <div class="card-title">Время отправки пушей</div>
-        <div class="schedule-row"><div class="schedule-info"><div class="schedule-name">🔔 За сутки до смены</div><div class="schedule-desc">За день до смены с задачами</div></div><input type="time" id="time-dayBeforeShift" value="20:00" class="schedule-time"><label class="toggle"><input type="checkbox" id="enabled-dayBeforeShift" checked><span class="slider"></span></label></div>
-        <div class="schedule-row"><div class="schedule-info"><div class="schedule-name">📬 Личные задачи</div><div class="schedule-desc">Утром перед сменой</div></div><input type="time" id="time-personalTasks" value="09:00" class="schedule-time"><label class="toggle"><input type="checkbox" id="enabled-personalTasks" checked><span class="slider"></span></label></div>
-        <div class="schedule-row"><div class="schedule-info"><div class="schedule-name">⏰ Закрытие смены</div><div class="schedule-desc">В конце дня</div></div><input type="time" id="time-closeShiftReminder" value="22:00" class="schedule-time"><label class="toggle"><input type="checkbox" id="enabled-closeShiftReminder" checked><span class="slider"></span></label></div>
-        <button class="btn btn-success" onclick="saveSchedule()" style="width:100%;justify-content:center;margin-top:16px;">💾 Сохранить расписание</button>
-      </div>
     </div>
     <div id="logs" class="panel">
       <div class="card">
@@ -546,10 +536,9 @@
     async function deleteEmployee(name){if(!confirm(`Удалить "${name}"?`))return;const res=await adminFetch(API+'/api/bind/'+encodeURIComponent(name),{method:'DELETE'});const data=await res.json();if(data.success){toast('✅ Удалён');loadEmployees();}else toast('❌ Ошибка',true);}
     async function loadTemplates(){const res=await adminFetch(API+'/api/admin/default-templates');const data=await res.json();if(data.templates){document.getElementById('tpl-dayBeforeShift').value=data.templates.dayBeforeShift||'';document.getElementById('tpl-closeShiftReminder').value=data.templates.closeShiftReminder||'';document.getElementById('tpl-personalTasks').value=data.templates.personalTasks||'';}}
     async function saveTemplates(){const templates={dayBeforeShift:document.getElementById('tpl-dayBeforeShift').value,closeShiftReminder:document.getElementById('tpl-closeShiftReminder').value,personalTasks:document.getElementById('tpl-personalTasks').value};const res=await adminFetch(API+'/api/admin/default-templates',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({templates})});const data=await res.json();if(data.success){toast('✅ Сохранено');loadTemplates();}else toast('❌ Ошибка',true);}
-    async function loadSchedule(){const res=await adminFetch(API+'/api/admin/schedule');const data=await res.json();if(data.schedule){['dayBeforeShift','personalTasks','closeShiftReminder'].forEach(key=>{const s=data.schedule[key];if(s){document.getElementById('time-'+key).value=s.time||'00:00';document.getElementById('enabled-'+key).checked=s.enabled!==false;}});}}
-    async function saveSchedule(){const schedule={dayBeforeShift:{time:document.getElementById('time-dayBeforeShift').value,enabled:document.getElementById('enabled-dayBeforeShift').checked},personalTasks:{time:document.getElementById('time-personalTasks').value,enabled:document.getElementById('enabled-personalTasks').checked},closeShiftReminder:{time:document.getElementById('time-closeShiftReminder').value,enabled:document.getElementById('enabled-closeShiftReminder').checked}};const res=await adminFetch(API+'/api/admin/schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({schedule})});const data=await res.json();if(data.success){toast('✅ Сохранено');loadSchedule();}else toast('❌ Ошибка',true);}
+    // Расписание пушей переехало в push:v1.defs (React-админка). Старые роуты /api/admin/schedule удалены.
     async function loadLogs(){const res=await adminFetch(API+'/api/admin/push-logs');const data=await res.json();const list=document.getElementById('logs-list');if(!data.logs||data.logs.length===0){list.innerHTML='<div class="empty"><div class="empty-icon">📊</div>Нет записей</div>';document.getElementById('stat-logs').textContent='0';return;}let logs=data.logs;const today=new Date().toISOString().slice(0,10);if(currentFilter==='today')logs=logs.filter(l=>l.timestamp?.slice(0,10)===today);else if(currentFilter==='success')logs=logs.filter(l=>l.success);else if(currentFilter==='error')logs=logs.filter(l=>!l.success);const todayLogs=data.logs.filter(l=>l.timestamp?.slice(0,10)===today);document.getElementById('stat-logs').textContent=todayLogs.length;if(logs.length===0){list.innerHTML='<div class="empty"><div class="empty-icon">📊</div>Нет записей по фильтру</div>';return;}const typeLabels={dayBeforeShift:'🔔 За сутки',personalTasks:'📬 Задачи',closeShiftReminder:'⏰ Закрытие',individualTasks:'📩 Индив.',test:'🧪 Тест'};list.innerHTML=logs.slice(0,50).map(log=>{const date=new Date(log.timestamp);const timeStr=date.toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});return `<div class="log-entry"><div class="log-time">${timeStr}</div><div class="log-user"><span class="log-type ${log.success?'success':'error'}">${log.success?'✅':'❌'}</span>${log.userName||'ID: '+log.userId}</div><div class="log-message"><strong>${typeLabels[log.type]||log.type}</strong>${log.error?' — '+log.error:''}</div></div>`;}).join('');}
-    loadEmployees();loadTemplates();loadSchedule();
+    loadEmployees();loadTemplates();
   </script>
 </body>
 </html>

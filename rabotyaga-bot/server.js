@@ -15,8 +15,16 @@ const makePushSender = require('./src/push/sender');
 const pushScheduler = require('./src/push/scheduler');
 const makeAdminApi  = require('./src/api/admin');
 const makeAuthApi   = require('./src/api/auth');
+const makeQuestsApi  = require('./src/api/quests');
+const makeRewardsApi = require('./src/api/rewards');
+const makeXpApi      = require('./src/api/xp');
+const { ensureQuestModel } = require('./src/quests/model');
+const makeTapsApi    = require('./src/api/taps');
+const { ensureTapModel } = require('./src/taps/model');
 const iiko          = require('./src/api/iiko');
 const adapter       = require('./db/adapter');
+const { isToday }   = require('./src/shift/isToday');
+const { ensurePushModel, PUSH_KEY } = require('./src/push/model');
 const { syncSchedule }    = require('./src/sync/scheduleSync');
 const { syncRevenuePlan } = require('./src/sync/revenueSync');
 const { syncMozgDashboard } = require('./src/sync/mozgSync');
@@ -45,8 +53,12 @@ const MANAGER_ONLY_KV = new Set([
   'margin_threshold:v1', // порог маржинальности (%) — только менеджер
   'bot_chats:v1',        // зарегистрированные чаты для рассылки — только менеджер
   'bot_macros:v1',       // макросы рассылки в чаты — только менеджер
-  'push_settings:v1',    // расписание + шаблоны пушей — только менеджер
+  'push_settings:v1',    // расписание + шаблоны пушей — только менеджер (legacy)
+  'push:v1',             // единая модель пушей (defs + recipients) — только менеджер
   'mozg:dashboard:v1',   // сводные метрики из mozg.rest — пишет только mozgSync
+  // Квест-система: XP/стрики/лог наград — ядро доверия. Через общий kv-эндпоинт
+  // пишет только менеджер; сотрудники меняют XP только через /api/quests и /api/rewards (с валидацией).
+  'quests:v1', 'rewards:v1', 'xp_ledger:v1', 'streaks:v1', 'reward_log:v1',
 ]);
 
 const app = express();
@@ -128,6 +140,13 @@ if (fs.existsSync(DATA_FILE)) {
     data.bindings      = loaded.bindings      || {};
     data.pushSettings  = loaded.pushSettings  || {};
     data.adminUsers    = loaded.adminUsers    || [];
+    // Квест-данные хранятся в data.kv (PG-backed) — грузятся вместе с kv выше.
+    // legacy top-level поля (если были в старом файле) подхватит ensureQuestModel().
+    if (loaded.quests     !== undefined) data.quests     = loaded.quests;
+    if (loaded.rewards    !== undefined) data.rewards    = loaded.rewards;
+    if (loaded.xp_ledger  !== undefined) data.xp_ledger  = loaded.xp_ledger;
+    if (loaded.streaks    !== undefined) data.streaks    = loaded.streaks;
+    if (loaded.reward_log !== undefined) data.reward_log = loaded.reward_log;
     console.log(`📂 Загружено ${Object.keys(data.kv).length} kv-ключей, ${Object.keys(data.bindings).length} привязок`);
   } catch (e) { console.error('Ошибка чтения data.json:', e); }
 }
@@ -288,11 +307,25 @@ async function migrateAuthPasswords() {
 // Инициализируем sender и push API (data + saveData уже готовы)
 // adapter — для дублирования пуш-логов в таблицу push_log
 pushSender = makePushSender(data, saveData, adapter);
-app.use('/api/push', makePushApi(pushSender));
+app.use('/api/push', makePushApi(pushSender, data, saveData, bot));
 
 // ── Монтируем роутеры (требующие data) ──
 app.use('/api/auth',  makeAuthApi(data, saveData));
 app.use('/api/admin', requireManager, makeAdminApi(data, saveData));
+
+// ── Квест-система (геймификация): инициализация модели + роутеры ──
+// ensureQuestModel идемпотентен: засевает пул/награды при первом старте,
+// не затирая существующие данные. Авторизация — внутри роутеров (requireAuth/requireManager).
+ensureQuestModel(data, saveData);
+app.use('/api/quests',  makeQuestsApi(data, saveData));
+app.use('/api/rewards', makeRewardsApi(data, saveData));
+app.use('/api/xp',      makeXpApi(data, saveData));
+
+// —— Кокпит кранов: инициализация конфига (идемпотентно) + роутер ——
+// taps:v1 сидируется миграцией (scripts/migrate-taps.js), здесь только tap_config:v1.
+// Авторизация — внутри роутера (requireAuth; шеф-бармен имеет запись).
+ensureTapModel(data, saveData);
+app.use('/api/taps',    makeTapsApi(data, saveData));
 
 // ── Синхронизация расписания — только авторизованные ──
 app.get('/api/sync/schedule/status', requireAuth, (req, res) => {
@@ -649,52 +682,6 @@ app.delete('/api/bot-macros/:id', requireManager, (req, res) => {
   res.json({ ok: true });
 });
 
-// ── Настройки пушей: расписание + шаблоны (push_settings:v1) — только менеджер ──
-// Планировщик читает push_settings:v1 напрямую (с кэшем 60с). Здесь — чтение/запись с дефолтами и валидацией.
-const PUSH_JOB_KEYS = ['dayBefore', 'personalTasks', 'shiftClose', 'setsRecommend'];
-const DEFAULT_PUSH_SETTINGS = {
-  jobs: {
-    dayBefore:     { enabled: true, time: '20:00' },
-    personalTasks: { enabled: true, time: '09:00' },
-    shiftClose:    { enabled: true, time: '23:00' },
-    setsRecommend: { enabled: true, time: '16:00' },
-  },
-  templates: { dayBefore: '', personalTasks: '', shiftClose: '', setsRecommend: '' },
-};
-const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
-
-function mergedPushSettings() {
-  let parsed = {};
-  try { parsed = JSON.parse(data.kv['push_settings:v1'] || '{}'); } catch { parsed = {}; }
-  const jobsIn = parsed.jobs || {};
-  const tplIn  = parsed.templates || {};
-  const jobs = {};
-  for (const k of PUSH_JOB_KEYS) jobs[k] = { ...DEFAULT_PUSH_SETTINGS.jobs[k], ...(jobsIn[k] || {}) };
-  return { jobs, templates: { ...DEFAULT_PUSH_SETTINGS.templates, ...tplIn } };
-}
-
-app.get('/api/push-settings', requireManager, (req, res) => {
-  res.json({ settings: mergedPushSettings(), defaults: DEFAULT_PUSH_SETTINGS });
-});
-
-app.put('/api/push-settings', requireManager, (req, res) => {
-  const body = req.body || {};
-  const jobsIn = body.jobs || {};
-  const tplIn  = body.templates || {};
-  const jobs = {};
-  for (const k of PUSH_JOB_KEYS) {
-    const cur = { ...DEFAULT_PUSH_SETTINGS.jobs[k], ...(jobsIn[k] || {}) };
-    const time = String(cur.time || '');
-    if (!HHMM_RE.test(time)) return res.status(400).json({ error: `Некорректное время для «${k}»: ${time}` });
-    jobs[k] = { enabled: cur.enabled !== false, time };
-  }
-  const templates = {};
-  for (const k of PUSH_JOB_KEYS) templates[k] = typeof tplIn[k] === 'string' ? tplIn[k] : '';
-  data.kv['push_settings:v1'] = JSON.stringify({ jobs, templates });
-  saveData();
-  res.json({ ok: true, settings: { jobs, templates } });
-});
-
 // ── Telegram bot: команды ──
 function nameByTelegramId(id) {
   return Object.keys(data.bindings).find(name => data.bindings[name] === id) || null;
@@ -705,16 +692,7 @@ function sendToName(name, text) {
   return bot.telegram.sendMessage(id, text).then(() => true).catch(err => { console.error('Ошибка отправки:', err); return false; });
 }
 
-function isToday(task, ds) {
-  if (task.kind === 'irregular') return false;
-  if (task.from && ds < task.from) return false;
-  if (task.until && ds > task.until) return false;
-  if (task.repeat === 'once') return task.date === ds;
-  if (['daily', 'opening', 'closing'].includes(task.repeat)) return true;
-  if (task.repeat === 'workday') { const d = new Date(ds).getDay(); return d !== 0 && d !== 6; }
-  if (task.repeat === 'weekly') return task.dayOfWeek === new Date(ds).getDay();
-  return false;
-}
+// isToday — из единого бэкенд-модуля src/shift/isToday.js (дедуп копий).
 const isDone = v => v === true || (v && typeof v === 'object' && !!v.done);
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
@@ -746,26 +724,40 @@ bot.command('start', ctx => {
 bot.command(['id', 'getchatid'], ctx => ctx.reply(`chatId: ${ctx.chat.id}`));
 bot.command('today',    ctx => ctx.reply(todayTasksText(null)));
 bot.command('mytasks',  ctx => { const name = nameByTelegramId(ctx.from.id); if (!name) return ctx.reply('❌ Ты не привязан к системе.'); ctx.reply(todayTasksText(name)); });
+// /startpush · /stoppush — тонкий fallback к UI-колокольчику (push:v1.recipients).
+// Источник истины настроек получателей — push:v1.recipients[name].enabled.
+// Имя резолвится по telegram id из bindings; per-type гранулярности нет (один флаг).
+function setSelfPushEnabled(telegramId, enabled) {
+  const name = nameByTelegramId(telegramId);
+  if (!name) return null;
+  let model;
+  try { model = JSON.parse(data.kv[PUSH_KEY] || '{}'); } catch { model = {}; }
+  if (!model.recipients || typeof model.recipients !== 'object') model.recipients = {};
+  model.recipients[name] = enabled
+    ? { enabled: true, mutedAt: null, mutedBy: null }
+    : { enabled: false, mutedAt: new Date().toISOString(), mutedBy: 'self' };
+  data.kv[PUSH_KEY] = JSON.stringify(model);
+  saveData();
+  return name;
+}
 bot.command('startpush', async ctx => {
-  const userId = String(ctx.from.id), chatId = String(ctx.chat.id);
-  pushSender.updatePushSettings(userId, { enabled: true, chatId, notifications: { dayBeforeShift: true, personalTasks: true, closeShiftReminder: true, individualTasks: true } });
-  await ctx.reply('✅ Пуши включены! /pushsettings — настройки');
+  const name = setSelfPushEnabled(ctx.from.id, true);
+  if (!name) return ctx.reply('❌ Ты не привязан к системе. Открой приложение и выбери своё имя.');
+  await ctx.reply('✅ Пуши включены!');
 });
-bot.command('stoppush', async ctx => { pushSender.updatePushSettings(String(ctx.from.id), { enabled: false }); await ctx.reply('❌ Пуши отключены'); });
+bot.command('stoppush', async ctx => {
+  const name = setSelfPushEnabled(ctx.from.id, false);
+  if (!name) return ctx.reply('❌ Ты не привязан к системе.');
+  await ctx.reply('❌ Пуши отключены. /startpush — включить обратно.');
+});
 bot.command('pushsettings', async ctx => {
-  const settings = pushSender.getPushSettings(String(ctx.from.id));
-  if (!settings) return ctx.reply('🔔 Настройки не найдены. Используй /startpush');
-  await ctx.reply(`📱 Пуши: ${settings.enabled ? '✅' : '❌'}\n• За сутки до смены: ${settings.notifications?.dayBeforeShift ? '✅' : '❌'}\n• Личные задачи: ${settings.notifications?.personalTasks ? '✅' : '❌'}\n• Закрытие смены: ${settings.notifications?.closeShiftReminder ? '✅' : '❌'}\n• Индивидуальные: ${settings.notifications?.individualTasks ? '✅' : '❌'}`);
-});
-['toggle_daybefore','toggle_personal','toggle_closeshift','toggle_individual'].forEach(cmd => {
-  const key = { toggle_daybefore:'dayBeforeShift', toggle_personal:'personalTasks', toggle_closeshift:'closeShiftReminder', toggle_individual:'individualTasks' }[cmd];
-  bot.command(cmd, async ctx => {
-    const s = pushSender.getPushSettings(String(ctx.from.id));
-    if (!s) return ctx.reply('Сначала /startpush');
-    const val = !s.notifications?.[key];
-    pushSender.updatePushSettings(String(ctx.from.id), { notifications: { ...s.notifications, [key]: val } });
-    await ctx.reply(`${key}: ${val ? '✅' : '❌'}`);
-  });
+  const name = nameByTelegramId(ctx.from.id);
+  if (!name) return ctx.reply('❌ Ты не привязан к системе.');
+  let model;
+  try { model = JSON.parse(data.kv[PUSH_KEY] || '{}'); } catch { model = {}; }
+  const rec = model.recipients && model.recipients[name];
+  const on = rec ? rec.enabled !== false : true;
+  await ctx.reply(`🔔 Пуши: ${on ? '✅ включены' : '❌ выключены'}\n\n/startpush — включить · /stoppush — выключить`);
 });
 bot.on('callback_query', ctx => {
   const d = ctx.callbackQuery.data;
@@ -835,6 +827,10 @@ let httpServer;
   await hydrateFromPG();
   // bcrypt-миграция — на актуальных (после hydrate) данных, без гонки за auth:v1.
   await migrateAuthPasswords();
+  // Единая модель пушей: при отсутствии push:v1 — одноразовая миграция из
+  // push_settings:v1 + data.pushSettings + profiles:v1 (после hydrate, чтобы
+  // мигрировать актуальные данные, а не файловый снимок).
+  ensurePushModel(data, saveData);
 
   bot.launch().catch(err => console.error('⚠️  Ошибка запуска бота (сервер продолжает работу):', err.message));
   pushScheduler.startScheduler(bot, data, pushSender, saveData);

@@ -813,4 +813,16 @@ async function getDishCategories(data, saveData) {
   return result;
 }
 
-module.exports = { getDayRevenue, syncRevenue, syncRevenueRange, getBasketPairs, getSalesABC, getMarginData, getDishCategories };
+// Продажи блюд (DishName → кол-во) за произвольный период — для кокпита кранов.
+// Сам берёт токен; кран сопоставляется с блюдом по DishName (в OLAP другого ключа нет).
+// Возвращает { counts: {dishName:count}, cats, from, to }.
+async function getDishSalesCounts(from, to) {
+  if (!IIKO_URL || !IIKO_LOGIN) {
+    throw Object.assign(new Error('iiko не настроен: задайте IIKO_URL и IIKO_LOGIN в .env'), { status: 503 });
+  }
+  const token = await getToken();
+  const { counts, cats } = await fetchDishCounts(from, to, token);
+  return { counts, cats, from, to };
+}
+
+module.exports = { getDayRevenue, syncRevenue, syncRevenueRange, getBasketPairs, getSalesABC, getMarginData, getDishCategories, getDishSalesCounts };

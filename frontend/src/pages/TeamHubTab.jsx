@@ -1,6 +1,7 @@
 // Вкладка «Команда» — состав, статистика, карточки, журнал
-import { useState } from 'react';
-import { Users, Plus, Trash2, Key, BarChart2, TrendingUp, TrendingDown, Minus, Award, Eye, Lock, LockOpen, AlertTriangle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Users, Plus, Trash2, Key, BarChart2, TrendingUp, TrendingDown, Minus, Award, Eye, Lock, LockOpen, AlertTriangle, Bell, BellOff } from 'lucide-react';
+import { ld, setRecipientEnabled } from '../services/api.js';
 import { Avatar } from '../components/Avatar.jsx';
 import { ROLES, ALL_PERMS } from '../constants/roles.js';
 import { SHIFT_STATUSES } from '../constants/shifts.js';
@@ -16,8 +17,8 @@ export function TeamHubTab({canTeam,canStats,isManager,who,eventsLog,tasks,histo
   const[sub,setSub]=useState(subs[0]?.[0]||"roster");
   return(<>
     <div className="sec" style={{paddingBottom:0}}>
-      <div style={{display:"flex",gap:4,marginBottom:4}}>
-        {subs.map(([id,label])=><button key={id} className={`tab${sub===id?" on":""}`} onClick={()=>setSub(id)} style={{flex:1,textAlign:"center"}}>{label}</button>)}
+      <div className="subtabs">
+        {subs.map(([id,label])=><button key={id} className={`tab${sub===id?" on":""}`} onClick={()=>setSub(id)}>{label}</button>)}
       </div>
     </div>
     {sub==="roster"&&canTeam&&<TeamTab profiles={rest.profiles} members={rest.members} statusOverrides={rest.statusOverrides}
@@ -31,10 +32,16 @@ export function TeamHubTab({canTeam,canStats,isManager,who,eventsLog,tasks,histo
   </>);
 }
 
-function TeamTab({profiles,members,statusOverrides,account,isDeveloper,auth,acl,onResetPassword,onToggleAclPwd,onUpdateProfile,onAddOverride,onRemoveOverride,onAddMember,onRemoveMember,onView}){
+function TeamTab({profiles,members,statusOverrides,account,isManager,isDeveloper,auth,acl,onResetPassword,onToggleAclPwd,onUpdateProfile,onAddOverride,onRemoveOverride,onAddMember,onRemoveMember,onView}){
   const[editing,setEditing]=useState(null);
   const[newName,setNewName]=useState("");
   const seePwd=canViewPasswords(account,acl||{});
+  // Колокольчик вкл/выкл пушей (push:v1.recipients, ключ = имя). Читаем через ld (любой auth);
+  // переключает только управляющий (setRecipientEnabled → manager-only на бэке).
+  const[recipients,setRecipients]=useState({});
+  useEffect(()=>{ld('push:v1',{}).then(m=>setRecipients((m&&m.recipients)||{})).catch(()=>{});},[]);
+  const pushOn=nm=>recipients[nm]?recipients[nm].enabled!==false:true;
+  const togglePush=async(nm)=>{const next=!pushOn(nm);try{await setRecipientEnabled(nm,next,'manager');setRecipients(r=>({...r,[nm]:{...(r[nm]||{}),enabled:next}}));}catch(e){alert('Ошибка: '+e.message);}};
   const addNew=()=>{if(newName.trim()){onAddMember(newName);setNewName("");}};
   return(<div className="sec">
     <div className="sec-head"><span className="sec-lbl"><Users size={12}/>Состав команды</span><span className="sec-cnt">{members.length}</span></div>
@@ -52,6 +59,9 @@ function TeamTab({profiles,members,statusOverrides,account,isDeveloper,auth,acl,
           <div style={{display:"flex",gap:6,alignItems:"center"}}>
             {ov&&<span style={{fontSize:11,padding:"2px 7px",borderRadius:8,background:"rgba(201,125,60,.15)",color:"var(--cu)"}}>{SHIFT_STATUSES[ov.status]?.label}</span>}
             <span style={{fontSize:11,color:"var(--mt)"}}>{ROLES[p.role]?.label}</span>
+            {isManager
+              ?<button onClick={()=>togglePush(name)} title={pushOn(name)?"Пуши включены — выключить":"Пуши выключены — включить"} style={{background:"transparent",border:"none",cursor:"pointer",display:"flex",alignItems:"center",padding:0,color:pushOn(name)?"var(--mt)":"#e07a60"}}>{pushOn(name)?<Bell size={13}/>:<BellOff size={13}/>}</button>
+              :<span title={pushOn(name)?"Пуши включены":"Пуши выключены"} style={{display:"flex",alignItems:"center",color:pushOn(name)?"var(--mt)":"#e07a60"}}>{pushOn(name)?<Bell size={12}/>:<BellOff size={12}/>}</span>}
             {seePwd&&<span title={hasPwd?"пароль задан":"пароль не задан"} style={{display:"flex",alignItems:"center",color:hasPwd?"var(--hp)":"var(--mt)"}}>{hasPwd?<Lock size={12}/>:<LockOpen size={12}/>}</span>}
             {onView&&<button onClick={()=>onView(name)} title="Личная карточка" style={{background:"transparent",border:"1px solid var(--bd)",borderRadius:6,color:"var(--mt)",padding:"3px 6px",cursor:"pointer",display:"flex",alignItems:"center"}}><Eye size={13}/></button>}
             <button onClick={()=>setEditing(isEditing?null:name)} style={{background:"transparent",border:"1px solid var(--bd)",borderRadius:6,color:"var(--mt)",padding:"3px 8px",fontSize:11,cursor:"pointer"}}>{isEditing?"готово":"изм."}</button>

@@ -1,5 +1,4 @@
 const express = require('express');
-const pushSender = require('../push/sender');
 
 // Factory: принимает ссылку на in-memory data + saveData из server.js.
 // Устраняет race condition: раньше admin.js читал/писал data.json напрямую,
@@ -58,28 +57,10 @@ module.exports = function makeAdminRouter(data, saveData) {
     res.json({ success: true });
   });
 
-  // Расписание пушей (время и включённость)
-  router.get('/schedule', (req, res) => {
-    const defaults = {
-      dayBeforeShift:     { time: '20:00', enabled: true },
-      personalTasks:      { time: '09:00', enabled: true },
-      closeShiftReminder: { time: '22:00', enabled: true },
-    };
-    res.json({ success: true, schedule: { ...defaults, ...(data.schedule || {}) } });
-  });
-
-  router.post('/schedule', (req, res) => {
-    const schedule = req.body.schedule;
-    data.schedule = { ...(data.schedule || {}), ...schedule };
-    saveData();
-    res.json({ success: true });
-  });
-
-  // Логи пушей (из push-log.json через sender)
-  router.get('/push-logs', (req, res) => {
-    const logs = pushSender.getPushLogs ? pushSender.getPushLogs(100) : [];
-    res.json({ success: true, logs });
-  });
+  // Расписание и логи пушей перенесены в push:v1 (Item 5):
+  //   • расписание → push:v1.defs[*].schedule (GET/PUT /api/push/defs);
+  //   • логи       → push-log.json (GET /api/push/stats).
+  // Старые роуты /schedule и /push-logs (мёртвый getPushLogs, устаревший data.schedule) удалены.
 
   return router;
 };

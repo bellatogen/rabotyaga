@@ -1,15 +1,18 @@
-// scheduler.js — принимает in-memory data и sender из server.js.
-// Убраны прямые чтения data.json — теперь работает только с объектом data из памяти.
+// scheduler.js — универсальный исполнитель пушей поверх единой модели push:v1.
+// Принимает in-memory data и sender из server.js (без прямых чтений data.json).
+//
+// Item 4: планировщик итерирует defs из push:v1, по schedule решает «пора ли»,
+// строит аудиторию через sender.resolveAudienceNames(audience), для каждого
+// получателя гейтит recipients[name].enabled + getShiftStatus ∉ suppressStatuses,
+// рендерит template по contentSource (sender.renderPush) и шлёт sender.sendPush.
+// Захардкоженные 4 джоба и push_settings:v1 больше не читаются.
 const iiko = require('../api/iiko');
+const { isToday } = require('../shift/isToday');            // единый бэкенд-модуль (дедуп копий)
+const { getShiftStatusFromData } = require('../shift/status'); // статус-гейтинг
+const { PUSH_KEY } = require('./model');                    // ключ единой модели push:v1
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
-}
-
-function tomorrowStr() {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  return d.toISOString().slice(0, 10);
 }
 
 // ── Часовой пояс расписания пушей ──
@@ -17,7 +20,7 @@ function tomorrowStr() {
 // Время в редакторе пушей трактуется в этом поясе. Дефолт — Москва.
 const PUSH_TZ = process.env.PUSH_TZ || 'Europe/Moscow';
 
-// Текущие дата и минуты-от-полуночи в PUSH_TZ.
+// Текущие дата, минуты-от-полуночи и день недели (0=Вс..6=Сб) в PUSH_TZ.
 function tzNow(date = new Date()) {
   const fmt = new Intl.DateTimeFormat('en-CA', {
     timeZone: PUSH_TZ,
@@ -27,9 +30,13 @@ function tzNow(date = new Date()) {
   const p = {};
   for (const part of fmt.formatToParts(date)) p[part.type] = part.value;
   const hour = parseInt(p.hour, 10) % 24; // '24:00' на полуночь в некоторых рантаймах → 0
+  const dateStr = `${p.year}-${p.month}-${p.day}`;
+  // День недели в той же конвенции, что isToday/weekly (JS getDay: 0=Вс..6=Сб).
+  const weekday = new Date(`${dateStr}T12:00:00Z`).getUTCDay();
   return {
-    dateStr: `${p.year}-${p.month}-${p.day}`,
+    dateStr,
     minutes: hour * 60 + parseInt(p.minute, 10),
+    weekday,
   };
 }
 
@@ -38,17 +45,6 @@ function tomorrowTz() {
   const d = new Date(tzNow().dateStr + 'T12:00:00Z');
   d.setUTCDate(d.getUTCDate() + 1);
   return d.toISOString().slice(0, 10);
-}
-
-function isToday(task, ds) {
-  if (task.kind === 'irregular') return false;
-  if (task.from  && ds < task.from)  return false;
-  if (task.until && ds > task.until) return false;
-  if (task.repeat === 'once') return task.date === ds;
-  if (['daily', 'opening', 'closing'].includes(task.repeat)) return true;
-  if (task.repeat === 'workday') { const d = new Date(ds).getDay(); return d !== 0 && d !== 6; }
-  if (task.repeat === 'weekly') return task.dayOfWeek === new Date(ds).getDay();
-  return false;
 }
 
 function timeToMinutes(timeStr) {
@@ -139,157 +135,131 @@ async function tickMacros(bot, data, saveData) {
   }
 }
 
-// ── Настройки пушей (push_settings:v1) ──
-// Дефолты времени/включённости. shiftClose = 23:00 (раньше пуш уходил в час ночи
-// из-за дефолта 22:00 + UTC-сервера — теперь время задаётся явно через KV).
-const DEFAULT_PUSH_SETTINGS = {
-  jobs: {
-    dayBefore:     { enabled: true, time: '20:00' },
-    personalTasks: { enabled: true, time: '09:00' },
-    shiftClose:    { enabled: true, time: '23:00' },
-    setsRecommend: { enabled: true, time: '16:00' },
-  },
-  templates: { dayBefore: '', personalTasks: '', shiftClose: '', setsRecommend: '' },
-};
-const PUSH_JOB_KEYS = ['dayBefore', 'personalTasks', 'shiftClose', 'setsRecommend'];
+// ── Исполнитель единой модели push:v1 ──
 
-// Кэш настроек с TTL 60с — чтобы не парсить KV на каждом тике (раз в 30с).
-let _psCache = null;
-let _psCacheAt = 0;
-
-function getPushSettings(data) {
-  const now = Date.now();
-  if (_psCache && now - _psCacheAt < 60000) return _psCache;
-  let parsed = {};
-  try { parsed = JSON.parse(data.kv?.['push_settings:v1'] || '{}'); } catch { parsed = {}; }
-  const jobsIn = parsed.jobs || {};
-  const tplIn  = parsed.templates || {};
-  const jobs = {};
-  for (const k of PUSH_JOB_KEYS) jobs[k] = { ...DEFAULT_PUSH_SETTINGS.jobs[k], ...(jobsIn[k] || {}) };
-  _psCache = { jobs, templates: { ...DEFAULT_PUSH_SETTINGS.templates, ...tplIn } };
-  _psCacheAt = now;
-  return _psCache;
+// Пора ли слать def сейчас: совпала минута, подходит день недели, не слан сегодня.
+// schedule.days: 'daily' (или пусто) = ежедневно; number[] = индексы дней недели (0=Вс..6=Сб).
+function defDue(def, minutes, weekday, today, sentToday) {
+  const sc = def.schedule || {};
+  if (!sc.time) return false;
+  if (timeToMinutes(sc.time) !== minutes) return false;
+  if (sentToday[def.id] === today) return false;
+  const days = sc.days;
+  if (days && days !== 'daily' && Array.isArray(days) && !days.includes(weekday)) return false;
+  return true;
 }
 
-async function sendDayBeforeShiftPushes(bot, data, sender, template) {
-  const tasks = JSON.parse(data.kv?.['tasks:v4'] || '[]');
-  const tomorrow = tomorrowTz();
-  const tomorrowTasks = tasks.filter(t => !t.archived && isToday(t, tomorrow));
-  if (!tomorrowTasks.length) return;
-  const taskTitles = tomorrowTasks.map(t => t.title);
-  for (const [userId, settings] of Object.entries(data.pushSettings || {})) {
-    if (!settings.enabled || !settings.notifications?.dayBeforeShift) continue;
-    await sender.sendDayBeforeShiftPush(bot, userId, taskTitles, template);
+// Предсборка контента, общего для всех получателей текущей пачки due-defs.
+// Считаем только то, что реально нужно (по набору contentSource/audience).
+async function buildSharedContent(data, dueDefs, today) {
+  const sources = new Set(dueDefs.map(d => d.contentSource));
+  const needsPersonal = sources.has('tasks_today_personal') || dueDefs.some(d => d.audience === 'assigned');
+  const shared = { tasksText: '', personalByName: {}, setsText: '' };
+
+  let tasks = [];
+  if (sources.has('tasks_tomorrow') || needsPersonal) {
+    try { tasks = JSON.parse(data.kv?.['tasks:v4'] || '[]'); } catch { tasks = []; }
   }
-}
 
-async function sendPersonalTasksPushes(bot, data, sender, template) {
-  const tasks = JSON.parse(data.kv?.['tasks:v4'] || '[]');
-  const today = tzNow().dateStr;
-  // Ключ — имя пользователя (assignedTo), значение — массив задач
-  const userTasks = {};
-  tasks.forEach(t => {
-    if (!t.archived && t.assignedTo && isToday(t, today)) {
-      if (!userTasks[t.assignedTo]) userTasks[t.assignedTo] = [];
-      userTasks[t.assignedTo].push({
-        title:      t.title,
-        assignedBy: t.createdBy || '—',
-        deadline:   t.dueDate   || t.deadline || '—',
-        context:    t.notes     || '',
-      });
-    }
-  });
-  // Матчим имя → userId через bindings
-  const nameToId = {};
-  for (const [name, uid] of Object.entries(data.bindings || {})) nameToId[name] = String(uid);
+  if (sources.has('tasks_tomorrow')) {
+    const tomorrow = tomorrowTz();
+    shared.tasksText = tasks
+      .filter(t => !t.archived && isToday(t, tomorrow))
+      .map((t, i) => `${i + 1}. ${t.title}`)
+      .join('\n');
+  }
 
-  for (const [userId, settings] of Object.entries(data.pushSettings || {})) {
-    if (!settings.enabled || !settings.notifications?.personalTasks) continue;
-    // Ищем имя по userId в bindings
-    const name = Object.keys(data.bindings || {}).find(n => String(data.bindings[n]) === userId);
-    if (name && userTasks[name]?.length > 0) {
-      await sender.sendPersonalTasksPush(bot, userId, userTasks[name], template);
+  if (needsPersonal) {
+    tasks.forEach(t => {
+      if (!t.archived && t.assignedTo && isToday(t, today)) {
+        (shared.personalByName[t.assignedTo] ||= []).push({
+          title:      t.title,
+          assignedBy: t.createdBy || '—',
+          deadline:   t.dueDate   || t.deadline || '—',
+          context:    t.notes     || '',
+        });
+      }
+    });
+  }
+
+  if (sources.has('sets')) {
+    try {
+      // saveData no-op: кэш пишется в data.kv (в памяти), на диск сохранит server при следующей записи.
+      const result = await iiko.getBasketPairs(data, () => {});
+      const sets = iiko.pickDailySets(result, 3);
+      shared.setsText = (sets || []).map((p, i) => {
+        const conf = Math.max(p.confAB || 0, p.confBA || 0);
+        const m = p.margin != null ? ` · маржа ~${p.margin}%` : '';
+        return `${i + 1}. ${p.a} + ${p.b}\n   ${conf}% берут вместе${m}`;
+      }).join('\n\n');
+    } catch (e) {
+      console.warn('[sets] не удалось получить корзину:', e.message);
     }
   }
+
+  return shared;
 }
 
-async function sendCloseShiftPushes(bot, data, sender, template) {
-  for (const [userId, settings] of Object.entries(data.pushSettings || {})) {
-    if (!settings.enabled || !settings.notifications?.closeShiftReminder) continue;
-    await sender.sendCloseShiftPush(bot, userId, template);
-  }
-}
-
-// «Сэты дня» — топ-3 пары напиток+закуска (из кэша basket, обновляется раз в 20ч).
-async function sendSetsPushes(bot, data, sender, template) {
-  let result;
-  try {
-    // saveData no-op: кэш пишется в data.kv (в памяти), на диск сохранит server при следующей записи
-    result = await iiko.getBasketPairs(data, () => {});
-  } catch (e) {
-    console.warn('[sets] не удалось получить корзину:', e.message);
-    return;
-  }
-  const sets = iiko.pickDailySets(result, 3);
-  if (!sets.length) return;
-  for (const [userId, settings] of Object.entries(data.pushSettings || {})) {
-    if (!settings.enabled) continue;
-    await sender.sendSetsPush(bot, userId, sets, template);
+// Рассылка одного def: аудитория → per-recipient гейтинг → рендер → отправка.
+async function runDef(bot, data, sender, def, shared, ctx) {
+  const names = sender.resolveAudienceNames(def.audience, ctx.assignedNames);
+  for (const name of names) {
+    const rec = ctx.recipients[name];
+    // Сотрудник отключил пуши (колокольчик) — единый флаг enabled.
+    if (rec && rec.enabled === false) {
+      sender.recordSkip(name, def.id, 'Пуши отключены сотрудником');
+      continue;
+    }
+    // Статус-гейтинг: напр. «закрытие смены» не шлём на выходном/больничном.
+    const status = getShiftStatusFromData(data, name, ctx.today, ctx.now);
+    if (Array.isArray(def.suppressStatuses) && def.suppressStatuses.includes(status)) {
+      sender.recordSkip(name, def.id, `Подавлено статусом: ${status}`);
+      continue;
+    }
+    // Рендер контента; null = слать нечего (нет личных задач / нет сэтов / пустой static).
+    const msg = sender.renderPush(def, name, shared);
+    if (msg == null) continue;
+    const chatId = data.bindings?.[name];
+    if (!chatId) {
+      sender.recordSkip(name, def.id, 'Telegram не привязан');
+      continue;
+    }
+    await sender.sendPush(bot, String(chatId), msg, def.id, { name });
   }
 }
 
 function startScheduler(bot, data, sender, saveData) {
   console.log('⏰ Планировщик пушей запущен');
 
-  // Отслеживаем что уже отправлено сегодня (чтобы не дублировать)
-  const sentToday = { dayBefore: null, personalTasks: null, shiftClose: null, setsRecommend: null };
+  // Дедуп «отправлено сегодня» по id определения; сброс в полночь МСК.
+  const sentToday = {};
 
   setInterval(async () => {
     const now = new Date();
-    const { minutes: currentMinutes, dateStr: today } = tzNow(now);
-    const { jobs, templates } = getPushSettings(data);
+    const { minutes, dateStr: today, weekday } = tzNow(now);
 
-    // Сбрасываем счётчик в полночь
-    if (currentMinutes === 0) {
-      sentToday.dayBefore = null;
-      sentToday.personalTasks = null;
-      sentToday.shiftClose = null;
-      sentToday.setsRecommend = null;
-    }
+    // Сброс дедупа в полночь.
+    if (minutes === 0) for (const k of Object.keys(sentToday)) delete sentToday[k];
 
-    if (jobs.dayBefore.enabled !== false) {
-      const t = timeToMinutes(jobs.dayBefore.time || '20:00');
-      if (currentMinutes === t && sentToday.dayBefore !== today) {
-        console.log('📅 Отправка пушей "За сутки до смены"');
-        await sendDayBeforeShiftPushes(bot, data, sender, templates.dayBefore);
-        sentToday.dayBefore = today;
-      }
-    }
+    // Источник истины — push:v1 (defs + recipients).
+    let model = {};
+    try { model = JSON.parse(data.kv?.[PUSH_KEY] || '{}'); } catch { model = {}; }
+    const defs = Array.isArray(model.defs) ? model.defs : [];
+    const recipients = (model && model.recipients) || {};
 
-    if (jobs.personalTasks.enabled !== false) {
-      const t = timeToMinutes(jobs.personalTasks.time || '09:00');
-      if (currentMinutes === t && sentToday.personalTasks !== today) {
-        console.log('📬 Отправка личных задач');
-        await sendPersonalTasksPushes(bot, data, sender, templates.personalTasks);
-        sentToday.personalTasks = today;
-      }
-    }
-
-    if (jobs.shiftClose.enabled !== false) {
-      const t = timeToMinutes(jobs.shiftClose.time || '23:00');
-      if (currentMinutes === t && sentToday.shiftClose !== today) {
-        console.log('⏰ Отправка напоминания о закрытии смены');
-        await sendCloseShiftPushes(bot, data, sender, templates.shiftClose);
-        sentToday.shiftClose = today;
-      }
-    }
-
-    if (jobs.setsRecommend.enabled !== false) {
-      const t = timeToMinutes(jobs.setsRecommend.time || '16:00');
-      if (currentMinutes === t && sentToday.setsRecommend !== today) {
-        console.log('🍻 Отправка «Сэты дня»');
-        await sendSetsPushes(bot, data, sender, templates.setsRecommend);
-        sentToday.setsRecommend = today;
+    const dueDefs = defs.filter(d => d && d.enabled && defDue(d, minutes, weekday, today, sentToday));
+    if (dueDefs.length) {
+      const shared = await buildSharedContent(data, dueDefs, today);
+      const assignedNames = Object.keys(shared.personalByName);
+      const ctx = { today, now, recipients, assignedNames };
+      for (const def of dueDefs) {
+        console.log(`🔔 Пуш «${def.title}» (${def.id}) — рассылка`);
+        try {
+          await runDef(bot, data, sender, def, shared, ctx);
+        } catch (e) {
+          console.error(`[push] ошибка def ${def.id}:`, e.message);
+        }
+        sentToday[def.id] = today; // дедуп даже при ошибке — не ретраить каждые 30с
       }
     }
 
@@ -300,10 +270,9 @@ function startScheduler(bot, data, sender, saveData) {
 
 module.exports = {
   startScheduler,
-  sendDayBeforeShiftPushes,
-  sendPersonalTasksPushes,
-  sendCloseShiftPushes,
-  sendSetsPushes,
+  defDue,
+  buildSharedContent,
+  runDef,
   tickMacros,
   renderMacroTemplate,
   isoWeekNumber,

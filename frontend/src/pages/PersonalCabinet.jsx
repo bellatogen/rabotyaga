@@ -1,6 +1,7 @@
 // Личный кабинет сотрудника — обзор, задачи, цифры, советы, карточки, журнал
-import { useState } from 'react';
-import { AlertTriangle, Award, AtSign, User, Plus, TrendingUp, TrendingDown, Minus, Lock, Key, FileText, Phone, CheckCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { AlertTriangle, Award, AtSign, User, Plus, TrendingUp, TrendingDown, Minus, Lock, Key, FileText, Phone, CheckCircle, Bell, BellOff } from 'lucide-react';
+import { ld, setRecipientEnabled } from '../services/api.js';
 import { ROLES } from '../constants/roles.js';
 import { SHIFT_STATUSES } from '../constants/shifts.js';
 import { hourNorm } from '../constants/staff.js';
@@ -31,9 +32,9 @@ export function PersonalCabinet({name,isOwnCabinet,tasks,history,schedule,cards,
             {onLogout&&<button className="btn btn-d" onClick={onLogout} style={{width:"auto",padding:"7px 16px",fontSize:13}}>Выйти</button>}
           </div>
         </div>
-        <div style={{display:"flex",gap:4,marginBottom:4}}>
+        <div className="subtabs">
           {["settings","leaves",...(adminPanel?["admin"]:[])].map(s=>(
-            <button key={s} className={`tab${subtab===s?" on":""}`} onClick={()=>setSubtab(s)} style={{flex:1,textAlign:"center",position:"relative"}}>
+            <button key={s} className={`tab${subtab===s?" on":""}`} onClick={()=>setSubtab(s)}>
               {s==="settings"?"Настройки":s==="leaves"?"Заявки":"Администрирование"}
               {s==="leaves"&&pendingLeaves.length>0&&<span style={{position:"absolute",top:2,right:4,background:"var(--rs)",color:"#fff",fontSize:9,fontWeight:700,borderRadius:8,minWidth:14,height:14,display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"0 3px"}}>{pendingLeaves.length}</span>}
             </button>
@@ -70,10 +71,10 @@ export function PersonalCabinet({name,isOwnCabinet,tasks,history,schedule,cards,
         {myShift&&<div className="mono" style={{fontSize:12,color:"var(--mt)",marginTop:8}}>{myShift.start}{myShift.end?` · ${myShift.end}ч`:""}{myShift.report?" · ★отчёт":""}</div>}
         {activeCards.length>0&&<div style={{marginTop:10,display:"flex",gap:6}}>{activeCards.map(c=><span key={c.id} style={{fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:10,background:c.type==="yellow"?"rgba(232,160,48,.2)":c.type==="orange"?"rgba(201,125,60,.2)":"rgba(158,63,43,.2)",color:c.type==="yellow"?"var(--am)":c.type==="orange"?"var(--cu)":"#e07a60"}}>{c.type==="yellow"?"🟡":c.type==="orange"?"🟠":"🔴"} Карточка</span>)}</div>}
       </div>
-      <div style={{display:"flex",gap:4,marginBottom:4}}>
+      <div className="subtabs">
         {["profile","overview","tasks","stats","cards",...(isOwnCabinet?["leave"]:[])].map(s=>{
           const myPendingLeaves=isOwnCabinet&&s==="leave"?(leaveRequests||[]).filter(r=>r.name===name&&r.status==="pending").length:0;
-          return(<button key={s} className={`tab${subtab===s?" on":""}`} onClick={()=>setSubtab(s)} style={{flex:1,textAlign:"center",position:"relative"}}>
+          return(<button key={s} className={`tab${subtab===s?" on":""}`} onClick={()=>setSubtab(s)}>
             {s==="profile"?"Профиль":s==="overview"?"Обзор":s==="tasks"?"Задачи":s==="stats"?"Цифры":s==="cards"?"Карты":"Отпуск"}
             {myPendingLeaves>0&&<span style={{position:"absolute",top:2,right:4,background:"var(--am)",color:"#fff",fontSize:9,fontWeight:700,borderRadius:8,minWidth:14,height:14,display:"inline-flex",alignItems:"center",justifyContent:"center",padding:"0 3px"}}>{myPendingLeaves}</span>}
           </button>);})}
@@ -88,6 +89,7 @@ export function PersonalCabinet({name,isOwnCabinet,tasks,history,schedule,cards,
       {!isOwnCabinet&&onIssueCard&&<button className="btn btn-p" onClick={()=>setCardModal&&setCardModal({_card:true,targetName:name})} style={{marginBottom:8}}><Award size={15}/>Выдать карточку</button>}
       {!isOwnCabinet&&onUpdateProfile&&<><div className="sec-lbl" style={{margin:"10px 0 8px"}}>Роль</div><div className="chip-row">{Object.entries(ROLES).map(([id,{label}])=><button key={id} className={`chip${profile.role===id?" on":""}`} onClick={()=>onUpdateProfile({...profile,role:id,perms:ROLES[id].perms})}>{label}</button>)}</div></>}
       {!isOwnCabinet&&onAddOverride&&<><div className="sec-lbl" style={{margin:"12px 0 8px"}}>Статус</div><div className="chip-row">{["sick","vacation","business_trip"].map(s=><button key={s} className="chip" onClick={()=>onAddOverride({name,status:s,from:ds,until:""})}>{SHIFT_STATUSES[s]?.label}</button>)}</div></>}
+      {isOwnCabinet&&<PushSelfToggle name={name}/>}
       {isOwnCabinet&&onChangePassword&&<PasswordChanger onChange={onChangePassword}/>}
       {isOwnCabinet&&onLogout&&<button className="btn btn-d" onClick={onLogout} style={{marginTop:12}}>Выйти из аккаунта</button>}
     </div>}
@@ -147,6 +149,33 @@ export function PersonalCabinet({name,isOwnCabinet,tasks,history,schedule,cards,
     {subtab==="log"&&<LogsTab tasks={tasks} history={history} members={members||[name]} who={name} isManager={false} ds={ds} eventsLog={eventsLog||[]}/>}
     {subtab==="leave"&&<LeaveSection name={name} isOwnCabinet={isOwnCabinet} requests={(leaveRequests||[]).filter(r=>r.name===name)} onRequest={onLeaveRequest} ds={ds}/>}
   </>);
+}
+
+// Само-переключение пушей сотрудником (push:v1.recipients, by:'self').
+// Читаем текущее состояние через ld; при выключении бэк шлёт уведомление управляющему.
+function PushSelfToggle({name}){
+  const[enabled,setEnabled]=useState(null);
+  const[busy,setBusy]=useState(false);
+  useEffect(()=>{ld('push:v1',{}).then(m=>{const r=m&&m.recipients&&m.recipients[name];setEnabled(r?r.enabled!==false:true);}).catch(()=>setEnabled(true));},[name]);
+  const toggle=async()=>{
+    if(enabled===null||busy)return;
+    const next=!enabled;setBusy(true);
+    try{await setRecipientEnabled(name,next,'self');setEnabled(next);}
+    catch(e){alert('Ошибка: '+e.message);}
+    finally{setBusy(false);}
+  };
+  return(<div style={{background:'var(--sf)',border:'1px solid var(--bd)',borderRadius:12,padding:14,marginTop:12,marginBottom:12}}>
+    <div className="sec-lbl" style={{marginBottom:8,display:'flex',alignItems:'center',gap:5}}><Bell size={12}/>Уведомления в Telegram</div>
+    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
+      <span style={{fontSize:13,color:'var(--mt)'}}>{enabled===null?'Загрузка…':enabled?'Пуши включены':'Пуши выключены'}</span>
+      <button onClick={toggle} disabled={busy||enabled===null}
+        style={{display:'flex',alignItems:'center',gap:6,padding:'7px 14px',borderRadius:8,fontFamily:'inherit',fontSize:13,fontWeight:600,cursor:(busy||enabled===null)?'default':'pointer',
+          border:`1px solid ${enabled?'var(--bd)':'#e07a60'}`,background:enabled?'transparent':'rgba(176,74,54,.12)',color:enabled?'var(--cu)':'#e07a60',opacity:(busy||enabled===null)?0.6:1}}>
+        {enabled?<><BellOff size={14}/>Выключить</>:<><Bell size={14}/>Включить</>}
+      </button>
+    </div>
+    <div style={{fontSize:11,color:'var(--mt)',marginTop:8}}>При выключении управляющий получит уведомление.</div>
+  </div>);
 }
 
 function PasswordChanger({onChange}){

@@ -23,9 +23,9 @@ export function ScheduleTab({schedule,events,revenue,ds,members,onOpenDay,isMana
 
   return(<>
     <div className="sec" style={{paddingBottom:0}}>
-      <div style={{display:"flex",gap:4,marginBottom:4}}>
+      <div className="subtabs">
         {[["calendar","Календарь"],["dashboard","Дашборд"]].map(([id,label])=>
-            <button key={id} className={`tab${sub===id?" on":""}`} onClick={()=>setSub(id)} style={{flex:1,textAlign:"center"}}>{label}</button>)}
+            <button key={id} className={`tab${sub===id?" on":""}`} onClick={()=>setSub(id)}>{label}</button>)}
       </div>
     </div>
     {/* Предупреждение об отсутствии данных — подсказка менеджеру */}

@@ -4,7 +4,6 @@
 // инициализации (тот же класс, что ронял график белым экраном).
 import { renderToString } from 'react-dom/server';
 
-import { AdminPanel } from './AdminPanel';
 import { EventsTab } from './EventsTab';
 import { LogsTab } from './LogsTab';
 import { PersonalCabinet } from './PersonalCabinet';
@@ -39,7 +38,6 @@ const bag = {
 };
 
 const CASES = [
-  ['AdminPanel', AdminPanel],
   ['EventsTab', EventsTab],
   ['LogsTab', LogsTab],
   ['PersonalCabinet', PersonalCabinet],

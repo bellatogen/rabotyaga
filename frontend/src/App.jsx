@@ -24,6 +24,7 @@ import { ScheduleTab, DayDetail } from './pages/ScheduleTab.jsx';
 import { PersonalCabinet } from './pages/PersonalCabinet.jsx';
 import { TeamHubTab } from './pages/TeamHubTab.jsx';
 import { EventsTab } from './pages/EventsTab.jsx';
+import { TapsTab } from './pages/TapsTab.jsx';
 import { TaskModal } from './modals/TaskModal.jsx';
 import { CardModal } from './modals/CardModal.jsx';
 import { HandoverModal } from './modals/HandoverModal.jsx';
@@ -446,6 +447,7 @@ export default function App(){
     ...(hasPerm(who,profiles,"view_schedule")?[{id:"schedule",label:"График"}]:[]),
     ...(canTeam||canStats?[{id:"team",label:"Команда"}]:[]),
     {id:"events",label:"События"},
+    ...((isChef||isManager)?[{id:"taps",label:"Краны"}]:[]),
     ...(!isManager?[{id:"settings",label:"Кабинет"}]:[]),
   ];
   const visibleTabs=tabs.filter(t=>!t.hidden);
@@ -513,6 +515,7 @@ export default function App(){
       {tab==="tasks"&&<TasksTab tasks={tasks} doneMap={doneToday} onToggle={toggle} onEdit={isManager?t=>setModal(t):null} onArchive={canAddTasks?archiveTask:null}/>}
       {tab==="schedule"&&<ScheduleTab schedule={schedule} events={events} revenue={revenue} ds={ds} members={members} onOpenDay={d=>setViewingDay(d)} isManager={isManager} monthPlan={monthPlan} onSetMonthPlan={isManager?setMonthPlanFor:null} hourNorms={hourNorms} onSetHourNorm={isManager?setHourNormFor:null} mozgDashboard={mozgDashboard}/>}
         {tab=="events"&&<EventsTab events={eventsV2} isManager={isManager} onSave={saveEventV2} onDelete={deleteEventV2} ds={ds} staff={members}/>}
+      {tab==="taps"&&(isChef||isManager)&&<TapsTab/>}
       {tab==="team"&&(canTeam||canStats)&&<TeamHubTab canTeam={canTeam} canStats={canStats} isManager={isManager}
         profiles={profiles} members={members} statusOverrides={statusOverrides}
         account={who} who={who} isDeveloper={isDeveloper} auth={authHasPasswordMap} acl={acl}

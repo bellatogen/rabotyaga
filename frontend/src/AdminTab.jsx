@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
-import { FileText, Users, BarChart2, RefreshCw, AlertTriangle, CheckCircle, Calendar, Download, Check, Bell, BellOff, TrendingUp, Star, X, Plus, Send } from 'lucide-react';
-import { kvGet, kvSet, iikoMarginData, sendTestPush } from './services/api.js';
+import { Users, BarChart2, RefreshCw, AlertTriangle, CheckCircle, Calendar, Download, Check, Bell, BellOff, TrendingUp, Star, X, Plus, Send, Clock, MessageSquare, Power, Pencil, Trash2 } from 'lucide-react';
+import { kvGet, kvSet, iikoMarginData, sendTestPush,
+  getPushDefs, savePushDef, deletePushDef,
+  getBotChats, addBotChat, deleteBotChat,
+  getBotMacros, addBotMacro, updateBotMacro, deleteBotMacro } from './services/api.js';
 
 const API = '/api';
 
@@ -10,20 +13,34 @@ const TEMPLATE_LABELS = {
   closeShiftReminder: 'Закрытие смены (22:00)',
 };
 
+// ── Справочники редактора пушей (push:v1.defs) ──
+const CONTENT_SOURCES = [
+  ['static',                'Статичный текст'],
+  ['tasks_tomorrow',        'Задачи на завтра'],
+  ['tasks_today_personal',  'Личные задачи (сегодня)'],
+  ['sets',                  'Сэты дня'],
+  ['close_checklist',       'Чек-лист закрытия'],
+];
+const CONTENT_LABEL = Object.fromEntries(CONTENT_SOURCES);
+const ROLE_OPTS = [['barman','Бармен'],['head_barman','Старший бармен'],['manager','Управляющий']];
+const STATUS_OPTS = [
+  ['day_off','Выходной'],['worked','Отработал'],['on_shift','На смене'],
+  ['today_shift','Смена сегодня'],['tomorrow_shift','Смена завтра'],
+  ['sick','Больничный'],['vacation','Отпуск'],['business_trip','Командировка'],
+];
+const PUSH_WEEKDAYS = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+const PLACEHOLDER_HINT = '{{имя}} · {{дата}} · {{день_недели}} · {tasks} · {sets}';
+const MACRO_WEEKDAYS = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+
 // SECURITY: /api/admin/* не защищён backend-авторизацией — только frontend-gating через isManager
 export function AdminTab({ auth, members, ds, onReloadData }) {
-  const [sub, setSub]               = useState('templates');
+  const [sub, setSub]               = useState('push');
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState(null);
 
   // Данные, общие для нескольких вкладок
   const [bindings, setBindings]     = useState({});  // { name -> telegramId }
 
-  // Шаблоны
-  const [templates, setTemplates]   = useState({});
-  const [edited, setEdited]         = useState({});
-  const [saving, setSaving]         = useState(false);
-  const [saved, setSaved]           = useState(false);
 
   // Сотрудники
   const [employees, setEmployees]   = useState([]);  // [{name, telegramId, push}]
@@ -59,17 +76,9 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
     setLoading(true);
     setError(null);
     try {
-      const [tplRes, empRes] = await Promise.all([
-        fetch(`${API}/admin/default-templates`),
-        fetch(`${API}/admin/employees`),
-      ]);
-      const tplData = await tplRes.json();
+      const empRes  = await fetch(`${API}/admin/employees`);
       const empData = await empRes.json();
 
-      if (tplData.success) {
-        setTemplates(tplData.templates);
-        setEdited(tplData.templates);
-      }
       if (empData.success) {
         const b  = empData.bindings    || {};
         const ps = empData.pushSettings || {};
@@ -235,26 +244,6 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
     }
   }
 
-  // ── Сохранение шаблонов ──
-  async function saveTemplates() {
-    setSaving(true);
-    try {
-      const res = await fetch(`${API}/admin/default-templates`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ templates: edited }),
-      });
-      if (!res.ok) throw new Error(res.status);
-      setTemplates(edited);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } catch (e) {
-      alert('Ошибка сохранения: ' + e.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
   // ── Render ──
   if (loading) return (
     <div className="sec">
@@ -269,9 +258,11 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
       {/* Chip-переключатель */}
       <div className="tabs" style={{ marginBottom: 16 }}>
         {[
-          ['templates', <FileText size={11}/>, 'Шаблоны'],
+          ['push',      <Bell size={11}/>, 'Пуши'],
           ['employees', <Users size={11}/>, 'Сотрудники'],
-          ['stats',     <BarChart2 size={11}/>, 'Статистика'],
+          ['stats',     <BarChart2 size={11}/>, 'Логи'],
+          ['chats',     <MessageSquare size={11}/>, 'Чаты'],
+          ['macros',    <Send size={11}/>, 'Макросы'],
           ['sync',      <RefreshCw size={11}/>, 'Синхр'],
           ['menu',      <Star size={11}/>, 'Меню'],
         ].map(([id, icon, label]) => (
@@ -286,42 +277,12 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
         ))}
       </div>
 
-      {/* ── Шаблоны ── */}
-      {sub === 'templates' && (
-        <div>
-          <div className="sec-lbl" style={{ marginBottom: 8 }}>Шаблоны пушей по умолчанию</div>
-          <div className="info-box" style={{ marginBottom: 14, fontSize: 12 }}>
-            Переменные: <code>{'{tasks}'}</code> — задачи, <code>{'{name}'}</code> — имя сотрудника
-          </div>
-
-          {Object.entries(TEMPLATE_LABELS).map(([key, label]) => (
-            <div key={key} style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: 'var(--mt)' }}>
-                {label}
-              </div>
-              <textarea
-                value={edited[key] || ''}
-                onChange={e => setEdited(prev => ({ ...prev, [key]: e.target.value }))}
-                rows={4}
-                style={{
-                  width: '100%', padding: '8px 10px', borderRadius: 8,
-                  border: '1px solid var(--bd)', background: 'var(--sf)',
-                  fontFamily: 'inherit', fontSize: 13, resize: 'vertical',
-                  boxSizing: 'border-box', color: 'var(--tx)',
-                }}
-              />
-            </div>
-          ))}
-
-          <button
-            className="btn btn-p"
-            onClick={saveTemplates}
-            disabled={saving}
-          >
-            {saved ? <><Check size={13}/>Сохранено</> : saving ? 'Сохранение...' : 'Сохранить шаблоны'}
-          </button>
-        </div>
-      )}
+      {/* ── Пуши (редактор push:v1.defs) ── */}
+      {sub === 'push'   && <PushDefsTab/>}
+      {/* ── Чаты бота ── */}
+      {sub === 'chats'  && <BotChatsTab/>}
+      {/* ── Макросы рассылки ── */}
+      {sub === 'macros' && <BotMacrosTab/>}
 
       {/* ── Сотрудники ── */}
       {sub === 'employees' && (
@@ -421,9 +382,27 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
                 ))}
               </div>
 
+              {Object.keys(stats.byName || {}).length > 0 && (
+                <>
+                  <div className="sec-lbl" style={{ marginBottom: 8 }}>По именам</div>
+                  {Object.entries(stats.byName).map(([nm, s]) => (
+                    <div key={nm} style={{
+                      background: 'var(--sf)', borderRadius: 8,
+                      padding: '8px 12px', marginBottom: 6,
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    }}>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{nm}</div>
+                      <div style={{ fontSize: 12, color: 'var(--mt)' }}>
+                        <span style={{display:'flex',alignItems:'center',gap:6}}><CheckCircle size={12} color="#8bc47a"/>{s.sent||0} · <AlertTriangle size={12} color="#e07a60"/>{s.failed||0} · <span style={{opacity:.6}}>{s.skipped||0} проп.</span></span>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
+
               {Object.keys(stats.byUser || {}).length > 0 && (
                 <>
-                  <div className="sec-lbl" style={{ marginBottom: 8 }}>По сотрудникам</div>
+                  <div className="sec-lbl" style={{ marginBottom: 8, marginTop: 12 }}>По Telegram ID</div>
                   {Object.entries(stats.byUser).map(([uid, s]) => {
                     // маппинг telegramId → имя через bindings
                     const name = Object.entries(bindings)
@@ -727,6 +706,353 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ══ Item 6: редактор пушей (push:v1.defs) ═════════════════════════
+function chip(on) {
+  return {
+    padding: '6px 12px', borderRadius: 8, fontFamily: 'inherit', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+    border: `1px solid ${on ? 'var(--cu)' : 'var(--bd)'}`,
+    background: on ? 'rgba(201,125,60,.15)' : 'transparent',
+    color: on ? 'var(--cu)' : 'var(--mt)',
+  };
+}
+const FLD = { width: '100%', padding: 8, borderRadius: 6, border: '1px solid var(--bd)', background: 'var(--bg)', color: 'var(--pp)', fontFamily: 'inherit', fontSize: 13, boxSizing: 'border-box' };
+
+function emptyDefForm() {
+  return {
+    _isNew: true, id: '', title: '', system: false, enabled: true,
+    template: '', contentSource: 'static',
+    time: '12:00', daysMode: 'daily', days: [],
+    audienceKind: 'all', roles: [], names: [], suppress: [],
+  };
+}
+function defToForm(d) {
+  const aud = d.audience;
+  const audienceKind = aud === 'all' ? 'all' : aud === 'assigned' ? 'assigned'
+    : (aud && Array.isArray(aud.roles)) ? 'roles' : 'names';
+  return {
+    _isNew: false, id: d.id, title: d.title, system: !!d.system,
+    enabled: d.enabled !== false, template: d.template || '', contentSource: d.contentSource,
+    time: d.schedule?.time || '12:00',
+    daysMode: d.schedule?.days === 'daily' ? 'daily' : 'custom',
+    days: Array.isArray(d.schedule?.days) ? d.schedule.days.slice() : [],
+    audienceKind,
+    roles: (aud && Array.isArray(aud.roles)) ? aud.roles.slice() : [],
+    names: (aud && Array.isArray(aud.names)) ? aud.names.slice() : [],
+    suppress: Array.isArray(d.suppressStatuses) ? d.suppressStatuses.slice() : [],
+  };
+}
+function formToPayload(f) {
+  const audience = f.audienceKind === 'all' ? 'all'
+    : f.audienceKind === 'assigned' ? 'assigned'
+    : f.audienceKind === 'roles' ? { roles: f.roles }
+    : { names: f.names };
+  return {
+    id: f.id.trim(), title: f.title.trim(), enabled: f.enabled, template: f.template,
+    contentSource: f.contentSource,
+    schedule: { time: f.time, days: f.daysMode === 'daily' ? 'daily' : f.days.slice().sort((a, b) => a - b) },
+    audience, suppressStatuses: f.suppress,
+  };
+}
+function audienceLabel(aud) {
+  if (aud === 'all') return 'Все';
+  if (aud === 'assigned') return 'По задачам (@)';
+  if (aud && Array.isArray(aud.roles)) return 'Роли: ' + aud.roles.map(r => (ROLE_OPTS.find(x => x[0] === r) || [r, r])[1]).join(', ');
+  if (aud && Array.isArray(aud.names)) return 'Имена: ' + aud.names.join(', ');
+  return '—';
+}
+function schedulePushLabel(sc) {
+  if (!sc) return '';
+  if (sc.days === 'daily') return `Ежедневно в ${sc.time}`;
+  if (Array.isArray(sc.days)) return `${sc.days.map(d => PUSH_WEEKDAYS[d]).join(',')} в ${sc.time}`;
+  return sc.time;
+}
+
+function PushDefsTab() {
+  const [defs, setDefs] = useState(null);
+  const [recipients, setRecipients] = useState({});
+  const [form, setForm] = useState(null);
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+
+  async function load() {
+    try { const r = await getPushDefs(); setDefs(r.defs || []); setRecipients(r.recipients || {}); }
+    catch (e) { setErr(e.message); setDefs([]); }
+  }
+  useEffect(() => { load(); }, []);
+  const flash = (m) => { setMsg(m); setTimeout(() => setMsg(''), 2500); };
+
+  async function toggleEnabled(d) {
+    try { await savePushDef({ id: d.id, enabled: !(d.enabled !== false) }); await load(); }
+    catch (e) { alert('Ошибка: ' + e.message); }
+  }
+  async function remove(d) {
+    if (d.system || !confirm(`Удалить пуш «${d.title}»?`)) return;
+    try { await deletePushDef(d.id); await load(); flash('Удалено ✓'); }
+    catch (e) { alert('Ошибка: ' + e.message); }
+  }
+  async function save() {
+    setErr('');
+    const f = form;
+    if (!f.id.trim()) { setErr('id обязателен'); return; }
+    if (!/^[a-zA-Z0-9_-]+$/.test(f.id.trim())) { setErr('id: только латиница, цифры, _ и -'); return; }
+    if (!f.title.trim()) { setErr('Название обязательно'); return; }
+    if (f.audienceKind === 'names' && f.names.length === 0) { setErr('Выберите хотя бы одно имя'); return; }
+    if (f.audienceKind === 'roles' && f.roles.length === 0) { setErr('Выберите хотя бы одну роль'); return; }
+    try { await savePushDef(formToPayload(f)); setForm(null); await load(); flash('Сохранено ✓'); }
+    catch (e) { setErr(e.message); }
+  }
+
+  const names = Object.keys(recipients);
+  if (defs === null) return <div className="info-box">Загрузка…</div>;
+  return (
+    <div>
+      <div className="info-box" style={{ marginBottom: 12, fontSize: 12, lineHeight: 1.5 }}>
+        Каждый пуш = текст + расписание + получатели + правила по статусам.
+        Плейсхолдеры: <code>{PLACEHOLDER_HINT}</code>. Предустановленные нельзя удалить — только править/выключать.
+      </div>
+      {err && !form && <div className="alert" style={{ marginBottom: 10 }}><AlertTriangle size={13}/>{err}</div>}
+      {!form && <button className="btn btn-p" style={{ marginBottom: 12 }} onClick={() => { setErr(''); setForm(emptyDefForm()); }}><Plus size={14}/>Новый пуш</button>}
+      {form && <DefForm form={form} setForm={setForm} onSave={save} onCancel={() => { setForm(null); setErr(''); }} err={err} names={names}/>}
+      {!form && defs.map(d => (
+        <div key={d.id} style={{ background: 'var(--sf)', borderRadius: 10, padding: '10px 14px', marginBottom: 8, borderLeft: `3px solid ${d.enabled !== false ? '#8bc47a' : 'var(--bd)'}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+                {d.title}
+                {d.system && <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 6, background: 'var(--bg)', color: 'var(--mt)' }}>системный</span>}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--mt)', marginTop: 3 }}><Clock size={11} style={{ verticalAlign: '-1px' }}/> {schedulePushLabel(d.schedule)} · {CONTENT_LABEL[d.contentSource] || d.contentSource}</div>
+              <div style={{ fontSize: 12, color: 'var(--mt)', marginTop: 2 }}>{audienceLabel(d.audience)}</div>
+              {d.suppressStatuses?.length > 0 && <div style={{ fontSize: 11, color: 'var(--mt)', marginTop: 2, opacity: .8 }}>Не слать при: {d.suppressStatuses.map(s => (STATUS_OPTS.find(x => x[0] === s) || [s, s])[1]).join(', ')}</div>}
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+              <button onClick={() => toggleEnabled(d)} title={d.enabled !== false ? 'Выключить' : 'Включить'} style={{ background: 'none', border: 'none', cursor: 'pointer', color: d.enabled !== false ? '#8bc47a' : 'var(--mt)', display: 'flex', alignItems: 'center' }}><Power size={16}/></button>
+              <button onClick={() => { setErr(''); setForm(defToForm(d)); }} title="Редактировать" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--mt)', display: 'flex', alignItems: 'center' }}><Pencil size={16}/></button>
+              {!d.system && <button onClick={() => remove(d)} title="Удалить" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#e07a60', display: 'flex', alignItems: 'center' }}><Trash2 size={16}/></button>}
+            </div>
+          </div>
+        </div>
+      ))}
+      {msg && <div style={{ fontSize: 13, color: 'var(--mt)', marginTop: 8 }}>{msg}</div>}
+    </div>
+  );
+}
+
+function DefForm({ form: f, setForm, onSave, onCancel, err, names }) {
+  const up = (patch) => setForm({ ...f, ...patch });
+  const tog = (arr, v) => arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v];
+  const lbl = (t) => <div style={{ fontSize: 11, color: 'var(--mt)', textTransform: 'uppercase', margin: '10px 0 4px' }}>{t}</div>;
+  return (
+    <div style={{ background: 'var(--sf)', border: '1px solid var(--bd)', borderRadius: 12, padding: 14, marginBottom: 14 }}>
+      <div className="sec-lbl" style={{ marginBottom: 6 }}>{f._isNew ? 'Новый пуш' : `Правка: ${f.title || f.id}`}</div>
+      {lbl('Идентификатор (латиницей)')}
+      <input style={FLD} value={f.id} disabled={!f._isNew} placeholder="promo_happy_hour" onChange={e => up({ id: e.target.value })}/>
+      {lbl('Название')}
+      <input style={FLD} value={f.title} placeholder="Промо: счастливые часы" onChange={e => up({ title: e.target.value })}/>
+      {lbl('Источник контента')}
+      <select style={FLD} value={f.contentSource} disabled={!f._isNew && f.system} onChange={e => up({ contentSource: e.target.value })}>
+        {CONTENT_SOURCES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
+      {(!f._isNew && f.system) && <div style={{ fontSize: 11, color: 'var(--mt)', marginTop: 3 }}>У системных пушей источник зафиксирован.</div>}
+      {lbl('Текст (шаблон)')}
+      <textarea style={{ ...FLD, minHeight: 80, resize: 'vertical' }} value={f.template} placeholder="Пусто — встроенный текст источника" onChange={e => up({ template: e.target.value })}/>
+      <div style={{ fontSize: 11, color: 'var(--mt)', marginTop: 4 }}>Плейсхолдеры: <code>{PLACEHOLDER_HINT}</code></div>
+      {lbl('Время')}
+      <input type="time" style={{ ...FLD, width: 'auto' }} value={f.time} onChange={e => up({ time: e.target.value })}/>
+      {lbl('Дни')}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <button onClick={() => up({ daysMode: 'daily' })} style={chip(f.daysMode === 'daily')}>Ежедневно</button>
+        <button onClick={() => up({ daysMode: 'custom' })} style={chip(f.daysMode === 'custom')}>По дням</button>
+      </div>
+      {f.daysMode === 'custom' && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+          {PUSH_WEEKDAYS.map((d, i) => <button key={i} onClick={() => up({ days: tog(f.days, i) })} style={chip(f.days.includes(i))}>{d}</button>)}
+        </div>
+      )}
+      {lbl('Получатели')}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {[['all', 'Все'], ['assigned', 'По задачам (@)'], ['roles', 'По ролям'], ['names', 'Список имён']].map(([v, l]) => <button key={v} onClick={() => up({ audienceKind: v })} style={chip(f.audienceKind === v)}>{l}</button>)}
+      </div>
+      {f.audienceKind === 'roles' && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+          {ROLE_OPTS.map(([v, l]) => <button key={v} onClick={() => up({ roles: tog(f.roles, v) })} style={chip(f.roles.includes(v))}>{l}</button>)}
+        </div>
+      )}
+      {f.audienceKind === 'names' && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+          {names.length === 0 && <span style={{ fontSize: 12, color: 'var(--mt)' }}>Нет сотрудников</span>}
+          {names.map(n => <button key={n} onClick={() => up({ names: tog(f.names, n) })} style={chip(f.names.includes(n))}>{n}</button>)}
+        </div>
+      )}
+      {lbl('Не отправлять при статусах')}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {STATUS_OPTS.map(([v, l]) => <button key={v} onClick={() => up({ suppress: tog(f.suppress, v) })} style={chip(f.suppress.includes(v))}>{l}</button>)}
+      </div>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, fontSize: 13, cursor: 'pointer' }}>
+        <input type="checkbox" checked={f.enabled} onChange={e => up({ enabled: e.target.checked })}/>Пуш включён
+      </label>
+      {err && <div className="alert" style={{ marginTop: 10 }}><AlertTriangle size={13}/>{err}</div>}
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+        <button className="btn btn-p" onClick={onSave} style={{ flex: 2 }}>Сохранить</button>
+        <button className="btn" onClick={onCancel} style={{ flex: 1 }}>Отмена</button>
+      </div>
+    </div>
+  );
+}
+
+// ══ Чаты бота (bot_chats:v1) ══════════════════════════════════
+function BotChatsTab() {
+  const [chats, setChats] = useState([]);
+  const [nv, setNv] = useState({ name: '', chatId: '' });
+  async function load() { try { const c = await getBotChats(); setChats(c.chats || []); } catch { /* нет прав / связи */ } }
+  useEffect(() => { load(); }, []);
+  async function add() {
+    if (!nv.name.trim() || !nv.chatId.trim()) { alert('Заполните название и chatId'); return; }
+    try { const { chat } = await addBotChat(nv.name.trim(), nv.chatId.trim()); setChats([...chats, chat]); setNv({ name: '', chatId: '' }); }
+    catch (e) { alert('Ошибка: ' + e.message); }
+  }
+  async function del(id) {
+    if (!confirm('Удалить чат?')) return;
+    try { await deleteBotChat(id); setChats(chats.filter(c => c.id !== id)); } catch (e) { alert(e.message); }
+  }
+  return (
+    <div>
+      <div className="info-box" style={{ fontSize: 12, marginBottom: 14, lineHeight: 1.6 }}>
+        Добавь бота «Работяга» в групповой чат, напиши там <b>/id</b> — бот ответит <code>chatId</code>, скопируй сюда.
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+        <input placeholder="Название чата" value={nv.name} onChange={e => setNv({ ...nv, name: e.target.value })} style={{ ...FLD, flex: '1 1 140px', width: 'auto' }}/>
+        <input placeholder="chatId (-100…)" value={nv.chatId} onChange={e => setNv({ ...nv, chatId: e.target.value })} style={{ ...FLD, flex: '1 1 160px', width: 'auto', fontFamily: 'monospace' }}/>
+        <button className="btn btn-p" style={{ width: 'auto', padding: '0 16px', margin: 0 }} onClick={add}><Plus size={14}/></button>
+      </div>
+      {chats.length === 0 ? <div className="info-box">Чатов пока нет</div> : chats.map(c => (
+        <div key={c.id} style={{ background: 'var(--sf)', borderRadius: 10, padding: '10px 12px', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div><div style={{ fontWeight: 600 }}>{c.name}</div><div style={{ fontSize: 11, color: 'var(--mt)', fontFamily: 'monospace', marginTop: 2 }}>{c.chatId}</div></div>
+          <button onClick={() => del(c.id)} title="Удалить" style={{ background: 'none', border: 'none', color: '#e07a60', cursor: 'pointer', display: 'flex' }}><Trash2 size={16}/></button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ══ Item 8: редактор макросов (bot_macros:v1) ══════════════════════
+function emptyMacro(chats) {
+  return { name: '', chatId: chats[0]?.chatId || '', template: '', schedule: { type: 'daily', time: '10:00', weekday: 1, interval: 2, runDate: '' } };
+}
+function macroScheduleLabel(sc) {
+  if (!sc) return '';
+  if (sc.type === 'once') return `Один раз ${sc.runDate || ''} в ${sc.time}`;
+  if (sc.type === 'daily') return `Ежедневно в ${sc.time}`;
+  if (sc.type === 'weekly') return `Еженедельно (${MACRO_WEEKDAYS[sc.weekday] ?? '?'}) в ${sc.time}`;
+  if (sc.type === 'every_n') return `Каждые ${sc.interval || '?'} дн. в ${sc.time}`;
+  return sc.time;
+}
+function BotMacrosTab() {
+  const [chats, setChats] = useState([]);
+  const [macros, setMacros] = useState([]);
+  const [form, setForm] = useState(null);
+  async function load() {
+    try { const c = await getBotChats(); setChats(c.chats || []); } catch { /* нет прав / связи */ }
+    try { const m = await getBotMacros(); setMacros(m.macros || []); } catch { /* нет прав / связи */ }
+  }
+  useEffect(() => { load(); }, []);
+  const chatName = (id) => chats.find(c => c.chatId === id)?.name || id;
+  const upSc = (patch) => setForm({ ...form, schedule: { ...form.schedule, ...patch } });
+  async function save() {
+    const f = form;
+    if (!f.name.trim() || !f.chatId || !f.template.trim()) { alert('Заполните название, чат и текст'); return; }
+    const payload = {
+      name: f.name.trim(), chatId: f.chatId, template: f.template,
+      schedule: {
+        type: f.schedule.type, time: f.schedule.time,
+        weekday: f.schedule.type === 'weekly' ? Number(f.schedule.weekday) : null,
+        interval: f.schedule.type === 'every_n' ? Number(f.schedule.interval) : null,
+        runDate: f.schedule.type === 'once' ? f.schedule.runDate : null,
+      },
+    };
+    try {
+      if (f.id) { const { macro } = await updateBotMacro(f.id, payload); setMacros(macros.map(m => m.id === f.id ? macro : m)); }
+      else { const { macro } = await addBotMacro(payload); setMacros([...macros, macro]); }
+      setForm(null);
+    } catch (e) { alert('Ошибка: ' + e.message); }
+  }
+  async function toggle(m) {
+    try { const { macro } = await updateBotMacro(m.id, { active: !m.active }); setMacros(macros.map(x => x.id === m.id ? macro : x)); }
+    catch (e) { alert(e.message); }
+  }
+  async function del(id) {
+    if (!confirm('Удалить макрос?')) return;
+    try { await deleteBotMacro(id); setMacros(macros.filter(m => m.id !== id)); } catch (e) { alert(e.message); }
+  }
+  const openEdit = (m) => setForm({
+    id: m.id, name: m.name, chatId: m.chatId, template: m.template,
+    schedule: {
+      type: m.schedule?.type || 'daily', time: m.schedule?.time || '10:00',
+      weekday: m.schedule?.weekday ?? 1, interval: m.schedule?.interval ?? 2, runDate: m.schedule?.runDate || '',
+    },
+  });
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <div className="sec-lbl">Макросы рассылки в чаты</div>
+        {!form && <button className="btn btn-p" style={{ width: 'auto', padding: '6px 12px', margin: 0 }} disabled={chats.length === 0} onClick={() => setForm(emptyMacro(chats))}><Plus size={14}/>Макрос</button>}
+      </div>
+      {chats.length === 0 && <div className="alert" style={{ marginBottom: 12 }}><AlertTriangle size={13}/>Сначала добавь чат во вкладке «Чаты».</div>}
+      {form && (
+        <div style={{ background: 'var(--sf)', border: '1px solid var(--bd)', borderRadius: 12, padding: 14, marginBottom: 14 }}>
+          <div className="sec-lbl" style={{ marginBottom: 8 }}>{form.id ? 'Правка макроса' : 'Новый макрос'}</div>
+          <input style={{ ...FLD, marginBottom: 8 }} placeholder="Название" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}/>
+          <select style={{ ...FLD, marginBottom: 8 }} value={form.chatId} onChange={e => setForm({ ...form, chatId: e.target.value })}>
+            {chats.map(c => <option key={c.id} value={c.chatId}>{c.name}</option>)}
+          </select>
+          <textarea style={{ ...FLD, minHeight: 80, resize: 'vertical', marginBottom: 4 }} placeholder="Текст сообщения" value={form.template} onChange={e => setForm({ ...form, template: e.target.value })}/>
+          <div style={{ fontSize: 11, color: 'var(--mt)', marginBottom: 8 }}>Переменные: <code>{'{{дата}}'}</code> · <code>{'{{день_недели}}'}</code> · <code>{'{{неделя}}'}</code></div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+            <select style={{ ...FLD, flex: '1 1 140px', width: 'auto' }} value={form.schedule.type} onChange={e => upSc({ type: e.target.value })}>
+              <option value="once">Один раз</option>
+              <option value="daily">Ежедневно</option>
+              <option value="weekly">Еженедельно</option>
+              <option value="every_n">Каждые N дней</option>
+            </select>
+            <input type="time" style={{ ...FLD, flex: '0 0 110px', width: 'auto' }} value={form.schedule.time} onChange={e => upSc({ time: e.target.value })}/>
+          </div>
+          {form.schedule.type === 'weekly' && (
+            <select style={{ ...FLD, marginBottom: 8 }} value={form.schedule.weekday} onChange={e => upSc({ weekday: Number(e.target.value) })}>
+              {['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'].map((d, i) => <option key={i} value={i}>{d}</option>)}
+            </select>
+          )}
+          {form.schedule.type === 'every_n' && (
+            <input type="number" min="1" style={{ ...FLD, marginBottom: 8 }} value={form.schedule.interval} onChange={e => upSc({ interval: e.target.value })}/>
+          )}
+          {form.schedule.type === 'once' && (
+            <input type="date" style={{ ...FLD, marginBottom: 8 }} value={form.schedule.runDate} onChange={e => upSc({ runDate: e.target.value })}/>
+          )}
+          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            <button className="btn btn-p" onClick={save} style={{ flex: 2 }}>Сохранить</button>
+            <button className="btn" onClick={() => setForm(null)} style={{ flex: 1 }}>Отмена</button>
+          </div>
+        </div>
+      )}
+      {!form && (macros.length === 0 ? <div className="info-box">Макросов пока нет</div> : macros.map(m => (
+        <div key={m.id} style={{ background: 'var(--sf)', borderRadius: 10, padding: '10px 12px', marginBottom: 8, borderLeft: `3px solid ${m.active ? '#8bc47a' : 'var(--bd)'}` }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 600 }}>{m.name}</div>
+              <div style={{ fontSize: 12, color: 'var(--mt)', marginTop: 3 }}>→ {chatName(m.chatId)} · {macroScheduleLabel(m.schedule)}</div>
+              <div style={{ fontSize: 12, color: 'var(--mt)', marginTop: 4, whiteSpace: 'pre-wrap', opacity: .85 }}>{m.template}</div>
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+              <button onClick={() => toggle(m)} title={m.active ? 'Выключить' : 'Включить'} style={{ background: 'none', border: 'none', cursor: 'pointer', color: m.active ? '#8bc47a' : 'var(--mt)', display: 'flex' }}><Power size={16}/></button>
+              <button onClick={() => openEdit(m)} title="Редактировать" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--mt)', display: 'flex' }}><Pencil size={16}/></button>
+              <button onClick={() => del(m.id)} title="Удалить" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#e07a60', display: 'flex' }}><Trash2 size={16}/></button>
+            </div>
+          </div>
+        </div>
+      )))}
     </div>
   );
 }

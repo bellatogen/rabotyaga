@@ -174,27 +174,44 @@ export const getBindings = async () => {
   return res.json();
 };
 
-export const getPushLog = async () => {
-  const res = await fetch(`${API_BASE}/admin/push-logs`, FETCH_OPTS);
+// ── Редактор пушей (push:v1) ──
+// CRUD определений + переключение получателей + статистика лога.
+export const getPushDefs = async () => {
+  const res = await fetch(`${API_BASE}/push/defs`, FETCH_OPTS);
   if (!res.ok) throw new Error('Unauthorized');
-  return res.json();
+  return res.json(); // { defs, recipients }
 };
-
-export const getPushSchedule = async () => {
-  const res = await fetch(`${API_BASE}/admin/schedule`, FETCH_OPTS);
-  if (!res.ok) throw new Error('Unauthorized');
-  return res.json();
-};
-
-export const setPushSchedule = async (items) => {
-  const res = await fetch(`${API_BASE}/admin/schedule`, {
-    ...FETCH_OPTS,
-    method: 'POST',
+export const savePushDef = async (def) => {
+  const res = await fetch(`${API_BASE}/push/defs`, {
+    ...FETCH_OPTS, method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(items),
+    body: JSON.stringify(def),
   });
-  if (!res.ok) throw new Error('Failed to set schedule');
-  return res.json();
+  const d = await res.json();
+  if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+  return d;
+};
+export const deletePushDef = async (id) => {
+  const res = await fetch(`${API_BASE}/push/defs/${encodeURIComponent(id)}`, { ...FETCH_OPTS, method: 'DELETE' });
+  const d = await res.json();
+  if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+  return d;
+};
+// by: 'manager' | 'self' — при выключении управляющему уходит edge-trigger уведомление.
+export const setRecipientEnabled = async (name, enabled, by = 'manager') => {
+  const res = await fetch(`${API_BASE}/push/recipients/${encodeURIComponent(name)}`, {
+    ...FETCH_OPTS, method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled, by }),
+  });
+  const d = await res.json();
+  if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
+  return d;
+};
+export const getPushStats = async () => {
+  const res = await fetch(`${API_BASE}/push/stats`, FETCH_OPTS);
+  if (!res.ok) throw new Error('Unauthorized');
+  return res.json(); // { total, sent, failed, skipped, byUser, byName }
 };
 
 export const sendTestPush = async (name) => {
@@ -255,22 +272,6 @@ export const deleteBotMacro = async (id) => {
   return res.json();
 };
 
-// ── Настройки пушей: расписание + шаблоны (push_settings:v1, только менеджер) ──
-export const getPushSettings = async () => {
-  const res = await fetch(`${API_BASE}/push-settings`, FETCH_OPTS);
-  if (!res.ok) throw new Error('Unauthorized');
-  return res.json();
-};
-export const savePushSettings = async (settings) => {
-  const res = await fetch(`${API_BASE}/push-settings`, {
-    ...FETCH_OPTS, method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(settings),
-  });
-  const d = await res.json();
-  if (!res.ok) throw new Error(d.error || `HTTP ${res.status}`);
-  return d;
-};
 
 // ── Пуш «Смена закрыта» — вызывается фронтом при закрытии смены (все задачи + после 23:30) ──
 export async function notifyShiftClosed({ date, done, total, revenueFact, revenuePlan, workers }) {
@@ -310,6 +311,78 @@ export async function iikoMarginData(force = false) {
 export async function iikoSalesABC(force = false) {
   const url = `${API_BASE}/iiko/sales-abc${force ? '?force=1' : ''}`;
   const res  = await fetch(url, FETCH_OPTS);
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+  return json;
+}
+
+// ── Кокпит кранов (taps:v1 + tap_config:v1) ──
+// Все вычисленные поля (computeTap) считает бэк; фронт-зеркало utils/tapCompute.js
+// нужно только для live-симулятора без round-trip. Все роуты requireAuth.
+
+// Список кранов с вычислениями + конфиг: { taps:[...], config }
+export async function getTaps() {
+  const res = await fetch(`${API_BASE}/taps`, FETCH_OPTS);
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+  return json;
+}
+
+// Создать кран. Возвращает созданный кран (с вычислениями).
+export async function createTap(tap) {
+  const res = await fetch(`${API_BASE}/taps`, {
+    ...FETCH_OPTS, method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(tap),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+  return json;
+}
+
+// Обновить кран по id частичным патчем.
+export async function updateTap(id, patch) {
+  const res = await fetch(`${API_BASE}/taps/${encodeURIComponent(id)}`, {
+    ...FETCH_OPTS, method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+  return json;
+}
+
+// Удалить кран по id.
+export async function deleteTap(id) {
+  const res = await fetch(`${API_BASE}/taps/${encodeURIComponent(id)}`, { ...FETCH_OPTS, method: 'DELETE' });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+  return json;
+}
+
+// Конфиг порогов/скидки: { greenThreshold, yellowThreshold, discountRate }
+export async function getTapConfig() {
+  const res = await fetch(`${API_BASE}/taps/config`, FETCH_OPTS);
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+  return json;
+}
+
+export async function updateTapConfig(patch) {
+  const res = await fetch(`${API_BASE}/taps/config`, {
+    ...FETCH_OPTS, method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+  return json;
+}
+
+// Подтянуть продажи 30д из IIKO в salesPerMonth (только краны с iikoProductId).
+// IIKO не настроен → бэк отдаёт 503.
+export async function refreshTapSales() {
+  const res = await fetch(`${API_BASE}/taps/refresh-sales`, { ...FETCH_OPTS, method: 'POST' });
   const json = await res.json();
   if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
   return json;
