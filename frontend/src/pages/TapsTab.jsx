@@ -155,11 +155,8 @@ export function TapsTab() {
           <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--pp)' }}>{fmtRub(totals.margin)}</div>
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          <button onClick={onRefresh} disabled={refreshing} title="Обновить продажи из IIKO"
-            style={{ ...btn, opacity: refreshing ? 0.6 : 1 }}>
-            <RefreshCw size={16} style={refreshing ? { animation: 'spin 1s linear infinite' } : undefined} />
-            <span style={{ fontSize: 13 }}>Продажи</span>
-          </button>
+          {/* Кнопка авто-refresh из IIKO убрана: DishAmountInt не равен порциям с ПК
+              (см. историю). Продажи заносятся из ABC-выгрузки мозга или вручную. */}
           <button onClick={() => setSettingsOpen((v) => !v)} title="Настройки порогов" style={btn}>
             <Settings size={16} />
           </button>
