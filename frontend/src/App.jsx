@@ -107,13 +107,11 @@ export default function App(){
   // если ничего не изменилось (иначе usePersist гнал бы лишние PUT каждые 12с).
   useEffect(()=>{if(!picking)return;let on=true;
     const refresh=async()=>{try{
-      const mem=await fetchRoster(); // публичный ростер — работает до авторизации (members:v1 за auth)
-      if(!on)return;
+      const roster=await fetchRoster(); // публичный ростер: members + hasPassword одним запросом
+      if(!on||!roster)return;
+      const mem=roster.members;
       if(Array.isArray(mem))setMembers(prev=>JSON.stringify(prev)===JSON.stringify(mem)?prev:mem);
-      const accs=[...(Array.isArray(mem)?mem:DEFAULT_MEMBERS),'manager','developer'];
-      const hp=await Promise.all(accs.map(a=>authHasPassword(a).then(has=>({a,has})).catch(()=>({a,has:false}))));
-      if(!on)return;
-      const hpMap=Object.fromEntries(hp.map(({a,has})=>[a,has]));
+      const hpMap=roster.hasPassword||{};
       setAuthHasPasswordMap(prev=>JSON.stringify(prev)===JSON.stringify(hpMap)?prev:hpMap);
     }catch{}};
     refresh();
@@ -144,11 +142,13 @@ export default function App(){
     // Восстанавливаем сессию по httpOnly cookie (серверная авторизация)
     const restoredAccount = await authMe();
     if(restoredAccount){setWho(restoredAccount);}else{setPicking(true);}
-    // Загружаем hasPassword флаги для всех аккаунтов (UI: «нет пароля» / «задан»)
-    const allAccounts=[...DEFAULT_MEMBERS,'manager','developer'];
-    const hpResults=await Promise.all(allAccounts.map(a=>authHasPassword(a).then(has=>({a,has})).catch(()=>({a,has:false}))));
-    const hpMap=Object.fromEntries(hpResults.map(({a,has})=>[a,has]));
-    setAuthHasPasswordMap(hpMap);
+      // hasPassword флаги пачкой из публичного /api/roster — без бёрста
+      // по /auth/has-password (он упирался в rate-limit → ложное «нет пароля»).
+      const roster=await fetchRoster();
+      if(roster){
+        if(Array.isArray(roster.members))setMembers(roster.members);
+        setAuthHasPasswordMap(roster.hasPassword||{});
+      }
     setLoading(false);
   })();},[]);
   const ready=!loading;

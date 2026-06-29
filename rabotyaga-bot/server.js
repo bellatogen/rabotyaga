@@ -543,7 +543,15 @@ app.get('/api/health', (req, res) => res.json({ ok: true, ts: Date.now(), pg: PG
 app.get('/api/roster', (req, res) => {
   let members = [];
   try { members = JSON.parse(data.kv['members:v1'] || '[]'); } catch {}
-  res.json({ members: Array.isArray(members) ? members : [] });
+  if (!Array.isArray(members)) members = [];
+  // Флаги «задан ли пароль» — пачкой, чтобы фронт не дёргал /auth/has-password
+  // по каждому аккаунту (это упиралось в rate-limit и давало ложное «нет пароля»).
+  // Отдаём только boolean, без хешей — та же приватность, что у /auth/has-password.
+  let auth = {};
+  try { auth = JSON.parse(data.kv['auth:v1'] || '{}'); } catch {}
+  const hasPassword = {};
+  for (const a of [...members, 'manager', 'developer']) hasPassword[a] = !!auth[a];
+  res.json({ members, hasPassword });
 });
 
 // ── Bind: привязка Telegram — только авторизованные ──

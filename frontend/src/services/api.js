@@ -95,7 +95,8 @@ export async function fetchRoster() {
     const r = await fetch(`${API_BASE}/roster`, FETCH_OPTS);
     if (!r.ok) return null;
     const d = await r.json();
-    return Array.isArray(d.members) ? d.members : null;
+    if (!Array.isArray(d.members)) return null;
+    return { members: d.members, hasPassword: (d.hasPassword && typeof d.hasPassword === 'object') ? d.hasPassword : {} };
   } catch { return null; }
 }
 
