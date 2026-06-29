@@ -496,6 +496,69 @@ await test('basket: результат сохраняется в KV', async () =
   assert.ok(Array.isArray(cached.pairs));
 });
 
+// ─── getMarginData: reason / покрытие себестоимости ──────────────────────────
+
+await test('margin: у всех блюд есть себестоимость → reason=ok, margin посчитан', async () => {
+  global.fetch = seqFetch(AUTH_OK, olapRows(
+    { DishName:'Бургер', DishDiscountSumInt:100000, DishAmountInt:50,  'ProductCostBase.ProductCostBase':30000 },
+    { DishName:'Пиво',   DishDiscountSumInt:200000, DishAmountInt:100, 'ProductCostBase.ProductCostBase':80000 },
+  ));
+  const iiko = loadIiko();
+  const r = await iiko.getMarginData(mkData(), noop);
+  assert.strictEqual(r.reason, 'ok');
+  assert.strictEqual(r.coveredCount, 2);
+  assert.strictEqual(r.totalCount, 2);
+  assert.strictEqual(r.hasMarginData, true);
+  assert.strictEqual(r.items.find(i => i.name === 'Бургер').margin, 70); // (100-30)/100
+});
+
+await test('margin: iiko не отдаёт ProductCostBase (4xx) → reason=field_unsupported', async () => {
+  global.fetch = seqFetch(AUTH_OK,
+    { status:400, bodyText:'Unknown OLAP field ProductCostBase' },
+    olapRows({ DishName:'Бургер', DishDiscountSumInt:100000, DishAmountInt:50 }), // fallback без cost
+  );
+  const iiko = loadIiko();
+  const r = await iiko.getMarginData(mkData(), noop);
+  assert.strictEqual(r.reason, 'field_unsupported');
+  assert.strictEqual(r.hasMarginData, false);
+  assert.strictEqual(r.coveredCount, 0);
+  assert.ok(r.totalCount >= 1);
+});
+
+await test('margin: продажи есть, себестоимость=0 у всех → reason=no_cost_data', async () => {
+  global.fetch = seqFetch(AUTH_OK, olapRows(
+    { DishName:'Бургер', DishDiscountSumInt:100000, DishAmountInt:50, 'ProductCostBase.ProductCostBase':0 },
+  ));
+  const iiko = loadIiko();
+  const r = await iiko.getMarginData(mkData(), noop);
+  assert.strictEqual(r.reason, 'no_cost_data');
+  assert.strictEqual(r.coveredCount, 0);
+  assert.strictEqual(r.totalCount, 1);
+  assert.strictEqual(r.hasMarginData, false);
+});
+
+await test('margin: нет продаж за 30 дней → reason=no_sales', async () => {
+  global.fetch = seqFetch(AUTH_OK, OLAP_EMPTY);
+  const iiko = loadIiko();
+  const r = await iiko.getMarginData(mkData(), noop);
+  assert.strictEqual(r.reason, 'no_sales');
+  assert.strictEqual(r.totalCount, 0);
+  assert.strictEqual(r.hasMarginData, false);
+});
+
+await test('margin: часть блюд без себестоимости → reason=partial + coveredCount', async () => {
+  global.fetch = seqFetch(AUTH_OK, olapRows(
+    { DishName:'Бургер', DishDiscountSumInt:100000, DishAmountInt:50,  'ProductCostBase.ProductCostBase':30000 },
+    { DishName:'Пиво',   DishDiscountSumInt:200000, DishAmountInt:100, 'ProductCostBase.ProductCostBase':0 },
+  ));
+  const iiko = loadIiko();
+  const r = await iiko.getMarginData(mkData(), noop);
+  assert.strictEqual(r.reason, 'partial');
+  assert.strictEqual(r.coveredCount, 1);
+  assert.strictEqual(r.totalCount, 2);
+  assert.strictEqual(r.hasMarginData, true);
+});
+
 // ─── Итоги ───────────────────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(58)}`);
 console.log(`Итого: ${passed + failed} тестов | ✅ ${passed} прошло | ❌ ${failed} упало`);

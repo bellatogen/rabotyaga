@@ -59,4 +59,32 @@ function verifyInitData(initData, botToken) {
   return { ok: true, user, authDate };
 }
 
-module.exports = { verifyInitData, MAX_AGE_SEC };
+/**
+ * SEC-8: Определяет tenantId по подписи initData, пробуя каждый токен из tokenMap.
+ * tokenMap = { [botToken]: tenantId } — строится при старте из listActiveTenants.
+ *
+ * Алгоритм: для каждой пары {botToken, tenantId} в map → verifyInitData(initData, botToken).
+ * Первый успешный матч → возвращаем { tenantId, user, authDate }.
+ * Если ни один не подошёл — пробуем fallbackToken (process.env.TELEGRAM_TOKEN) →
+ * tenantId = 'pivnaya_karta'. Если и он не подошёл → { ok: false }.
+ *
+ * @param {string} initData
+ * @param {Object.<string,string>} tokenMap — { botToken → tenantId }
+ * @param {string} [fallbackToken] — токен дефолтного бота (back-compat)
+ * @returns {{ ok:boolean, tenantId?:string, user?:object, authDate?:number, reason?:string }}
+ */
+function resolveTenantByInitData(initData, tokenMap = {}, fallbackToken = '') {
+  // Пробуем каждый известный токен
+  for (const [botToken, tenantId] of Object.entries(tokenMap)) {
+    const v = verifyInitData(initData, botToken);
+    if (v.ok) return { ok: true, tenantId, user: v.user, authDate: v.authDate };
+  }
+  // Fallback: дефолтный токен бота (если не попал в map или map пуст)
+  if (fallbackToken && !tokenMap[fallbackToken]) {
+    const v = verifyInitData(initData, fallbackToken);
+    if (v.ok) return { ok: true, tenantId: 'pivnaya_karta', user: v.user, authDate: v.authDate };
+  }
+  return { ok: false, reason: 'Подпись Telegram недействительна для всех известных ботов' };
+}
+
+module.exports = { verifyInitData, resolveTenantByInitData, MAX_AGE_SEC };

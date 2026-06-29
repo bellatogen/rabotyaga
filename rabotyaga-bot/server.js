@@ -13,6 +13,9 @@ const crypto     = require('crypto');
 const makePushApi   = require('./src/api/push');
 const makePushSender = require('./src/push/sender');
 const pushScheduler = require('./src/push/scheduler');
+const makeIntegrationsRouter   = require('./src/api/integrations');
+const makeManualRevenueRouter  = require('./src/api/revenue/manual');
+const dataSources = require('./src/api/dataSources');
 const makeAdminApi  = require('./src/api/admin');
 const makeAuthApi   = require('./src/api/auth');
 const makeQuestsApi  = require('./src/api/quests');
@@ -29,6 +32,8 @@ const { syncSchedule }    = require('./src/sync/scheduleSync');
 const { syncRevenuePlan } = require('./src/sync/revenueSync');
 const { syncMozgDashboard } = require('./src/sync/mozgSync');
 const { requireAuth, requireManager } = require('./src/middleware/auth');
+const { getTenantSecret, DEFAULT_TENANT } = require('./src/config/secrets');
+const { createProviderRegistry } = require('./src/providers/index'); // SEC-8 WI-6
 
 // ── Конфиг ──
 const PORT          = process.env.PORT     || 3001;
@@ -131,23 +136,53 @@ const WEBAPP_URL = process.env.WEBAPP_URL || 'https://rabotyaga55.ru';
 if (!TOKEN) { console.error('❌ Не задан TELEGRAM_TOKEN в .env'); process.exit(1); }
 const bot = new Telegraf(TOKEN);
 
-// ── In-memory хранилище ──
-let data = { kv: {}, bindings: {}, pushSettings: {}, adminUsers: [] };
+// ── In-memory хранилище (SEC-8: multi-tenant) ──
+// data.tenants[tid] = { kv: {}, bindings: {} } — изолированные данные каждого тенанта.
+// data.kv / data.bindings — шимы через defineProperty → pivnaya_karta (back-compat).
+let data = { tenants: {}, pushSettings: {}, adminUsers: [] };
+
+// SEC-8: ленивая инициализация слота тенанта.
+function getTenantData(tid) {
+  if (!data.tenants[tid]) data.tenants[tid] = { kv: {}, bindings: {} };
+  return data.tenants[tid];
+}
+
+// Шимы: data.kv / data.bindings → DEFAULT_TENANT. Позволяет существующим маршрутам
+// работать без изменений, а multi-tenant роуты явно используют getTenantData(tid).
+Object.defineProperty(data, 'kv', {
+  get()  { return getTenantData(DEFAULT_TENANT).kv; },
+  set(v) { getTenantData(DEFAULT_TENANT).kv = v; },
+  enumerable: true, configurable: true,
+});
+Object.defineProperty(data, 'bindings', {
+  get()  { return getTenantData(DEFAULT_TENANT).bindings; },
+  set(v) { getTenantData(DEFAULT_TENANT).bindings = v; },
+  enumerable: true, configurable: true,
+});
+
 if (fs.existsSync(DATA_FILE)) {
   try {
     const loaded = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-    data.kv           = loaded.kv           || {};
-    data.bindings      = loaded.bindings      || {};
-    data.pushSettings  = loaded.pushSettings  || {};
-    data.adminUsers    = loaded.adminUsers    || [];
-    // Квест-данные хранятся в data.kv (PG-backed) — грузятся вместе с kv выше.
-    // legacy top-level поля (если были в старом файле) подхватит ensureQuestModel().
-    if (loaded.quests     !== undefined) data.quests     = loaded.quests;
-    if (loaded.rewards    !== undefined) data.rewards    = loaded.rewards;
-    if (loaded.xp_ledger  !== undefined) data.xp_ledger  = loaded.xp_ledger;
-    if (loaded.streaks    !== undefined) data.streaks    = loaded.streaks;
-    if (loaded.reward_log !== undefined) data.reward_log = loaded.reward_log;
-    console.log(`📂 Загружено ${Object.keys(data.kv).length} kv-ключей, ${Object.keys(data.bindings).length} привязок`);
+    if (loaded.tenants && typeof loaded.tenants === 'object') {
+      // Новый формат (SEC-8)
+      data.tenants      = loaded.tenants;
+      data.pushSettings = loaded.pushSettings || {};
+      data.adminUsers   = loaded.adminUsers   || [];
+    } else {
+      // Старый формат — мигрируем в DEFAULT_TENANT через шимы
+      data.kv           = loaded.kv          || {};
+      data.bindings     = loaded.bindings    || {};
+      data.pushSettings = loaded.pushSettings || {};
+      data.adminUsers   = loaded.adminUsers   || [];
+      // Квест-данные — legacy top-level поля (если были)
+      if (loaded.quests     !== undefined) data.quests     = loaded.quests;
+      if (loaded.rewards    !== undefined) data.rewards    = loaded.rewards;
+      if (loaded.xp_ledger  !== undefined) data.xp_ledger  = loaded.xp_ledger;
+      if (loaded.streaks    !== undefined) data.streaks    = loaded.streaks;
+      if (loaded.reward_log !== undefined) data.reward_log = loaded.reward_log;
+    }
+    const td = getTenantData(DEFAULT_TENANT);
+    console.log(`📂 Загружено ${Object.keys(td.kv).length} kv-ключей, ${Object.keys(td.bindings).length} привязок`);
   } catch (e) { console.error('Ошибка чтения data.json:', e); }
 }
 
@@ -160,16 +195,31 @@ let PG_OK = false;            // доступна ли БД для записи
 let pgRetryTimer = null;      // таймер ретрая при недоступном PG
 let flushChain = Promise.resolve(); // сериализация PG-флашей (одна транзакция за раз)
 let flushPending = false;     // coalescing: не ставить новый flush, пока один в очереди
-// Снимок того, что уже записано в PG — чтобы писать только изменённое.
-// pushSettings хранится в PG отдельным ключом 'pushSettings:v1' (не внутри kv).
-let lastFlushed = { kv: {}, bindings: {}, bindingsJSON: '', pushSettingsJSON: '' };
+// SEC-8: снимок per-тенант — { [tenantId]: { kv:{}, bindings:{}, bindingsJSON:'', pushSettingsJSON:'' } }
+// pushSettings хранятся под ключом 'pushSettings:v1' в kv DEFAULT_TENANT.
+const lastFlushed = {};
+
+function getLastFlushed(tid) {
+  if (!lastFlushed[tid]) lastFlushed[tid] = { kv: {}, bindings: {}, bindingsJSON: '', pushSettingsJSON: '' };
+  return lastFlushed[tid];
+}
 
 function saveData() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    // 1. Файловый flush — всегда (disaster-recovery резерв)
-    try { fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2)); }
-    catch (e) { console.error('Ошибка записи data.json:', e); }
+    // 1. Файловый flush — всегда (disaster-recovery резерв).
+    // SEC-8: сериализуем явно: tenants + top-level поля + shim-поля для back-compat.
+    try {
+      const snapshot = {
+        tenants:      data.tenants,
+        pushSettings: data.pushSettings,
+        adminUsers:   data.adminUsers,
+        // back-compat поля (читаются при загрузке если нет 'tenants')
+        kv:       getTenantData(DEFAULT_TENANT).kv,
+        bindings: getTenantData(DEFAULT_TENANT).bindings,
+      };
+      fs.writeFileSync(DATA_FILE, JSON.stringify(snapshot, null, 2));
+    } catch (e) { console.error('Ошибка записи data.json:', e); }
     // 2. PG-flush — сериализованно + coalescing, только если БД доступна.
     // flushPending сбрасывается в начале задачи (до flushToPG), поэтому записи,
     // пришедшие во время самого flush, поставят следующий — ничего не теряется.
@@ -182,72 +232,118 @@ function saveData() {
   }, 300);
 }
 
-// Записать в PG только изменённые/удалённые ключи (dirty-tracking по снимку lastFlushed).
+// SEC-8: Записать в PG изменённые/удалённые ключи для всех тенантов (dirty-tracking).
 async function flushToPG() {
-  // kv: изменённые
-  for (const [key, value] of Object.entries(data.kv)) {
-    if (lastFlushed.kv[key] !== value) {
-      await adapter.kvSet(key, value);
-      lastFlushed.kv[key] = value;
+  const tids = Object.keys(data.tenants);
+  if (!tids.includes(DEFAULT_TENANT)) tids.push(DEFAULT_TENANT);
+
+  for (const tid of tids) {
+    const td = getTenantData(tid);
+    const lf = getLastFlushed(tid);
+
+    // kv: изменённые
+    for (const [key, value] of Object.entries(td.kv)) {
+      if (lf.kv[key] !== value) {
+        await adapter.kvSet(tid, key, value);
+        lf.kv[key] = value;
+      }
     }
-  }
-  // kv: удалённые (есть в снимке, нет в data)
-  for (const key of Object.keys(lastFlushed.kv)) {
-    if (!(key in data.kv)) {
-      await adapter.kvDelete(key);
-      delete lastFlushed.kv[key];
+    // kv: удалённые (есть в снимке, нет в data)
+    for (const key of Object.keys(lf.kv)) {
+      if (!(key in td.kv)) {
+        await adapter.kvDelete(tid, key);
+        delete lf.kv[key];
+      }
     }
-  }
-  // pushSettings → отдельный ключ pushSettings:v1
-  const psJSON = JSON.stringify(data.pushSettings || {});
-  if (psJSON !== lastFlushed.pushSettingsJSON) {
-    await adapter.kvSet('pushSettings:v1', psJSON);
-    lastFlushed.pushSettingsJSON = psJSON;
-  }
-  // bindings: дельта (upsert изменённых + деактивация удалённых)
-  const curBind = data.bindings || {};
-  const bJSON = JSON.stringify(curBind);
-  if (bJSON !== lastFlushed.bindingsJSON) {
-    for (const [name, tgId] of Object.entries(curBind)) {
-      if (lastFlushed.bindings[name] !== tgId) await adapter.bindEmployee(name, tgId);
+    // pushSettings → под ключом 'pushSettings:v1' только для DEFAULT_TENANT
+    if (tid === DEFAULT_TENANT) {
+      const psJSON = JSON.stringify(data.pushSettings || {});
+      if (psJSON !== lf.pushSettingsJSON) {
+        await adapter.kvSet(tid, 'pushSettings:v1', psJSON);
+        lf.pushSettingsJSON = psJSON;
+      }
     }
-    for (const name of Object.keys(lastFlushed.bindings)) {
-      if (!(name in curBind)) await adapter.unbindEmployee(name);
+    // bindings: дельта (upsert изменённых + деактивация удалённых)
+    const curBind = td.bindings || {};
+    const bJSON = JSON.stringify(curBind);
+    if (bJSON !== lf.bindingsJSON) {
+      for (const [name, tgId] of Object.entries(curBind)) {
+        if (lf.bindings[name] !== tgId) await adapter.bindEmployee(tid, name, tgId);
+      }
+      for (const name of Object.keys(lf.bindings)) {
+        if (!(name in curBind)) await adapter.unbindEmployee(tid, name);
+      }
+      lf.bindings = { ...curBind };
+      lf.bindingsJSON = bJSON;
     }
-    lastFlushed.bindings = { ...curBind };
-    lastFlushed.bindingsJSON = bJSON;
   }
 }
 
-// Перечитать снимок из текущего data (после hydrate, когда PG = источник истины).
+// SEC-8 WI-6: хелпер слияния полей выручки в тенантский KV.
+// delta = { 'YYYY-MM-DD': { fact?, plan?, guests?, avgCheck?, origin?, ... } }
+// Не вызывает saveData() — вызывающий код делает это сам.
+function mergeRevenue(td, delta) {
+  let rev = {};
+  try { rev = JSON.parse(td.kv['revenue:v1'] || '{}'); } catch { rev = {}; }
+  for (const [date, fields] of Object.entries(delta)) {
+    Object.assign(rev[date] || (rev[date] = {}), fields);
+  }
+  td.kv['revenue:v1'] = JSON.stringify(rev);
+}
+
+// SEC-8 WI-6: Перечитать снимки из текущего data для всех тенантов (после hydrate).
 function captureSnapshot() {
-  lastFlushed.kv = { ...data.kv };
-  lastFlushed.bindings = { ...(data.bindings || {}) };
-  lastFlushed.bindingsJSON = JSON.stringify(data.bindings || {});
-  lastFlushed.pushSettingsJSON = JSON.stringify(data.pushSettings || {});
+  for (const tid of Object.keys(data.tenants)) {
+    const td = getTenantData(tid);
+    const lf = getLastFlushed(tid);
+    lf.kv = { ...td.kv };
+    lf.bindings = { ...(td.bindings || {}) };
+    lf.bindingsJSON = JSON.stringify(td.bindings || {});
+    lf.pushSettingsJSON = tid === DEFAULT_TENANT
+      ? JSON.stringify(data.pushSettings || {}) : '';
+  }
 }
 
-// PG-first загрузка при старте. Возвращает управление синхронно для остального кода;
-// до завершения PG_OK=false → saveData пишет только файл (без затирания пустого PG).
+// SEC-8: PG-first загрузка при старте. Загружает все активные тенанты.
+// До завершения PG_OK=false → saveData пишет только файл (без затирания пустого PG).
 async function hydrateFromPG() {
   try {
-    const kvAll = await adapter.kvGetAll();        // бросит, если PG недоступен
-    const bindings = await adapter.getBindings();
+    // Получаем список активных тенантов; при отсутствии таблицы — fallback DEFAULT_TENANT.
+    let tenantIds;
+    try {
+      const rows = await adapter.listActiveTenants();
+      tenantIds = rows.length > 0 ? rows.map(r => r.tenant_id) : [DEFAULT_TENANT];
+    } catch {
+      tenantIds = [DEFAULT_TENANT]; // таблица tenants ещё не создана (до миграции 004)
+    }
+
+    let totalKeys = 0;
+    for (const tid of tenantIds) {
+      const kvAll    = await adapter.kvGetAll(tid);    // бросит, если PG недоступен
+      const bindings = await adapter.getBindings(tid);
+      const keys     = Object.keys(kvAll);
+      if (keys.length === 0) continue;
+
+      const { 'pushSettings:v1': psRaw, ...kvRest } = kvAll;
+      const td = getTenantData(tid);
+      td.kv       = kvRest;
+      td.bindings = bindings;
+      if (tid === DEFAULT_TENANT && psRaw) {
+        try { data.pushSettings = JSON.parse(psRaw); } catch { /* keep */ }
+      }
+      totalKeys += keys.length;
+    }
+
     PG_OK = true;
 
-    const keys = Object.keys(kvAll);
-    if (keys.length > 0) {
-      // PG непуст → primary, перезаписываем горячий кеш данными из БД
-      const { 'pushSettings:v1': psRaw, ...kvRest } = kvAll;
-      data.kv = kvRest;
-      data.bindings = bindings;
-      if (psRaw) { try { data.pushSettings = JSON.parse(psRaw); } catch { /* keep */ } }
+    if (totalKeys > 0) {
+      // PG непуст → primary: снимаем снимок (captureSnapshot) для dirty-tracking.
       captureSnapshot();
-      console.log(`📂 Загружено ${Object.keys(data.kv).length} kv-ключей из PostgreSQL, ${Object.keys(bindings).length} привязок`);
+      const td = getTenantData(DEFAULT_TENANT);
+      console.log(`📂 Загружено ${totalKeys} kv-ключей из PostgreSQL, ${Object.keys(td.bindings).length} привязок`);
     } else {
       // PG доступен, но пуст → авто-миграция: оставляем файловые данные,
-      // снимок пустой → ближайший flush «прогреет» БД целиком.
-      lastFlushed = { kv: {}, bindings: {}, bindingsJSON: '', pushSettingsJSON: '' };
+      // снимок пуст → ближайший flush «прогреет» БД целиком.
       console.log('📂 PostgreSQL пуст — выполняю авто-миграцию из data.json при первом сохранении');
       saveData();
     }
@@ -266,17 +362,22 @@ function schedulePGRetry() {
     try {
       const kvAll = await adapter.kvGetAll();
       clearInterval(pgRetryTimer); pgRetryTimer = null;
-      // Память (работала на файле во время простоя) — источник истины.
-      // Кладём СНИМОК текущего PG в lastFlushed.kv, чтобы ближайший flush привёл
-      // БД к состоянию памяти: изменённые перезапишутся, а осиротевшие ключи
-      // (удалённые в памяти за время простоя) корректно удалятся через kvDelete.
+      // SEC-8 / C1: память (работала на файле) — источник истины.
+      // Кладём СНИМОК текущего PG в lastFlushed[tid].kv, чтобы ближайший flush привёл
+      // БД к состоянию памяти: изменённые перезапишутся, осиротевшие удалятся.
       // Пустой снимок не дал бы цикл удалений — ключи воскресали бы (фикс C1).
-      const { 'pushSettings:v1': _ps, ...kvRest } = kvAll;
-      lastFlushed.kv = kvRest;
-      // bindings/pushSettings прогреваем целиком (upsert идемпотентен).
-      lastFlushed.bindings = {}; lastFlushed.bindingsJSON = ''; lastFlushed.pushSettingsJSON = '';
+      let totalKeysInPG = 0;
+      for (const tid of Object.keys(data.tenants).concat(DEFAULT_TENANT)) {
+        let kvAll2;
+        try { kvAll2 = await adapter.kvGetAll(tid); } catch { continue; }
+        const { 'pushSettings:v1': _ps2, ...kvRest2 } = kvAll2;
+        const lf = getLastFlushed(tid);
+        lf.kv = kvRest2;
+        lf.bindings = {}; lf.bindingsJSON = ''; lf.pushSettingsJSON = '';
+        totalKeysInPG += Object.keys(kvAll2).length;
+      }
       PG_OK = true;
-      console.log(`[pg] соединение восстановлено (${Object.keys(kvAll).length} ключей в БД) — синхронизирую БД с памятью`);
+      console.log(`[pg] соединение восстановлено (${totalKeysInPG} ключей в БД) — синхронизирую БД с памятью`);
       saveData();
     } catch { /* ещё недоступна — ждём следующего тика */ }
   }, 15000);
@@ -304,14 +405,46 @@ async function migrateAuthPasswords() {
   } catch (e) { console.error('[auth] ошибка миграции паролей:', e.message); }
 }
 
+// ── SEC-8: Token map { botToken → tenantId } ──────────────────────────────────
+// Строится при старте из listActiveTenants + getTenantSecret.
+// Используется в /api/auth/telegram для определения тенанта по initData.
+// В памяти — не персистируется и не уходит в БД/файл.
+let _tokenMap = {};
+function getTokenMap() { return _tokenMap; }
+
+async function buildTokenMap() {
+  try {
+    const tenants = await adapter.listActiveTenants();
+    const map = {};
+    for (const { tenant_id } of tenants) {
+      const tok = getTenantSecret(tenant_id, 'TELEGRAM_TOKEN');
+      if (tok) map[tok] = tenant_id;
+    }
+    _tokenMap = map;
+    console.log(`[tokenMap] построен: ${Object.keys(map).length} тенантов`);
+  } catch (e) {
+    console.warn('[tokenMap] ошибка построения:', e.message);
+    // Fallback: дефолтный тенант через env (до применения миграции 004)
+    const fallback = process.env.TELEGRAM_TOKEN;
+    if (fallback) _tokenMap = { [fallback]: DEFAULT_TENANT };
+  }
+}
+
 // Инициализируем sender и push API (data + saveData уже готовы)
 // adapter — для дублирования пуш-логов в таблицу push_log
-pushSender = makePushSender(data, saveData, adapter);
+pushSender = makePushSender(data, saveData, adapter, DEFAULT_TENANT);
 app.use('/api/push', makePushApi(pushSender, data, saveData, bot));
 
 // ── Монтируем роутеры (требующие data) ──
-app.use('/api/auth',  makeAuthApi(data, saveData));
-app.use('/api/admin', requireManager, makeAdminApi(data, saveData));
+// SEC-8: передаём getTokenMap для resolveTenantByInitData в telegram-входе
+app.use('/api/auth',         makeAuthApi(data, saveData, getTokenMap));
+app.use('/api/admin',        requireManager, makeAdminApi(data, saveData));
+// SEC-8 WI-7: управление интеграциями тенанта (GET/PUT, без секретов)
+app.use('/api/integrations', makeIntegrationsRouter(adapter));
+// SEC-8 WI-7: ручной ввод выручки (только manager)
+app.use('/api/revenue/manual', makeManualRevenueRouter(data, saveData));
+// SEC-8 WI-7: источники данных (уже импортирован, монтируем здесь)
+app.use('/api/admin/data-sources', requireManager, dataSources);
 
 // ── Квест-система (геймификация): роутеры ──
 // ВАЖНО: ensureQuestModel ВЫЗЫВАЕТСЯ В BOOTSTRAP ПОСЛЕ hydrateFromPG (см. ниже),
@@ -358,62 +491,102 @@ setTimeout(() => {
   }, 12 * 60 * 60 * 1000);
 }, 10000);
 
-// Авто-синхронизация из mozg.rest каждые 2 часа (если заданы MOZG_LOGIN/PASSWORD)
-// После каждого mozgSync сравниваем факт Мозга с суммой iiko (revenue:v1).
-// Расхождение ≥5% → принудительный re-sync iiko (Мозг как эталон).
-function mozgSyncWithDriftCheck() {
-  return syncMozgDashboard(data, saveData).then(r => {
-    const fmtN = n => n?.toLocaleString('ru-RU');
-    console.log(`[mozg/auto] факт ${fmtN(r.fact)}₽, план ${fmtN(r.plan)}₽`);
+// SEC-8 WI-6: Per-tenant sync провайдеров выручки (iiko + mozg) через реестр провайдеров.
+// Заменяет глобальные env-синки: mozgSyncWithDriftCheck() + iiko.syncRevenue(data,saveData).
+// Дрифт-чек mozg↔iiko сохранён per-tenant.
+async function runSyncsForAllTenants() {
+  let tenants;
+  try {
+    tenants = await adapter.listActiveTenants();
+  } catch (e) {
+    console.error('[providerSync] ошибка listActiveTenants:', e.message);
+    return;
+  }
 
-    if (!r.fact || !process.env.IIKO_URL) return r;
+  for (const { tenant_id: tid } of tenants) {
+    try {
+      // Получаем список интеграций из PG, fallback — пустой (нет таблицы до 004)
+      let integRows;
+      try {
+        integRows = await adapter.getTenantIntegrations(tid);
+      } catch (e) {
+        console.warn(`[providerSync/${tid}] getTenantIntegrations недоступно:`, e.message);
+        integRows = [];
+      }
 
-    // Суммируем iiko-факт за текущий месяц из revenue:v1
-    const ym = r.ym; // 'YYYY-MM'
-    let rev = {};
-    try { rev = JSON.parse(data.kv['revenue:v1'] || '{}'); } catch { return r; }
-    const iikoFact = Object.entries(rev)
-      .filter(([d]) => d.startsWith(ym))
-      .reduce((s, [, v]) => s + (Number(v?.fact) || 0), 0);
+      if (!integRows.length) continue;
 
-    if (iikoFact === 0) return r;
+      // Преобразуем массив строк PG → { kind: { enabled, config } } для реестра
+      const config = {};
+      for (const row of integRows) {
+        let cfg = row.config;
+        if (typeof cfg === 'string') { try { cfg = JSON.parse(cfg); } catch { cfg = {}; } }
+        config[row.kind] = { enabled: row.enabled, config: cfg || {} };
+      }
 
-    const drift = Math.abs(r.fact - iikoFact) / r.fact;
-    if (drift >= 0.05) {
-      console.log(`[mozg/auto] расхождение ${Math.round(drift * 100)}% (мозг ${fmtN(r.fact)}₽ vs iiko ${fmtN(iikoFact)}₽) → re-sync iiko`);
-      iiko.syncRevenue(data, saveData)
-        .then(res => console.log(`[mozg/auto] iiko re-sync: обновлено ${res.updated} дней`))
-        .catch(e => console.error('[mozg/auto] iiko re-sync error:', e.message));
-    } else {
-      console.log(`[mozg/auto] расхождение ${Math.round(drift * 100)}% — норма`);
+      const td = getTenantData(tid);
+      const registry = createProviderRegistry({
+        tenantId: tid,
+        config,
+        getSecret: name => getTenantSecret(tid, name),
+      });
+
+      // ── iiko: sync выручки за текущий месяц (пишет revenue:v1 тенанта) ──
+      if (registry.iiko) {
+        try {
+          const r = await registry.iiko.syncRevenue(td, saveData);
+          console.log(`[providerSync/${tid}/iiko] обновлено ${r?.updated ?? '?'} дней`);
+        } catch (e) {
+          console.error(`[providerSync/${tid}/iiko] ошибка:`, e.message);
+        }
+      }
+
+      // ── mozg: sync дашборда (пишет mozg:dashboard:v1) + дрифт-чек vs iiko ──
+      if (registry.mozg) {
+        try {
+          const r = await registry.mozg.syncDashboard(td, saveData);
+          const fmtN = n => n?.toLocaleString('ru-RU');
+          console.log(`[providerSync/${tid}/mozg] факт ${fmtN(r?.fact)}₽, план ${fmtN(r?.plan)}₽`);
+
+          // Дрифт-чек mozg↔iiko — только если оба настроены и mozg вернул факт
+          if (r?.fact && registry.iiko) {
+            const ym = r.ym; // 'YYYY-MM'
+            let rev = {};
+            try { rev = JSON.parse(td.kv['revenue:v1'] || '{}'); } catch { /* */ }
+            const iikoFact = Object.entries(rev)
+              .filter(([d]) => d.startsWith(ym))
+              .reduce((s, [, v]) => s + (Number(v?.fact) || 0), 0);
+            if (iikoFact > 0) {
+              const drift = Math.abs(r.fact - iikoFact) / r.fact;
+              if (drift >= 0.05) {
+                console.log(`[providerSync/${tid}] дрифт ${Math.round(drift * 100)}% (mozg ${fmtN(r.fact)}₽ vs iiko ${fmtN(iikoFact)}₽) → re-sync iiko`);
+                registry.iiko.syncRevenue(td, saveData)
+                  .then(res => console.log(`[providerSync/${tid}] re-sync iiko: ${res?.updated} дней`))
+                  .catch(e => console.error(`[providerSync/${tid}] re-sync iiko error:`, e.message));
+              } else {
+                console.log(`[providerSync/${tid}] дрифт ${Math.round(drift * 100)}% — норма`);
+              }
+            }
+          }
+        } catch (e) {
+          console.error(`[providerSync/${tid}/mozg] ошибка:`, e.message);
+        }
+      }
+
+    } catch (e) {
+      console.error(`[providerSync/${tid}] необработанная ошибка:`, e.message);
     }
-    return r;
-  });
+  }
 }
 
+// SEC-8 WI-6: Авто-sync провайдеров каждые 2 часа (вместо глобальных mozg+iiko).
+// Стартовый прогон с задержкой 20с (после scheduleSync-прогрева).
 setTimeout(() => {
-  if (process.env.MOZG_LOGIN && process.env.MOZG_PASSWORD) {
-    mozgSyncWithDriftCheck().catch(e => console.error('[mozg/auto] startup error:', e.message));
-    setInterval(() => {
-      mozgSyncWithDriftCheck().catch(e => console.error('[mozg/auto] interval error:', e.message));
-    }, 2 * 60 * 60 * 1000);
-  }
+  runSyncsForAllTenants().catch(e => console.error('[providerSync] startup error:', e.message));
+  setInterval(() => {
+    runSyncsForAllTenants().catch(e => console.error('[providerSync] interval error:', e.message));
+  }, 2 * 60 * 60 * 1000);
 }, 20000);
-
-// Авто-синхронизация ФАКТА выручки из iiko каждые 2 часа
-// Стартовый sync: задержка 30с (после auth и планового sync)
-setTimeout(() => {
-  if (process.env.IIKO_URL && process.env.IIKO_LOGIN) {
-    iiko.syncRevenue(data, saveData)
-      .then(r => console.log(`[iiko/auto] старт: обновлено ${r.updated} дней`))
-      .catch(e => console.error('[iiko/auto] startup error:', e.message));
-    setInterval(() => {
-      iiko.syncRevenue(data, saveData)
-        .then(r => console.log(`[iiko/auto] интервал: обновлено ${r.updated} дней`))
-        .catch(e => console.error('[iiko/auto] interval error:', e.message));
-    }, 2 * 60 * 60 * 1000);
-  }
-}, 30000);
 
 // ── mozg.rest — статус и ручной запуск ──
 app.get('/api/sync/mozg/status', requireAuth, (req, res) => {
@@ -471,7 +644,7 @@ app.get('/api/iiko/revenue/:date', requireAuth, async (req, res) => {
   }
 });
 
-// ── iiko: анализ маржинальности за 30 дней (requireManager — запись в KV чувствительна) ──
+// ── iiko: анализ маржинальности за 30 дней (requireAuth — пишет только кэш margin_data:v1) ──
 app.get('/api/iiko/margin-data', requireAuth, async (req, res) => {
   if (req.query.force === '1') delete data.kv['margin_data:v1'];
   try {
@@ -845,6 +1018,8 @@ let httpServer;
   await hydrateFromPG();
   // bcrypt-миграция — на актуальных (после hydrate) данных, без гонки за auth:v1.
   await migrateAuthPasswords();
+  // SEC-8: token map строится после hydrate (нужны данные из tenant_integrations)
+  await buildTokenMap();
   // Единая модель пушей: при отсутствии push:v1 — одноразовая миграция из
   // push_settings:v1 + data.pushSettings + profiles:v1 (после hydrate, чтобы
   // мигрировать актуальные данные, а не файловый снимок).

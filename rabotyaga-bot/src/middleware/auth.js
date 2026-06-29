@@ -21,9 +21,12 @@ const COOKIE_NAME = 'rab_token';
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 дней
 
 // opts.tgVerified — личность подтверждена входом через Telegram (SEC-7).
+// opts.tenantId  — тенант пользователя (SEC-8); fallback 'pivnaya_karta' при чтении.
 function signToken(account, opts = {}) {
   const payload = { account };
   if (opts.tgVerified) payload.tgVerified = true;
+  // SEC-8: tenantId в токене — для per-tenant авторизации маршрутов
+  if (opts.tenantId) payload.tenantId = opts.tenantId;
   return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
 }
 
@@ -52,15 +55,30 @@ function clearAuthCookie(res) {
   });
 }
 
-/** Middleware: требует валидный JWT cookie. Кладёт account в req.account. */
+/** Middleware: требует валидный JWT cookie. Кладёт account в req.account.
+ *  SEC-8: извлекает req.tenantId из токена (fallback 'pivnaya_karta' для старых токенов). */
 function requireAuth(req, res, next) {
   const token = req.cookies?.[COOKIE_NAME];
   if (!token) return res.status(401).json({ error: 'Не авторизован' });
   const payload = verifyToken(token);
   if (!payload) return res.status(401).json({ error: 'Токен недействителен или истёк' });
-  req.account = payload.account;
-  req.tgVerified = !!payload.tgVerified; // SEC-7: подтверждена ли личность через Telegram
+  req.account    = payload.account;
+  req.tgVerified = !!payload.tgVerified;            // SEC-7: подтверждена ли личность через Telegram
+  req.tenantId   = payload.tenantId || 'pivnaya_karta'; // SEC-8: тенант (fallback для старых токенов)
   next();
+}
+
+/** SEC-8: требует, чтобы req.tenantId совпадал с переданным (или был manager/developer).
+ *  Используется для маршрутов, изолированных на тенант.
+ *  Всегда вызывается ПОСЛЕ requireAuth. */
+function requireTenant(tenantId) {
+  return (req, res, next) => {
+    if (!req.tenantId) return res.status(401).json({ error: 'Не авторизован' });
+    if (req.tenantId !== tenantId && req.account !== 'developer') {
+      return res.status(403).json({ error: `Нет доступа к тенанту ${tenantId}` });
+    }
+    next();
+  };
 }
 
 /** SEC-7: требует, чтобы личность была подтверждена входом через Telegram (tgVerified в JWT).
@@ -86,6 +104,6 @@ function requireManager(req, res, next) {
 
 module.exports = {
   signToken, verifyToken, setAuthCookie, clearAuthCookie,
-  requireAuth, requireManager, requireTgVerified,
+  requireAuth, requireManager, requireTgVerified, requireTenant,
   COOKIE_NAME, JWT_SECRET,
 };

@@ -1,5 +1,67 @@
 # Журнал изменений — Работяга
 
+## [Unreleased] — 2026-06-30 · Спринт B (SaaS мультитенантность + провайдеры)
+
+### 🏗 Архитектура
+
+#### SEC-8: shared-DB мультитенантность + изолированные провайдеры интеграций
+
+**Миграция БД (`db/004_multitenancy.sql`)**
+- Новая таблица `tenants(tenant_id, name, status, created_at)` + seed `pivnaya_karta`.
+- Новая таблица `tenant_integrations(tenant_id, kind, enabled, config JSONB)` + 4 интеграции для дефолтного тенанта.
+- `ALTER TABLE kv_store` — добавлен `tenant_id`, PK переделан на `(tenant_id, key)`.
+- `ALTER TABLE employee_bindings` — добавлен `tenant_id`, уникальность по `(tenant_id, name)`.
+- `ALTER TABLE push_log / push_schedule / data_sources` — добавлен `tenant_id` + индексы.
+- Миграция идемпотентна (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`).
+
+**Secrets resolver (`src/config/secrets.js`)**
+- `getTenantSecret(tenantId, name)` → `env[TID_UPPER_NAME]` → fallback `env[NAME]` только для `pivnaya_karta`.
+- Валидация tenantId: только `[a-z0-9_]`, иначе throw — предотвращает prototype pollution через имена тенантов.
+
+**DataAdapter (`db/adapter.js`)**
+- Все методы kv/bindings/push теперь принимают `tenantId` первым аргументом.
+- Новые методы: `listActiveTenants`, `getTenant`, `createTenant`, `getTenantIntegrations`, `setTenantIntegration`.
+
+**Провайдеры интеграций (`src/providers/`)**
+- `makeIikoClient({url,login,password})` — фабрика с замкнутым `_token/_tokenExpiry/_tokenPromise`.
+- `makeMozgSyncClient({login,password})` — фабрика с замкнутым `_jar/_sessionExp`.
+- `src/providers/{iiko,mozg,sheets,manualRevenue,index}.js` — реестр провайдеров; `createProviderRegistry(ctx)` создаёт изолированные инстансы по тенанту.
+- Два тенанта не делят token-состояние и cookie-jar (гарантировано тестами).
+
+**server.js — per-tenant persistence**
+- `data = { tenants: {}, pushSettings: {}, adminUsers: [] }` + `getTenantData(tid)`.
+- `data.kv` / `data.bindings` — шимы через `Object.defineProperty` → `pivnaya_karta` (back-compat для всех существующих роутов).
+- `lastFlushed[tid]` — per-tenant dirty-tracking снимок.
+- `flushToPG()` итерирует все тенанты; `hydrateFromPG()` загружает все активные тенанты из `listActiveTenants`.
+- C1-реконсиляция при восстановлении PG: снимок загружается per-tenant.
+- `buildTokenMap()` → `{ botToken → tenantId }` в памяти; пересчитывается при старте.
+
+**JWT + middleware**
+- `signToken` добавляет `tenantId` в payload.
+- `requireAuth` извлекает `req.tenantId` (fallback `'pivnaya_karta'` для старых токенов без поля).
+- Новый `requireTenant(tid)` — гейт на конкретный тенант в маршруте.
+- `resolveTenantByInitData(initData, tokenMap, fallbackToken)` — определяет тенант по подписи Telegram initData.
+- `/api/auth/telegram` использует `getTokenMap()` для мультибот-резолвинга тенанта.
+
+**Новые API-роуты (WI-7)**
+- `GET/PUT /api/integrations[/:kind]` — просмотр/редактирование интеграций тенанта; секреты не возвращаются и не принимаются.
+- `POST /api/revenue/manual` — ручной ввод plan/fact/note; iiko-факт не перезаписывается.
+- `GET/POST/POST /api/admin/data-sources[/sync]` — фильтрация по `tenant_id` из JWT.
+- `GET /api/push/stats` — фильтрация лога по `tenantId` (back-compat: старые записи → `pivnaya_karta`).
+
+**Скрипты и документация**
+- `scripts/create-tenant.js` — CLI создания тенанта с инструкциями по env-переменным.
+- `docs/deploy-multitenancy-runbook-2026-06-30.md` — пошаговый runbook применения 004 на прод (только ручное выполнение).
+
+### 🧪 Тесты
+- `tests/secrets.test.js` — 10 тестов resolver'а секретов.
+- `tests/db.test.js` — 18 тестов адаптера с mock-pool (изоляция по tenantId).
+- `tests/providers.test.js` — 19 тестов: изоляция iiko/mozg инстансов, контракт registry.
+- `tests/integrations.test.js` — 12 тестов: GET/PUT интеграций, фильтрация, отсутствие секретов.
+- Общий счёт: **176+ тестов, все зелёные**.
+
+---
+
 ## [Unreleased] — 2026-06-29 · Спринт A (аутентификация и личность)
 
 ### 🔒 Безопасность

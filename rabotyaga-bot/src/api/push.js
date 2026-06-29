@@ -197,8 +197,12 @@ module.exports = function makePushApi(sender, data = null, saveData = null, bot 
   }
 
   // ── Статистика пуш-лога: общие счётчики + срез по userId и по имени сотрудника ──
+  // SEC-8: фильтрация по tenantId из JWT (старые записи без tenantId относятся к DEFAULT_TENANT).
   router.get('/stats', requireManager, (req, res) => {
-    const log = loadLog();
+    const tid = req.tenantId || 'pivnaya_karta';
+    const allLog = loadLog();
+    // Записи без tenantId считаются принадлежащими 'pivnaya_karta' (back-compat).
+    const log = allLog.filter(e => (e.tenantId || 'pivnaya_karta') === tid);
     const byUser = {};
     const byName = {};
     let sent = 0, failed = 0, skipped = 0;

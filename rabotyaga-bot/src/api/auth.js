@@ -5,11 +5,11 @@ const bcrypt  = require('bcrypt');
 const rateLimit = require('express-rate-limit');
 const { ipKeyGenerator } = require('express-rate-limit');
 const { setAuthCookie, clearAuthCookie, requireAuth, requireManager } = require('../middleware/auth');
-const { verifyInitData } = require('../middleware/telegram');
+const { resolveTenantByInitData } = require('../middleware/telegram');
 
 const BCRYPT_ROUNDS = 10;
-// SEC-7: токен бота для проверки подписи Telegram WebApp initData.
-const TG_BOT_TOKEN = process.env.TELEGRAM_TOKEN || '';
+// SEC-7/8: fallback-токен бота для back-compat (дефолтный тенант).
+const TG_BOT_TOKEN_FALLBACK = process.env.TELEGRAM_TOKEN || '';
 
 // SEC-2: Не более 10 попыток входа за 15 минут.
 // Было: 5/мин = ~7200/сут. Стало: 10/15мин = ~960/сут.
@@ -30,7 +30,10 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-module.exports = function makeAuthRouter(data, saveData) {
+// SEC-8: getTokenMap() → { [botToken]: tenantId } — функция, возвращающая актуальный token map.
+// Передаётся из server.js при монтировании роутера; по умолчанию — заглушка для back-compat.
+module.exports = function makeAuthRouter(data, saveData, getTokenMap = null) {
+  const _getTokenMap = getTokenMap || (() => ({}));
   const router = express.Router();
 
   // ── Хелпер: получить auth-словарь из KV ──
@@ -93,29 +96,32 @@ module.exports = function makeAuthRouter(data, saveData) {
   });
 
   // POST /api/auth/telegram — вход по подписанному Telegram WebApp initData (SEC-7).
-  // Проверяем подпись → извлекаем tg id → ищем привязку в data.bindings → выдаём JWT
-  // с флагом tgVerified. Непривязанный / битая подпись / просрочено → 403.
+  // SEC-8: resolveTenantByInitData пробует все известные боты → определяет tenantId.
+  // Проверяем подпись → извлекаем tg id → ищем привязку в биндингах тенанта → выдаём JWT
+  // с флагами tgVerified + tenantId. Непривязанный / битая подпись / просрочено → 403.
   // /login остаётся fallback'ом для браузера (без tgVerified).
   router.post('/telegram', (req, res) => {
     try {
       const { initData } = req.body || {};
       if (!initData || typeof initData !== 'string') return res.status(400).json({ error: 'initData обязателен' });
-      if (!TG_BOT_TOKEN) return res.status(500).json({ error: 'Сервер не настроен (нет TELEGRAM_TOKEN)' });
+      if (!TG_BOT_TOKEN_FALLBACK) return res.status(500).json({ error: 'Сервер не настроен (нет TELEGRAM_TOKEN)' });
 
-      const v = verifyInitData(initData, TG_BOT_TOKEN);
+      // SEC-8: определяем тенант по подписи initData (через token map)
+      const v = resolveTenantByInitData(initData, _getTokenMap(), TG_BOT_TOKEN_FALLBACK);
       if (!v.ok) return res.status(403).json({ error: v.reason || 'Подпись Telegram недействительна' });
 
       const tgId = v.user && v.user.id;
       if (!tgId) return res.status(403).json({ error: 'Не удалось извлечь Telegram id' });
 
-      // Поиск аккаунта по привязке (name -> telegramId).
+      // Поиск аккаунта по привязке тенанта (name → telegramId).
+      // SEC-8: data.bindings — shim на pivnaya_karta; в WI-6 заменяется на getTenantData(tenantId).bindings
       const bindings = data.bindings || {};
       const account = Object.keys(bindings).find(n => String(bindings[n]) === String(tgId));
       if (!account) return res.status(403).json({ error: 'Этот Telegram не привязан ни к одному сотруднику' });
 
-      setAuthCookie(res, account, { tgVerified: true });
-      console.log(`[auth] telegram-вход: ${account} (tg ${tgId})`);
-      res.json({ ok: true, account, tgVerified: true });
+      setAuthCookie(res, account, { tgVerified: true, tenantId: v.tenantId });
+      console.log(`[auth] telegram-вход: ${account} (tg ${tgId}, tenant ${v.tenantId})`);
+      res.json({ ok: true, account, tgVerified: true, tenantId: v.tenantId });
     } catch (e) {
       console.error('[auth/telegram]', e.message);
       res.status(500).json({ error: 'Внутренняя ошибка' });

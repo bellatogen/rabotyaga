@@ -57,7 +57,8 @@ const DEFAULT_CONTENT = {
 
 // adapter (db/adapter.js) — опционален: если PG недоступен/не передан,
 // пуш-лог пишется только в push-log.json (файл = fallback-резерв).
-module.exports = function makeSender(data, saveData, adapter = null) {
+// SEC-8: tenantId — используется при дублировании в таблицу push_log (per-tenant строки).
+module.exports = function makeSender(data, saveData, adapter = null, tenantId = 'pivnaya_karta') {
 
   // Пишем запись в push-log.json с форматом, который ждёт /api/push/stats:
   // { pushId, userId, userName, name, type, status, error?, ts }
@@ -66,14 +67,16 @@ module.exports = function makeSender(data, saveData, adapter = null) {
   // Дублируем в таблицу push_log через adapter.logPush (fire-and-forget).
   function log(userId, userName, type, status, error = null, pushId = null) {
     const logs = readLog();
-    const entry = { pushId: pushId || type, userId, userName, name: userName, type, status, ts: new Date().toISOString() };
+    // SEC-8: включаем tenantId в запись файла — для фильтрации в /api/push/stats
+    const entry = { pushId: pushId || type, userId, userName, name: userName, type, status, tenantId, ts: new Date().toISOString() };
     if (error) entry.error = error;
     logs.unshift(entry);
     if (logs.length > 500) logs.length = 500;
     try { fs.writeFileSync(LOG_FILE, JSON.stringify(logs, null, 2)); } catch {}
     // PG-дубль: ошибка БД не должна ломать отправку пуша.
+    // SEC-8: передаём tenantId для per-tenant фильтрации в /api/push/stats.
     if (adapter) {
-      adapter.logPush(userName, userId, type, status, error)
+      adapter.logPush(tenantId, userName, userId, type, status, error)
         .catch(e => console.error('[pg] logPush:', e.message));
     }
   }
