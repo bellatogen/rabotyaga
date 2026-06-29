@@ -74,6 +74,25 @@ export async function authLogin(account, password) {
   return data;
 }
 
+/** Вход через Telegram WebApp initData (SEC-7). Возвращает { ok, account, tgVerified } или бросает Error. */
+export async function loginViaTelegram(initData) {
+  let r;
+  try {
+    r = await fetch(`${API_BASE}/auth/telegram`, {
+      ...FETCH_OPTS,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData }),
+    });
+  } catch {
+    throw new Error('Нет связи с сервером');
+  }
+  let data = {};
+  try { data = await r.json(); } catch { /* пустой ответ */ }
+  if (!r.ok) throw new Error(data.error || `Ошибка входа через Telegram (${r.status})`);
+  return data;
+}
+
 /** Выйти (сбросить cookie). */
 export async function authLogout() {
   await fetch(`${API_BASE}/auth/logout`, { ...FETCH_OPTS, method: 'POST' });

@@ -20,8 +20,11 @@ const JWT_SECRET = process.env.JWT_SECRET || (() => {
 const COOKIE_NAME = 'rab_token';
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 дней
 
-function signToken(account) {
-  return jwt.sign({ account }, JWT_SECRET, { expiresIn: '7d' });
+// opts.tgVerified — личность подтверждена входом через Telegram (SEC-7).
+function signToken(account, opts = {}) {
+  const payload = { account };
+  if (opts.tgVerified) payload.tgVerified = true;
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
 }
 
 function verifyToken(token) {
@@ -29,8 +32,8 @@ function verifyToken(token) {
   catch { return null; }
 }
 
-function setAuthCookie(res, account) {
-  const token = signToken(account);
+function setAuthCookie(res, account, opts = {}) {
+  const token = signToken(account, opts);
   res.cookie(COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: 'strict',
@@ -56,7 +59,19 @@ function requireAuth(req, res, next) {
   const payload = verifyToken(token);
   if (!payload) return res.status(401).json({ error: 'Токен недействителен или истёк' });
   req.account = payload.account;
+  req.tgVerified = !!payload.tgVerified; // SEC-7: подтверждена ли личность через Telegram
   next();
+}
+
+/** SEC-7: требует, чтобы личность была подтверждена входом через Telegram (tgVerified в JWT).
+ *  Гейтит операции начисления/списания XP — парольный вход (браузер) их не получает. */
+function requireTgVerified(req, res, next) {
+  requireAuth(req, res, () => {
+    if (!req.tgVerified) {
+      return res.status(403).json({ error: 'Нужен вход через Telegram — операция недоступна из браузера' });
+    }
+    next();
+  });
 }
 
 /** Middleware: требует manager или developer */
@@ -71,6 +86,6 @@ function requireManager(req, res, next) {
 
 module.exports = {
   signToken, verifyToken, setAuthCookie, clearAuthCookie,
-  requireAuth, requireManager,
+  requireAuth, requireManager, requireTgVerified,
   COOKIE_NAME, JWT_SECRET,
 };

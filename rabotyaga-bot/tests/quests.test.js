@@ -52,7 +52,8 @@ async function test(name, fn) {
   const server = await new Promise(r => { const s = http.createServer(app).listen(0, () => r(s)); });
   const PORT = server.address().port;
   const MGR = `${COOKIE_NAME}=${signToken('manager')}`;
-  const BAR = `${COOKIE_NAME}=${signToken('Аня')}`; // бармен (не менеджер)
+  const BAR = `${COOKIE_NAME}=${signToken('Аня', { tgVerified: true })}`; // бармен (не менеджер), личность подтверждена через Telegram
+  const BAR_NOTG = `${COOKIE_NAME}=${signToken('Аня')}`; // бармен без tg-подтверждения (парольный вход)
 
   async function req(method, p, body, cookie = MGR) {
     const res = await fetch(`http://127.0.0.1:${PORT}${p}`, {
@@ -187,6 +188,12 @@ async function test(name, fn) {
     assert.strictEqual(status, 404);
   });
 
+  await test('SEC-7: POST /complete без tgVerified → 403', async () => {
+    const { status } = await req('POST', '/api/quests/complete',
+      { shiftId: 'S1', questId: assignedQuestId, bartenderIds: ['Петя'], shiftDate: '2026-06-24' }, BAR_NOTG);
+    assert.strictEqual(status, 403);
+  });
+
   await test('стрик-бонус +150 при current>=5 (Аня: 4→5)', async () => {
     // отдельная смена для Ани (single), дата = consecutive к last_shift_date 2026-06-23
     const a = await req('GET', '/api/quests/shift/S2', undefined, BAR);
@@ -227,6 +234,11 @@ async function test(name, fn) {
   await test('POST /redeem при нехватке XP → 400', async () => {
     const { status } = await req('POST', '/api/rewards/redeem', { bartenderId: 'Богдан', rewardId: 'r1' }, BAR);
     assert.strictEqual(status, 400); // остаток < 800
+  });
+
+  await test('SEC-7: POST /redeem без tgVerified → 403', async () => {
+    const { status } = await req('POST', '/api/rewards/redeem', { bartenderId: 'Богдан', rewardId: 'r1' }, BAR_NOTG);
+    assert.strictEqual(status, 403);
   });
 
   await test('GET /pending (manager) → есть запись', async () => {

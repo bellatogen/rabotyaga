@@ -3,7 +3,7 @@
 // Данные хранятся в data.kv (PG-backed) — см. src/quests/model.js.
 const express = require('express');
 const crypto = require('crypto');
-const { requireAuth, requireManager } = require('../middleware/auth');
+const { requireAuth, requireManager, requireTgVerified } = require('../middleware/auth');
 const model = require('../quests/model');
 
 module.exports = function makeRewardsRouter(data, saveData) {
@@ -23,7 +23,8 @@ module.exports = function makeRewardsRouter(data, saveData) {
   });
 
   // POST /redeem — потратить XP на награду
-  router.post('/redeem', requireAuth, (req, res) => {
+  // SEC-7: списание XP — только для личности, подтверждённой через Telegram.
+  router.post('/redeem', requireTgVerified, (req, res) => {
     const { bartenderId, rewardId } = req.body || {};
     if (typeof bartenderId !== 'string' || !bartenderId.trim()) return bad(res, 'bartenderId обязателен');
     if (typeof rewardId !== 'string' || !rewardId.trim()) return bad(res, 'rewardId обязателен');

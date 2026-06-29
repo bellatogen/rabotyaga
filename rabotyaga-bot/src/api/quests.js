@@ -2,7 +2,7 @@
 // Роуты квест-системы: /api/quests/*
 // Данные хранятся в data.kv (PG-backed) — см. src/quests/model.js.
 const express = require('express');
-const { requireAuth, requireManager } = require('../middleware/auth');
+const { requireAuth, requireManager, requireTgVerified } = require('../middleware/auth');
 const model = require('../quests/model');
 
 module.exports = function makeQuestsRouter(data, saveData) {
@@ -68,7 +68,8 @@ module.exports = function makeQuestsRouter(data, saveData) {
   });
 
   // POST /complete — отметить квест выполненным, начислить XP, обновить стрики
-  router.post('/complete', requireAuth, (req, res) => {
+  // SEC-7: начисление XP — только для личности, подтверждённой через Telegram.
+  router.post('/complete', requireTgVerified, (req, res) => {
     const { shiftId, questId, bartenderIds, shiftDate } = req.body || {};
     if (!shiftId || typeof shiftId !== 'string') return bad(res, 'shiftId обязателен');
     if (!questId || typeof questId !== 'string') return bad(res, 'questId обязателен');

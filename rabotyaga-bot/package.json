@@ -4,7 +4,7 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "test": "node tests/iiko.test.js && node tests/db.test.js && node tests/shift.test.js && node tests/push.test.js && node tests/pushApi.test.js && node tests/quests.test.js && node tests/taps.test.js"
+    "test": "node tests/iiko.test.js && node tests/db.test.js && node tests/shift.test.js && node tests/push.test.js && node tests/pushApi.test.js && node tests/quests.test.js && node tests/taps.test.js && node tests/telegram.test.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

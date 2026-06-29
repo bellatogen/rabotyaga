@@ -3,9 +3,13 @@
 const express = require('express');
 const bcrypt  = require('bcrypt');
 const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = require('express-rate-limit');
 const { setAuthCookie, clearAuthCookie, requireAuth, requireManager } = require('../middleware/auth');
+const { verifyInitData } = require('../middleware/telegram');
 
 const BCRYPT_ROUNDS = 10;
+// SEC-7: токен бота для проверки подписи Telegram WebApp initData.
+const TG_BOT_TOKEN = process.env.TELEGRAM_TOKEN || '';
 
 // SEC-2: Не более 10 попыток входа за 15 минут.
 // Было: 5/мин = ~7200/сут. Стало: 10/15мин = ~960/сут.
@@ -15,8 +19,11 @@ const loginLimiter = rateLimit({
   max: 10,
   skipSuccessfulRequests: true,
   keyGenerator: (req) => {
+    // ipKeyGenerator нормализует IPv6 (маска /56) — иначе IPv6-юзеры обходят лимит
+    // сменой младших бит адреса (ERR_ERL_KEY_GEN_IPV6).
+    const ipKey = ipKeyGenerator(req.ip);
     const account = (req.body?.account || '').toLowerCase().trim().slice(0, 64);
-    return account ? `${req.ip}|${account}` : req.ip;
+    return account ? `${ipKey}|${account}` : ipKey;
   },
   message: { error: 'Слишком много попыток входа. Подождите 15 минут.' },
   standardHeaders: true,
@@ -58,7 +65,7 @@ module.exports = function makeAuthRouter(data, saveData) {
 
       if (!stored) {
         // Первый вход — устанавливаем пароль
-        if (password.length < 3) return res.status(400).json({ error: 'Минимум 3 символа' });
+        if (password.length < 8) return res.status(400).json({ error: 'Минимум 8 символов' });
         auth[account] = await bcrypt.hash(password, BCRYPT_ROUNDS);
         saveAuth(auth);
         setAuthCookie(res, account);
@@ -85,6 +92,36 @@ module.exports = function makeAuthRouter(data, saveData) {
     }
   });
 
+  // POST /api/auth/telegram — вход по подписанному Telegram WebApp initData (SEC-7).
+  // Проверяем подпись → извлекаем tg id → ищем привязку в data.bindings → выдаём JWT
+  // с флагом tgVerified. Непривязанный / битая подпись / просрочено → 403.
+  // /login остаётся fallback'ом для браузера (без tgVerified).
+  router.post('/telegram', (req, res) => {
+    try {
+      const { initData } = req.body || {};
+      if (!initData || typeof initData !== 'string') return res.status(400).json({ error: 'initData обязателен' });
+      if (!TG_BOT_TOKEN) return res.status(500).json({ error: 'Сервер не настроен (нет TELEGRAM_TOKEN)' });
+
+      const v = verifyInitData(initData, TG_BOT_TOKEN);
+      if (!v.ok) return res.status(403).json({ error: v.reason || 'Подпись Telegram недействительна' });
+
+      const tgId = v.user && v.user.id;
+      if (!tgId) return res.status(403).json({ error: 'Не удалось извлечь Telegram id' });
+
+      // Поиск аккаунта по привязке (name -> telegramId).
+      const bindings = data.bindings || {};
+      const account = Object.keys(bindings).find(n => String(bindings[n]) === String(tgId));
+      if (!account) return res.status(403).json({ error: 'Этот Telegram не привязан ни к одному сотруднику' });
+
+      setAuthCookie(res, account, { tgVerified: true });
+      console.log(`[auth] telegram-вход: ${account} (tg ${tgId})`);
+      res.json({ ok: true, account, tgVerified: true });
+    } catch (e) {
+      console.error('[auth/telegram]', e.message);
+      res.status(500).json({ error: 'Внутренняя ошибка' });
+    }
+  });
+
   // POST /api/auth/logout
   router.post('/logout', (req, res) => {
     clearAuthCookie(res);
@@ -107,7 +144,7 @@ module.exports = function makeAuthRouter(data, saveData) {
 
       if (!account) return res.status(400).json({ error: 'account обязателен' });
       if (!isAdmin && requester !== account) return res.status(403).json({ error: 'Нет прав' });
-      if (!newPassword || newPassword.length < 3) return res.status(400).json({ error: 'Минимум 3 символа' });
+      if (!newPassword || newPassword.length < 8) return res.status(400).json({ error: 'Минимум 8 символов' });
 
       const auth = getAuth();
 

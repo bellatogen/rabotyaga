@@ -1,5 +1,30 @@
 # Журнал изменений — Работяга
 
+## [Unreleased] — 2026-06-29 · Спринт A (аутентификация и личность)
+
+### 🔒 Безопасность
+
+#### SEC-7: верификация Telegram identity + усиление паролей
+- **Telegram initData verification** — новый `src/middleware/telegram.js` с
+  `verifyInitData(initData, botToken)`: проверка подписи (HMAC-SHA256, секрет =
+  `HMAC_SHA256("WebAppData", botToken)`) + свежесть `auth_date` (≤24ч, анти-replay).
+- **POST /api/auth/telegram** — вход по подписанному initData: извлекает tg id,
+  ищет привязку в `data.bindings`, выдаёт JWT с флагом `tgVerified:true`.
+  Битая подпись / просрочено / непривязанный id → 403. Старый `/api/auth/login`
+  оставлен как fallback для браузера.
+- **Минимум пароля 3 → 8 символов** во всех точках (первый вход, смена пароля).
+- **Гейт XP-операций**: начисление (`POST /api/quests/complete`) и списание
+  (`POST /api/rewards/redeem`) теперь требуют `tgVerified` (новый middleware
+  `requireTgVerified`) — пароль-вход из браузера их не получает.
+- **IPv6-bypass лимита входа** закрыт: `loginLimiter` использует `ipKeyGenerator`
+  (нормализация IPv6 /56) — раньше IPv6-юзер обходил лимит сменой младших бит.
+
+### ✅ Тесты
+- Новый `tests/telegram.test.js` (14): verifyInitData (валид/битый/чужой токен/
+  просрочен/без hash), `/api/auth/telegram` (200/403×3/400), парольный fallback + min8.
+- `tests/quests.test.js`: BAR-кука теперь `tgVerified`, добавлены негативные SEC-7
+  (complete/redeem без tgVerified → 403). Прогон: 31 + 14 зелёные.
+
 ## [Unreleased] — 2026-06-23
 
 ### 🔒 Безопасность
