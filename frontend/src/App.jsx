@@ -101,6 +101,29 @@ export default function App(){
   },[themePref]);
   function cycleTheme(){setThemePref(p=>p==="auto"?"light":p==="light"?"dark":"auto");}
   useEffect(()=>{let on=true;const tick=async()=>{const ok=await pingServer();if(on)setServerOk(ok);};tick();const id=setInterval(tick,15000);return()=>{on=false;clearInterval(id);};},[]);
+  // Живой рефреш состава, пока открыт экран входа: добавленный на другом
+  // устройстве появляется, удалённый пропадает — без перезапуска мини-аппы.
+  // setX(prev=>...) с JSON-сравнением: не дёргаем стейт и не эхоим запись,
+  // если ничего не изменилось (иначе usePersist гнал бы лишние PUT каждые 12с).
+  useEffect(()=>{if(!picking)return;let on=true;
+    const refresh=async()=>{try{
+      const[mem,profs]=await Promise.all([ld("members:v1",DEFAULT_MEMBERS),ld("profiles:v1",DEFAULT_PROFILES)]);
+      if(!on)return;
+      if(Array.isArray(mem))setMembers(prev=>JSON.stringify(prev)===JSON.stringify(mem)?prev:mem);
+      if(Array.isArray(profs))setProfiles(prev=>JSON.stringify(prev)===JSON.stringify(profs)?prev:profs);
+      const accs=[...(Array.isArray(mem)?mem:DEFAULT_MEMBERS),'manager','developer'];
+      const hp=await Promise.all(accs.map(a=>authHasPassword(a).then(has=>({a,has})).catch(()=>({a,has:false}))));
+      if(!on)return;
+      const hpMap=Object.fromEntries(hp.map(({a,has})=>[a,has]));
+      setAuthHasPasswordMap(prev=>JSON.stringify(prev)===JSON.stringify(hpMap)?prev:hpMap);
+    }catch{}};
+    refresh();
+    const id=setInterval(refresh,12000);
+    const onVis=()=>{if(document.visibilityState==='visible')refresh();};
+    document.addEventListener('visibilitychange',onVis);
+    window.addEventListener('focus',refresh);
+    return()=>{on=false;clearInterval(id);document.removeEventListener('visibilitychange',onVis);window.removeEventListener('focus',refresh);};
+  },[picking]);
   // Сохраняем порядок вкладок в localStorage (хук здесь — до early returns)
   useEffect(()=>{localStorage.setItem('rab:nav_tab_order',JSON.stringify(navTabOrder));},[navTabOrder]);
   useEffect(()=>{(async()=>{
@@ -353,7 +376,21 @@ export default function App(){
   const canTeam=isManager||isChef; // шеф/управляющий/разраб управляют составом
   // --- управление командой ---
   const addMember=name=>{const n=(name||"").trim();if(!n||members.includes(n))return;setMembers(p=>[...p,n]);setProfiles(p=>p.some(x=>x.name===n)?p:[...p,{name:n,role:"barman",perms:ROLES.barman.perms}]);logEvent("member_added",n);};
-  const removeMember=name=>{setMembers(p=>p.filter(x=>x!==name));logEvent("member_removed",name);};
+  // Удаление сотрудника: убираем и из состава (members), и из профилей
+  // (profiles), а копию пишем в архив staff_archive:v1 — увольнённый исчезает
+  // с фронта на всех устройствах, но сохраняется в логах/архиве.
+  const removeMember=async name=>{
+    const prof=profiles.find(x=>x.name===name)||{name};
+    setMembers(p=>p.filter(x=>x!==name));
+    setProfiles(p=>p.filter(x=>x.name!==name));
+    try{
+      const arch=await ld("staff_archive:v1",[]);
+      const list=Array.isArray(arch)?arch:[];
+      const next=[...list.filter(x=>x.name!==name),{...prof,archivedAt:new Date().toISOString()}];
+      await sv("staff_archive:v1",next);
+    }catch{}
+    logEvent("member_removed",name);
+  };
   // --- редактирование смен внутри дня ---
   const addShift=(date,shift)=>{setSchedule(p=>({...p,[date]:[...(p[date]||[]),shift]}));logEvent("shift_added",`${shift.name} · ${fmtDate(date)}`);};
   const removeShift=(date,idx)=>{setSchedule(p=>({...p,[date]:(p[date]||[]).filter((_,i)=>i!==idx)}));logEvent("shift_removed",fmtDate(date));};
@@ -393,7 +430,7 @@ export default function App(){
           return(<button key={m} className="login-btn" onClick={()=>requestLogin(m)}>
             <span className="dot" style={{background:ss?.color||"var(--bd)"}}/>{m}
             <span style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
-              {!auth[m]&&<span style={{fontSize:10,color:"var(--mt)"}}>нет пароля</span>}
+              {!authHasPasswordMap[m]&&<span style={{fontSize:10,color:"var(--mt)"}}>нет пароля</span>}
               <Lock size={12} color="var(--mt)"/>
             </span>
           </button>);})}
