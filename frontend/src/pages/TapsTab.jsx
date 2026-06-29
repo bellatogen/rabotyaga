@@ -333,10 +333,10 @@ function TapDetail({ t, config, onSave }) {
           <input style={inp} inputMode="decimal" value={d.cost} onChange={(e) => set('cost', e.target.value)} />
         </div>
         <div>
-          <label style={lbl}>Продаж/мес {hasIiko && <span style={{ color: 'var(--cu)' }}>(из IIKO)</span>}</label>
-          <input style={{ ...inp, opacity: hasIiko ? 0.55 : 1 }} inputMode="decimal" value={d.salesPerMonth}
-            disabled={hasIiko} onChange={(e) => set('salesPerMonth', e.target.value)}
-            placeholder={hasIiko ? 'тянется из IIKO' : 'вручную'} />
+          <label style={lbl}>Продаж/мес {hasIiko && <span style={{ color: 'var(--cu)' }}>(IIKO/вручную)</span>}</label>
+          <input style={inp} inputMode="decimal" value={d.salesPerMonth}
+            onChange={(e) => set('salesPerMonth', e.target.value)}
+            placeholder="вручную или из IIKO" />
         </div>
         <div>
           <label style={lbl}>Владение</label>
