@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Эластичность цены на пиво — Работяга</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #181b22;
+    --panel-2: #1f2330;
+    --border: #2a2e3a;
+    --text: #e8e9ed;
+    --text-dim: #9aa0ad;
+    --accent: #4da3ff;
+    --accent-2: #ff9f43;
+    --good: #4cd97b;
+    --bad: #ff5d5d;
+    --warn-bg: #3a2a12;
+    --warn-border: #b9831f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 16px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    line-height: 1.4;
+  }
+  .wrap {
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 19px;
+    margin: 0 0 4px;
+  }
+  .sub {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin: 0 0 14px;
+  }
+  .disclaimer {
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 12.5px;
+    color: #f0d9a8;
+    margin-bottom: 16px;
+  }
+  .disclaimer b { color: #ffd680; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+  .row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+  .row:last-child { margin-bottom: 0; }
+  label {
+    font-size: 13px;
+    color: var(--text-dim);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  label .val {
+    color: var(--text);
+    font-weight: 600;
+    font-size: 14px;
+  }
+  select, input[type="number"] {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 9px 10px;
+    font-size: 15px;
+  }
+  input[type="range"] {
+    width: 100%;
+    height: 28px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+  }
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--panel-2);
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 3px solid #0f1115;
+    margin-top: -10px;
+    cursor: pointer;
+  }
+  input[type="range"]::-moz-range-track {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--panel-2);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 3px solid #0f1115;
+    cursor: pointer;
+  }
+
+  .season-toggle {
+    display: flex;
+    gap: 8px;
+  }
+  .season-toggle button {
+    flex: 1;
+    padding: 9px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--text-dim);
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .season-toggle button.active {
+    background: var(--accent);
+    color: #0a0d12;
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+
+  .results {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .card {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+  }
+  .card .label {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+  }
+  .card .value {
+    font-size: 19px;
+    font-weight: 700;
+  }
+  .card .ci {
+    font-size: 11.5px;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+  .card.wide { grid-column: 1 / -1; }
+  .delta.pos { color: var(--good); }
+  .delta.neg { color: var(--bad); }
+
+  svg { width: 100%; height: auto; display: block; }
+  .chart-caption {
+    font-size: 11.5px;
+    color: var(--text-dim);
+    margin-top: 8px;
+    text-align: center;
+  }
+
+  @media (max-width: 420px) {
+    .results { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Эластичность цены на пиво</h1>
+  <p class="sub">Прикидка спроса/выручки при изменении цены. Без сервера, офлайн.</p>
+
+  <div class="disclaimer">
+    <b>Черновая оценка.</b> Значения эластичности (E) основаны всего на 5 ценовых эпизодах
+    за год, в основном на одной позиции (Порт Пилснер 0,5), без контроля сезонности и трафика.
+    Погрешность высокая — используйте как ориентир порядка величины, а не точный прогноз.
+    Подробности: <code>docs/investigations/price-elasticity-pilsner-lager-2026-07-01.md</code>.
+  </div>
+
+  <div class="panel">
+    <div class="row">
+      <label for="position">Позиция</label>
+      <select id="position"></select>
+    </div>
+
+    <div class="row">
+      <label>Сезон</label>
+      <div class="season-toggle">
+        <button id="seasonNormal" type="button" class="active">Обычный</button>
+        <button id="seasonHoliday" type="button">Праздники / акция</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <label for="baseVolume">Текущий объём продаж <span class="val" id="baseVolumeLabel"></span></label>
+      <input type="number" id="baseVolume" min="0" step="1">
+    </div>
+
+    <div class="row">
+      <label for="price">Новая цена, ₽ <span class="val" id="priceLabel"></span></label>
+      <input type="range" id="price" min="200" max="600" step="1">
+    </div>
+
+    <div class="row">
+      <label for="elasticity">Эластичность E <span class="val" id="elasticityLabel"></span></label>
+      <input type="range" id="elasticity" min="-5.0" max="-0.5" step="0.1">
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="results">
+      <div class="card">
+        <div class="label">Прогноз объёма / нед</div>
+        <div class="value" id="volOut">—</div>
+        <div class="ci" id="volCi">±20%: —</div>
+      </div>
+      <div class="card">
+        <div class="label">Прогноз выручки / нед</div>
+        <div class="value" id="revOut">—</div>
+        <div class="ci" id="revCi">±20%: —</div>
+      </div>
+      <div class="card wide">
+        <div class="label">Изменение выручки vs база (<span id="baseRevLabel"></span>)</div>
+        <div class="value" id="deltaOut">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <svg id="chart" viewBox="0 0 600 340" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="chart-caption">
+      Серая область — доверительный интервал ±20%. Синяя точка — база, оранжевая — прогноз по новой цене.
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var POSITIONS = [
+    {
+      id: "port-pilsner-05",
+      name: "Дримтим Порт Пилснер 0,5",
+      basePrice: 305,
+      baseVolume: 475,
+      eNormal: -1.6,
+      eHoliday: -3.0
+    },
+    {
+      id: "local-lager-05",
+      name: "Дримтим Локал Лагер 0,5",
+      basePrice: 320,
+      baseVolume: 204,
+      eNormal: -1.6,
+      eHoliday: -3.0
+    },
+    {
+      id: "custom",
+      name: "Другая позиция (ввести вручную)",
+      basePrice: 300,
+      baseVolume: 300,
+      eNormal: -1.6,
+      eHoliday: -3.0
+    }
+  ];
+
+  var PRICE_MIN = 200, PRICE_MAX = 600;
+
+  var state = {
+    position: POSITIONS[0],
+    season: "normal", // 'normal' | 'holiday'
+    basePrice: POSITIONS[0].basePrice,
+    baseVolume: POSITIONS[0].baseVolume,
+    price: POSITIONS[0].basePrice,
+    elasticity: POSITIONS[0].eNormal
+  };
+
+  var els = {
+    position: document.getElementById("position"),
+    seasonNormal: document.getElementById("seasonNormal"),
+    seasonHoliday: document.getElementById("seasonHoliday"),
+    baseVolume: document.getElementById("baseVolume"),
+    baseVolumeLabel: document.getElementById("baseVolumeLabel"),
+    price: document.getElementById("price"),
+    priceLabel: document.getElementById("priceLabel"),
+    elasticity: document.getElementById("elasticity"),
+    elasticityLabel: document.getElementById("elasticityLabel"),
+    volOut: document.getElementById("volOut"),
+    volCi: document.getElementById("volCi"),
+    revOut: document.getElementById("revOut"),
+    revCi: document.getElementById("revCi"),
+    deltaOut: document.getElementById("deltaOut"),
+    baseRevLabel: document.getElementById("baseRevLabel"),
+    chart: document.getElementById("chart")
+  };
+
+  function fmtRub(n) {
+    return Math.round(n).toLocaleString("ru-RU") + " ₽";
+  }
+  function fmtVol(n) {
+    return n.toFixed(1).replace(".", ",") + " шт./нед";
+  }
+  function fmtPct(n) {
+    var s = n >= 0 ? "+" : "";
+    return s + n.toFixed(1).replace(".", ",") + "%";
+  }
+
+  function forecastVolume(price, basePrice, baseVolume, e) {
+    if (basePrice <= 0) return 0;
+    return baseVolume * Math.pow(price / basePrice, e);
+  }
+
+  function populatePositions() {
+    POSITIONS.forEach(function (p) {
+      var opt = document.createElement("option");
+      opt.value = p.id;
+      opt.textContent = p.name;
+      els.position.appendChild(opt);
+    });
+  }
+
+  function applyPositionDefaults(resetPrice) {
+    var p = state.position;
+    state.basePrice = p.basePrice;
+    state.baseVolume = p.baseVolume;
+    state.elasticity = state.season === "normal" ? p.eNormal : p.eHoliday;
+    if (resetPrice) state.price = p.basePrice;
+
+    els.baseVolume.value = state.baseVolume;
+    els.price.value = state.price;
+    els.elasticity.value = state.elasticity;
+  }
+
+  function onPositionChange() {
+    var id = els.position.value;
+    state.position = POSITIONS.filter(function (p) { return p.id === id; })[0];
+    applyPositionDefaults(true);
+    render();
+  }
+
+  function onSeasonChange(season) {
+    state.season = season;
+    els.seasonNormal.classList.toggle("active", season === "normal");
+    els.seasonHoliday.classList.toggle("active", season === "holiday");
+    state.elasticity = season === "normal" ? state.position.eNormal : state.position.eHoliday;
+    els.elasticity.value = state.elasticity;
+    render();
+  }
+
+  function onBaseVolumeChange() {
+    var v = parseFloat(els.baseVolume.value);
+    state.baseVolume = isNaN(v) || v < 0 ? 0 : v;
+    render();
+  }
+
+  function onPriceChange() {
+    state.price = parseFloat(els.price.value);
+    render();
+  }
+
+  function onElasticityChange() {
+    state.elasticity = parseFloat(els.elasticity.value);
+    render();
+  }
+
+  function buildCurvePoints(basePrice, baseVolume, e, steps) {
+    var pts = [];
+    for (var i = 0; i <= steps; i++) {
+      var price = PRICE_MIN + (PRICE_MAX - PRICE_MIN) * (i / steps);
+      pts.push({ price: price, volume: forecastVolume(price, basePrice, baseVolume, e) });
+    }
+    return pts;
+  }
+
+  function drawChart() {
+    var W = 600, H = 340;
+    var padL = 56, padR = 16, padT = 16, padB = 40;
+    var plotW = W - padL - padR;
+    var plotH = H - padT - padB;
+
+    var curve = buildCurvePoints(state.basePrice, state.baseVolume, state.elasticity, 60);
+    var newVolume = forecastVolume(state.price, state.basePrice, state.baseVolume, state.elasticity);
+
+    var maxVol = state.baseVolume;
+    curve.forEach(function (pt) {
+      if (pt.volume * 1.2 > maxVol) maxVol = pt.volume * 1.2;
+    });
+    if (newVolume * 1.2 > maxVol) maxVol = newVolume * 1.2;
+    if (maxVol <= 0) maxVol = 1;
+
+    function x(price) { return padL + (price - PRICE_MIN) / (PRICE_MAX - PRICE_MIN) * plotW; }
+    function y(vol) { return padT + plotH - (vol / maxVol) * plotH; }
+
+    var svgParts = [];
+
+    // axes
+    svgParts.push('<line x1="' + padL + '" y1="' + (padT + plotH) + '" x2="' + (padL + plotW) + '" y2="' + (padT + plotH) + '" stroke="#3a3f4d" stroke-width="1"/>');
+    svgParts.push('<line x1="' + padL + '" y1="' + padT + '" x2="' + padL + '" y2="' + (padT + plotH) + '" stroke="#3a3f4d" stroke-width="1"/>');
+
+    // x ticks
+    for (var price = 200; price <= 600; price += 100) {
+      var px = x(price);
+      svgParts.push('<line x1="' + px + '" y1="' + (padT + plotH) + '" x2="' + px + '" y2="' + (padT + plotH + 5) + '" stroke="#3a3f4d"/>');
+      svgParts.push('<text x="' + px + '" y="' + (padT + plotH + 20) + '" fill="#9aa0ad" font-size="11" text-anchor="middle">' + price + '₽</text>');
+    }
+
+    // y ticks
+    var yTickCount = 4;
+    for (var i = 0; i <= yTickCount; i++) {
+      var vol = (maxVol / yTickCount) * i;
+      var py = y(vol);
+      svgParts.push('<line x1="' + (padL - 5) + '" y1="' + py + '" x2="' + padL + '" y2="' + py + '"  stroke="#3a3f4d"/>');
+      svgParts.push('<text x="' + (padL - 10) + '" y="' + (py + 4) + '" fill="#9aa0ad" font-size="11" text-anchor="end">' + Math.round(vol) + '</text>');
+    }
+
+    // CI band (±20%)
+    var upperPts = curve.map(function (pt) { return x(pt.price) + ',' + y(pt.volume * 1.2); });
+    var lowerPts = curve.slice().reverse().map(function (pt) { return x(pt.price) + ',' + y(pt.volume * 0.8); });
+    svgParts.push('<polygon points="' + upperPts.concat(lowerPts).join(' ') + '" fill="#888" fill-opacity="0.18" stroke="none"/>');
+
+    // demand curve
+    var curvePath = curve.map(function (pt, i) {
+      return (i === 0 ? 'M' : 'L') + x(pt.price) + ',' + y(pt.volume);
+    }).join(' ');
+    svgParts.push('<path d="' + curvePath + '" fill="none" stroke="#4da3ff" stroke-width="2"/>');
+
+    // base point
+    var bx = x(state.basePrice), by = y(state.baseVolume);
+    svgParts.push('<circle cx="' + bx + '" cy="' + by + '" r="5" fill="#4da3ff" stroke="#0f1115" stroke-width="2"/>');
+    svgParts.push('<text x="' + bx + '" y="' + (by - 12) + '" fill="#4da3ff" font-size="11" text-anchor="middle">база</text>');
+
+    // forecast point
+    var nx = x(state.price), ny = y(newVolume);
+    svgParts.push('<circle cx="' + nx + '" cy="' + ny + '" r="5" fill="#ff9f43" stroke="#0f1115" stroke-width="2"/>');
+    svgParts.push('<text x="' + nx + '" y="' + (ny - 12) + '" fill="#ff9f43" font-size="11" text-anchor="middle">прогноз</text>');
+
+    // axis labels
+    svgParts.push('<text x="' + (padL + plotW / 2) + '" y="' + (H - 4) + '" fill="#9aa0ad" font-size="11" text-anchor="middle">Цена, ₽</text>');
+    svgParts.push('<text x="14" y="' + (padT + plotH / 2) + '" fill="#9aa0ad" font-size="11" text-anchor="middle" transform="rotate(-90 14,' + (padT + plotH / 2) + ')">Объём, шт./нед</text>');
+
+    els.chart.innerHTML = svgParts.join("\n");
+  }
+
+  function render() {
+    els.baseVolumeLabel.textContent = fmtVol(state.baseVolume);
+    els.priceLabel.textContent = Math.round(state.price) + " ₽";
+    els.elasticityLabel.textContent = state.elasticity.toFixed(1);
+
+    var newVolume = forecastVolume(state.price, state.basePrice, state.baseVolume, state.elasticity);
+    var newRevenue = state.price * newVolume;
+    var baseRevenue = state.basePrice * state.baseVolume;
+    var deltaRevenue = newRevenue - baseRevenue;
+    var deltaPct = baseRevenue > 0 ? (deltaRevenue / baseRevenue) * 100 : 0;
+
+    els.volOut.textContent = fmtVol(newVolume);
+    els.volCi.textContent = "±20%: " + fmtVol(newVolume * 0.8) + " — " + fmtVol(newVolume * 1.2);
+
+    els.revOut.textContent = fmtRub(newRevenue);
+    els.revCi.textContent = "±20%: " + fmtRub(newRevenue * 0.8) + " — " + fmtRub(newRevenue * 1.2);
+
+    els.baseRevLabel.textContent = fmtRub(baseRevenue) + "/нед";
+    els.deltaOut.textContent = fmtRub(deltaRevenue) + " (" + fmtPct(deltaPct) + ")";
+    els.deltaOut.className = "value delta " + (deltaRevenue >= 0 ? "pos" : "neg");
+
+    drawChart();
+  }
+
+  populatePositions();
+  applyPositionDefaults(true);
+
+  els.position.addEventListener("change", onPositionChange);
+  els.seasonNormal.addEventListener("click", function () { onSeasonChange("normal"); });
+  els.seasonHoliday.addEventListener("click", function () { onSeasonChange("holiday"); });
+  els.baseVolume.addEventListener("input", onBaseVolumeChange);
+  els.price.addEventListener("input", onPriceChange);
+  els.elasticity.addEventListener("input", onElasticityChange);
+
+  render();
+})();
+</script>
+</body>
+</html>
