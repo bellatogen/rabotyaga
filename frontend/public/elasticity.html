@@ -17,6 +17,7 @@
     --accent-2: #ff9f43;
     --good: #4cd97b;
     --bad: #ff5d5d;
+    --zone-yellow: #ffd166;
     --warn-bg: #3a2a12;
     --warn-border: #b9831f;
   }
@@ -32,6 +33,9 @@
   .wrap {
     max-width: 720px;
     margin: 0 auto;
+  }
+  .layout {
+    display: block;
   }
   h1 {
     font-size: 19px;
@@ -99,6 +103,10 @@
     padding: 9px 10px;
     font-size: 15px;
   }
+  input:disabled, select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
   input[type="range"] {
     width: 100%;
     height: 28px;
@@ -122,6 +130,7 @@
     margin-top: -10px;
     cursor: pointer;
   }
+  input[type="range"]:disabled::-webkit-slider-thumb { background: #555; cursor: not-allowed; }
   input[type="range"]::-moz-range-track {
     height: 6px;
     border-radius: 3px;
@@ -135,27 +144,22 @@
     border: 3px solid #0f1115;
     cursor: pointer;
   }
+  input[type="range"]:disabled::-moz-range-thumb { background: #555; cursor: not-allowed; }
 
-  .season-toggle {
-    display: flex;
-    gap: 8px;
+  .zone-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
   }
-  .season-toggle button {
-    flex: 1;
-    padding: 9px 10px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: var(--panel-2);
-    color: var(--text-dim);
-    font-size: 14px;
-    cursor: pointer;
+  .zone-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .zone-grid label {
+    font-size: 11px;
+    margin-bottom: 4px;
+    display: block;
   }
-  .season-toggle button.active {
-    background: var(--accent);
-    color: #0a0d12;
-    border-color: var(--accent);
-    font-weight: 600;
-  }
+  .zone-label.green { color: var(--good); }
+  .zone-label.yellow { color: var(--zone-yellow); }
+  .zone-label.red { color: var(--bad); }
 
   .results {
     display: grid;
@@ -183,8 +187,11 @@
     margin-top: 2px;
   }
   .card.wide { grid-column: 1 / -1; }
+  .card.highlight { border-color: var(--accent); }
   .delta.pos { color: var(--good); }
   .delta.neg { color: var(--bad); }
+  .status-ok { color: var(--good); }
+  .status-warn { color: var(--bad); }
 
   svg { width: 100%; height: auto; display: block; }
   .chart-caption {
@@ -193,85 +200,186 @@
     margin-top: 8px;
     text-align: center;
   }
+  .zone-legend {
+    display: flex;
+    gap: 14px;
+    justify-content: center;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 10px;
+  }
+  .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 4px;
+  }
+  .dot.green { background: var(--good); }
+  .dot.yellow { background: var(--zone-yellow); }
+  .dot.red { background: var(--bad); }
 
   @media (max-width: 420px) {
     .results { grid-template-columns: 1fr; }
+  }
+
+  @media (min-width: 880px) {
+    body { padding: 32px; }
+    .wrap { max-width: 1140px; }
+    h1 { font-size: 22px; }
+    .layout {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      align-items: start;
+      gap: 20px;
+    }
+    .col-left {
+      position: sticky;
+      top: 24px;
+      max-height: calc(100vh - 48px);
+      overflow-y: auto;
+    }
   }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Эластичность цены на пиво</h1>
-  <p class="sub">Прикидка спроса/выручки при изменении цены. Без сервера, офлайн.</p>
+  <p class="sub">Маржинальная модель зон цены: куда можно поднять цену, не теряя маржу. Без сервера, офлайн.</p>
 
   <div class="disclaimer">
     <b>Черновая оценка.</b> Значения эластичности (E) основаны всего на 5 ценовых эпизодах
     за год, в основном на одной позиции (Порт Пилснер 0,5), без контроля сезонности и трафика.
     Погрешность высокая — используйте как ориентир порядка величины, а не точный прогноз.
     Базовая цена вводится вручную (номинальная цена для гостя).
+    Зоны основаны на истории цен 2025–2026. Порог 470₽ подтверждён оттоком в 2025.
     Подробности: <code>docs/investigations/price-elasticity-pilsner-lager-2026-07-01.md</code>.
   </div>
 
-  <div class="panel">
-    <div class="row">
-      <label for="position">Позиция</label>
-      <select id="position"></select>
-    </div>
+  <div class="layout">
+    <div class="col-left">
 
-    <div class="row">
-      <label>Сезон</label>
-      <div class="season-toggle">
-        <button id="seasonNormal" type="button" class="active">Обычный</button>
-        <button id="seasonHoliday" type="button">Праздники / акция</button>
+      <div class="panel">
+        <div class="row">
+          <label for="position">Позиция</label>
+          <select id="position"></select>
+        </div>
+
+        <div class="row">
+          <label for="basePrice">Текущая цена (с доски), ₽</label>
+          <input type="number" id="basePrice" min="0" step="1" placeholder="введите цену с доски">
+          <div class="hint">Номинальная цена для гостя (без скидок и акций). Это жёсткий пол — ниже модель цену не предлагает.</div>
+        </div>
+
+        <div class="row">
+          <label for="cost">Себестоимость порции, ₽</label>
+          <input type="number" id="cost" min="0" step="1">
+        </div>
+
+        <div class="row">
+          <label for="baseVolume">Текущий объём продаж <span class="val" id="baseVolumeLabel"></span></label>
+          <input type="number" id="baseVolume" min="0" step="1">
+        </div>
+
+        <div class="row">
+          <label for="price">Новая цена, ₽ <span class="val" id="priceLabel"></span></label>
+          <input type="range" id="price" min="0" max="1000" step="1" disabled>
+          <div class="hint" id="priceHint">Сначала укажите текущую цену</div>
+        </div>
       </div>
-    </div>
 
-    <div class="row">
-      <label for="basePrice">Текущая цена (с доски), ₽</label>
-      <input type="number" id="basePrice" min="0" step="1" placeholder="введите цену с доски">
-      <div class="hint">Укажите номинальную цену для гостя (без учёта скидок и акций)</div>
-    </div>
+      <div class="panel">
+        <div class="row">
+          <label style="margin-bottom:2px">Зоны цены</label>
+          <div class="hint">Зелёная — безопасно, жёлтая — двигаться с замером, красная — порог отторжения</div>
+        </div>
+        <div class="zone-grid">
+          <div>
+            <label for="zoneYellowStart" class="zone-label yellow">Жёлтая от, ₽</label>
+            <input type="number" id="zoneYellowStart" min="0" step="1">
+          </div>
+          <div>
+            <label for="zoneRedStart" class="zone-label red">Красная от, ₽</label>
+            <input type="number" id="zoneRedStart" min="0" step="1">
+          </div>
+        </div>
 
-    <div class="row">
-      <label for="baseVolume">Текущий объём продаж <span class="val" id="baseVolumeLabel"></span></label>
-      <input type="number" id="baseVolume" min="0" step="1">
-    </div>
-
-    <div class="row">
-      <label for="price">Новая цена, ₽ <span class="val" id="priceLabel"></span></label>
-      <input type="range" id="price" min="200" max="600" step="1">
-    </div>
-
-    <div class="row">
-      <label for="elasticity">Эластичность E <span class="val" id="elasticityLabel"></span></label>
-      <input type="range" id="elasticity" min="-5.0" max="-0.5" step="0.1">
-    </div>
-  </div>
-
-  <div class="panel">
-    <div class="results">
-      <div class="card">
-        <div class="label">Прогноз объёма / нед</div>
-        <div class="value" id="volOut">—</div>
-        <div class="ci" id="volCi">±20%: —</div>
+        <div class="row" style="margin-top:14px">
+          <label style="margin-bottom:2px">Эластичность E по зонам</label>
+          <div class="hint">Растёт по мере приближения к порогу отторжения</div>
+        </div>
+        <div class="zone-grid zone-grid-3">
+          <div>
+            <label for="eGreen" class="zone-label green">Зелёная</label>
+            <input type="number" id="eGreen" step="0.1">
+          </div>
+          <div>
+            <label for="eYellow" class="zone-label yellow">Жёлтая</label>
+            <input type="number" id="eYellow" step="0.1">
+          </div>
+          <div>
+            <label for="eRed" class="zone-label red">Красная</label>
+            <input type="number" id="eRed" step="0.1">
+          </div>
+        </div>
       </div>
-      <div class="card">
-        <div class="label">Прогноз выручки / нед</div>
-        <div class="value" id="revOut">—</div>
-        <div class="ci" id="revCi">±20%: —</div>
-      </div>
-      <div class="card wide">
-        <div class="label">Изменение выручки vs база (<span id="baseRevLabel"></span>)</div>
-        <div class="value" id="deltaOut">—</div>
-      </div>
-    </div>
-  </div>
 
-  <div class="panel">
-    <svg id="chart" viewBox="0 0 600 340" preserveAspectRatio="xMidYMid meet"></svg>
-    <div class="placeholder" id="chartPlaceholder" style="display:none">Введите текущую цену для расчёта</div>
-    <div class="chart-caption" id="chartCaption">
-      Серая область — доверительный интервал ±20%. Синяя точка — база, оранжевая — прогноз по новой цене.
+      <div class="panel">
+        <div class="row">
+          <label style="margin-bottom:2px">Эксперимент</label>
+        </div>
+        <div class="hint" id="experimentSuggestion">Сначала укажите текущую цену</div>
+        <div class="row" style="margin-top:10px">
+          <label for="experimentVolume">Фактический объём после эксперимента</label>
+          <input type="number" id="experimentVolume" min="0" step="1" placeholder="введите факт через 3 недели">
+        </div>
+        <div class="hint" id="experimentResult"></div>
+      </div>
+
+    </div>
+
+    <div class="col-right">
+      <div class="panel">
+        <div class="results">
+          <div class="card wide highlight">
+            <div class="label">Маржа / порция (при новой цене)</div>
+            <div class="value" id="marginOut">—</div>
+            <div class="ci" id="marginPctOut">—</div>
+          </div>
+          <div class="card">
+            <div class="label">Прогноз объёма / нед</div>
+            <div class="value" id="volOut">—</div>
+            <div class="ci" id="volCi">±20%: —</div>
+          </div>
+          <div class="card">
+            <div class="label">Прогноз общей маржи / нед</div>
+            <div class="value" id="totalMarginOut">—</div>
+            <div class="ci" id="totalMarginCi">±20%: —</div>
+          </div>
+          <div class="card wide">
+            <div class="label">Изменение маржи vs база (<span id="baseMarginLabel"></span>)</div>
+            <div class="value" id="deltaMarginOut">—</div>
+            <div class="ci" id="revenueRefOut">—</div>
+          </div>
+          <div class="card wide">
+            <div class="label">Точка безубыточности по марже</div>
+            <div class="value" id="breakevenOut">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <svg id="chart" viewBox="0 0 600 340" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="placeholder" id="chartPlaceholder" style="display:none">Введите текущую цену для расчёта</div>
+        <div class="zone-legend" id="zoneLegend">
+          <span><i class="dot green"></i>Безопасно</span>
+          <span><i class="dot yellow"></i>С замером</span>
+          <span><i class="dot red"></i>Порог отторжения</span>
+        </div>
+        <div class="chart-caption" id="chartCaption">
+          Серая область — доверительный интервал ±20%. Синяя точка — база, оранжевая — прогноз по новой цене.
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -285,61 +393,79 @@
       id: "port-pilsner-05",
       name: "Дримтим Порт Пилснер 0,5",
       baseVolume: 475,
-      eNormal: -1.6,
-      eHoliday: -3.0
+      cost: 138,
+      zoneDefaults: { yellowStart: 450, redStart: 470 }
     },
     {
       id: "local-lager-05",
       name: "Дримтим Локал Лагер 0,5",
       baseVolume: 204,
-      eNormal: -1.6,
-      eHoliday: -3.0
+      cost: 121,
+      zoneDefaults: null
     },
     {
       id: "custom",
       name: "Другая позиция (ввести вручную)",
       baseVolume: 300,
-      eNormal: -1.6,
-      eHoliday: -3.0
+      cost: 130,
+      zoneDefaults: null
     }
   ];
 
-  var PRICE_MIN = 200, PRICE_MAX = 600;
-  var DEFAULT_NEW_PRICE = 300;
+  var ZONE_OFFSET_YELLOW = 20;
+  var ZONE_OFFSET_RED = 40;
 
   var state = {
     position: POSITIONS[0],
-    season: "normal", // 'normal' | 'holiday'
-    basePrice: null, // вводится вручную — номинальная цена с доски
+    basePrice: null,
+    cost: POSITIONS[0].cost,
     baseVolume: POSITIONS[0].baseVolume,
-    price: DEFAULT_NEW_PRICE,
-    elasticity: POSITIONS[0].eNormal
+    price: null,
+    zones: { yellowStart: null, redStart: null },
+    zonesManuallyEdited: false,
+    zoneElasticity: { green: -0.8, yellow: -1.6, red: -3.0 }
   };
 
   var els = {
     position: document.getElementById("position"),
-    seasonNormal: document.getElementById("seasonNormal"),
-    seasonHoliday: document.getElementById("seasonHoliday"),
     basePrice: document.getElementById("basePrice"),
+    cost: document.getElementById("cost"),
     baseVolume: document.getElementById("baseVolume"),
     baseVolumeLabel: document.getElementById("baseVolumeLabel"),
     price: document.getElementById("price"),
     priceLabel: document.getElementById("priceLabel"),
-    elasticity: document.getElementById("elasticity"),
-    elasticityLabel: document.getElementById("elasticityLabel"),
+    priceHint: document.getElementById("priceHint"),
+    zoneYellowStart: document.getElementById("zoneYellowStart"),
+    zoneRedStart: document.getElementById("zoneRedStart"),
+    eGreen: document.getElementById("eGreen"),
+    eYellow: document.getElementById("eYellow"),
+    eRed: document.getElementById("eRed"),
+    experimentSuggestion: document.getElementById("experimentSuggestion"),
+    experimentVolume: document.getElementById("experimentVolume"),
+    experimentResult: document.getElementById("experimentResult"),
+    marginOut: document.getElementById("marginOut"),
+    marginPctOut: document.getElementById("marginPctOut"),
     volOut: document.getElementById("volOut"),
     volCi: document.getElementById("volCi"),
-    revOut: document.getElementById("revOut"),
-    revCi: document.getElementById("revCi"),
-    deltaOut: document.getElementById("deltaOut"),
-    baseRevLabel: document.getElementById("baseRevLabel"),
+    totalMarginOut: document.getElementById("totalMarginOut"),
+    totalMarginCi: document.getElementById("totalMarginCi"),
+    baseMarginLabel: document.getElementById("baseMarginLabel"),
+    deltaMarginOut: document.getElementById("deltaMarginOut"),
+    revenueRefOut: document.getElementById("revenueRefOut"),
+    breakevenOut: document.getElementById("breakevenOut"),
     chart: document.getElementById("chart"),
     chartPlaceholder: document.getElementById("chartPlaceholder"),
-    chartCaption: document.getElementById("chartCaption")
+    chartCaption: document.getElementById("chartCaption"),
+    zoneLegend: document.getElementById("zoneLegend")
   };
 
   function hasValidBasePrice() {
     return typeof state.basePrice === "number" && !isNaN(state.basePrice) && state.basePrice > 0;
+  }
+  function hasValidZones() {
+    return typeof state.zones.yellowStart === "number" && typeof state.zones.redStart === "number" &&
+      !isNaN(state.zones.yellowStart) && !isNaN(state.zones.redStart) &&
+      state.zones.yellowStart > 0 && state.zones.redStart > state.zones.yellowStart;
   }
 
   function fmtRub(n) {
@@ -352,10 +478,49 @@
     var s = n >= 0 ? "+" : "";
     return s + n.toFixed(1).replace(".", ",") + "%";
   }
+  function fmt1(n) {
+    return n.toFixed(1).replace(".", ",");
+  }
 
-  function forecastVolume(price, basePrice, baseVolume, e) {
-    if (basePrice <= 0) return 0;
-    return baseVolume * Math.pow(price / basePrice, e);
+  // Кусочная модель: эластичность меняется на границах зон, кривая непрерывна.
+  function piecewiseVolume(targetPrice) {
+    if (!hasValidBasePrice()) return 0;
+    var P0 = state.basePrice, Q0 = state.baseVolume;
+    if (targetPrice <= P0) return Q0;
+
+    var yS = hasValidZones() ? state.zones.yellowStart : P0 + ZONE_OFFSET_YELLOW;
+    var rS = hasValidZones() ? state.zones.redStart : P0 + ZONE_OFFSET_RED;
+    var Eg = state.zoneElasticity.green, Ey = state.zoneElasticity.yellow, Er = state.zoneElasticity.red;
+
+    var greenEnd = Math.min(targetPrice, yS);
+    var Q = Q0 * Math.pow(greenEnd / P0, Eg);
+    if (targetPrice <= yS) return Q;
+
+    var yellowEnd = Math.min(targetPrice, rS);
+    var Qy = Q * Math.pow(yellowEnd / yS, Ey);
+    if (targetPrice <= rS) return Qy;
+
+    return Qy * Math.pow(targetPrice / rS, Er);
+  }
+
+  function computeBreakeven(newPrice) {
+    if (!hasValidBasePrice()) return null;
+    var baseMarginUnit = state.basePrice - state.cost;
+    var baseMarginTotal = baseMarginUnit * state.baseVolume;
+    var newMarginUnit = newPrice - state.cost;
+    if (newMarginUnit <= 0) return { requiredVolume: Infinity, allowedDropPct: -Infinity };
+    var requiredVolume = baseMarginTotal / newMarginUnit;
+    var allowedDropPct = (state.baseVolume - requiredVolume) / state.baseVolume * 100;
+    return { requiredVolume: requiredVolume, allowedDropPct: allowedDropPct };
+  }
+
+  function currentPriceRange() {
+    if (!hasValidBasePrice()) return { min: 200, max: 600 };
+    var floor = state.basePrice;
+    var rS = hasValidZones() ? state.zones.redStart : floor + ZONE_OFFSET_RED;
+    var priceVal = (typeof state.price === "number" && !isNaN(state.price)) ? state.price : floor;
+    var max = Math.max(rS + 150, floor + 100, priceVal + 50);
+    return { min: floor, max: max };
   }
 
   function populatePositions() {
@@ -367,38 +532,92 @@
     });
   }
 
-  function applyPositionDefaults(resetPrice) {
+  function syncZoneDefaults() {
+    var p = state.position;
+    var yS, rS;
+    if (p.zoneDefaults) {
+      yS = p.zoneDefaults.yellowStart;
+      rS = p.zoneDefaults.redStart;
+    } else {
+      yS = state.basePrice + ZONE_OFFSET_YELLOW;
+      rS = state.basePrice + ZONE_OFFSET_RED;
+    }
+    if (yS <= state.basePrice) yS = state.basePrice + ZONE_OFFSET_YELLOW;
+    if (rS <= yS) rS = yS + ZONE_OFFSET_YELLOW;
+
+    state.zones.yellowStart = yS;
+    state.zones.redStart = rS;
+    els.zoneYellowStart.value = yS;
+    els.zoneRedStart.value = rS;
+  }
+
+  function updatePriceRange() {
+    if (!hasValidBasePrice()) {
+      els.price.disabled = true;
+      els.priceHint.style.display = "block";
+      return;
+    }
+    els.price.disabled = false;
+    els.priceHint.style.display = "none";
+
+    var floor = state.basePrice;
+    var range = currentPriceRange();
+
+    if (state.price === null || isNaN(state.price) || state.price < floor) state.price = floor;
+    if (state.price > range.max) state.price = range.max;
+
+    els.price.min = floor;
+    els.price.max = range.max;
+    els.price.value = state.price;
+  }
+
+  function resetForPosition() {
     var p = state.position;
     state.basePrice = null;
+    state.cost = p.cost;
     state.baseVolume = p.baseVolume;
-    state.elasticity = state.season === "normal" ? p.eNormal : p.eHoliday;
-    if (resetPrice) state.price = DEFAULT_NEW_PRICE;
+    state.price = null;
+    state.zones = { yellowStart: null, redStart: null };
+    state.zonesManuallyEdited = false;
 
     els.basePrice.value = "";
+    els.cost.value = state.cost;
     els.baseVolume.value = state.baseVolume;
-    els.price.value = state.price;
-    els.elasticity.value = state.elasticity;
+    els.zoneYellowStart.value = "";
+    els.zoneRedStart.value = "";
+    els.eGreen.value = state.zoneElasticity.green;
+    els.eYellow.value = state.zoneElasticity.yellow;
+    els.eRed.value = state.zoneElasticity.red;
+    els.experimentVolume.value = "";
+
+    updatePriceRange();
   }
 
   function onPositionChange() {
     var id = els.position.value;
     state.position = POSITIONS.filter(function (p) { return p.id === id; })[0];
-    applyPositionDefaults(true);
+    resetForPosition();
     render();
   }
 
-  function onBasePriceChange() {
+  function onBasePriceInput() {
     var v = parseFloat(els.basePrice.value);
-    state.basePrice = isNaN(v) || v <= 0 ? null : v;
+    state.basePrice = (!isNaN(v) && v > 0) ? v : null;
+    updatePriceRange();
     render();
   }
 
-  function onSeasonChange(season) {
-    state.season = season;
-    els.seasonNormal.classList.toggle("active", season === "normal");
-    els.seasonHoliday.classList.toggle("active", season === "holiday");
-    state.elasticity = season === "normal" ? state.position.eNormal : state.position.eHoliday;
-    els.elasticity.value = state.elasticity;
+  function onBasePriceCommit() {
+    if (hasValidBasePrice() && !state.zonesManuallyEdited) {
+      syncZoneDefaults();
+      updatePriceRange();
+      render();
+    }
+  }
+
+  function onCostChange() {
+    var v = parseFloat(els.cost.value);
+    state.cost = isNaN(v) ? 0 : v;
     render();
   }
 
@@ -413,18 +632,40 @@
     render();
   }
 
-  function onElasticityChange() {
-    state.elasticity = parseFloat(els.elasticity.value);
+  function onZoneChange() {
+    state.zonesManuallyEdited = true;
+    var y = parseFloat(els.zoneYellowStart.value);
+    var r = parseFloat(els.zoneRedStart.value);
+    state.zones.yellowStart = isNaN(y) ? null : y;
+    state.zones.redStart = isNaN(r) ? null : r;
+    updatePriceRange();
     render();
   }
 
-  function buildCurvePoints(basePrice, baseVolume, e, steps) {
+  function onElasticityChange() {
+    var g = parseFloat(els.eGreen.value), y = parseFloat(els.eYellow.value), r = parseFloat(els.eRed.value);
+    if (!isNaN(g)) state.zoneElasticity.green = g;
+    if (!isNaN(y)) state.zoneElasticity.yellow = y;
+    if (!isNaN(r)) state.zoneElasticity.red = r;
+    render();
+  }
+
+  function onExperimentVolumeChange() {
+    render();
+  }
+
+  function buildCurvePoints(range, steps) {
     var pts = [];
     for (var i = 0; i <= steps; i++) {
-      var price = PRICE_MIN + (PRICE_MAX - PRICE_MIN) * (i / steps);
-      pts.push({ price: price, volume: forecastVolume(price, basePrice, baseVolume, e) });
+      var price = range.min + (range.max - range.min) * (i / steps);
+      pts.push({ price: price, volume: piecewiseVolume(price) });
     }
     return pts;
+  }
+
+  function rect(x, y, w, h, fill) {
+    if (w <= 0) return "";
+    return '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" fill="' + fill + '"/>';
   }
 
   function drawChart() {
@@ -433,8 +674,14 @@
     var plotW = W - padL - padR;
     var plotH = H - padT - padB;
 
-    var curve = buildCurvePoints(state.basePrice, state.baseVolume, state.elasticity, 60);
-    var newVolume = forecastVolume(state.price, state.basePrice, state.baseVolume, state.elasticity);
+    var range = currentPriceRange();
+    var curve = buildCurvePoints(range, 60);
+    var newVolume = piecewiseVolume(state.price);
+
+    var yS = hasValidZones() ? state.zones.yellowStart : range.min + ZONE_OFFSET_YELLOW;
+    var rS = hasValidZones() ? state.zones.redStart : range.min + ZONE_OFFSET_RED;
+    yS = Math.min(Math.max(yS, range.min), range.max);
+    rS = Math.min(Math.max(rS, range.min), range.max);
 
     var maxVol = state.baseVolume;
     curve.forEach(function (pt) {
@@ -443,21 +690,35 @@
     if (newVolume * 1.2 > maxVol) maxVol = newVolume * 1.2;
     if (maxVol <= 0) maxVol = 1;
 
-    function x(price) { return padL + (price - PRICE_MIN) / (PRICE_MAX - PRICE_MIN) * plotW; }
+    function x(price) { return padL + (price - range.min) / (range.max - range.min) * plotW; }
     function y(vol) { return padT + plotH - (vol / maxVol) * plotH; }
 
     var svgParts = [];
+
+    // zone bands
+    var greenX0 = x(range.min), greenX1 = x(yS);
+    var yellowX0 = greenX1, yellowX1 = x(rS);
+    var redX0 = yellowX1, redX1 = x(range.max);
+    svgParts.push(rect(greenX0, padT, greenX1 - greenX0, plotH, "rgba(76,217,123,0.14)"));
+    svgParts.push(rect(yellowX0, padT, yellowX1 - yellowX0, plotH, "rgba(255,209,102,0.14)"));
+    svgParts.push(rect(redX0, padT, redX1 - redX0, plotH, "rgba(255,93,93,0.14)"));
 
     // axes
     svgParts.push('<line x1="' + padL + '" y1="' + (padT + plotH) + '" x2="' + (padL + plotW) + '" y2="' + (padT + plotH) + '" stroke="#3a3f4d" stroke-width="1"/>');
     svgParts.push('<line x1="' + padL + '" y1="' + padT + '" x2="' + padL + '" y2="' + (padT + plotH) + '" stroke="#3a3f4d" stroke-width="1"/>');
 
-    // x ticks
-    for (var price = 200; price <= 600; price += 100) {
+    // x ticks: границы зон + диапазон
+    var tickPrices = [];
+    [range.min, yS, rS, range.max].forEach(function (p) {
+      p = Math.round(Math.min(Math.max(p, range.min), range.max));
+      if (tickPrices.indexOf(p) === -1) tickPrices.push(p);
+    });
+    tickPrices.sort(function (a, b) { return a - b; });
+    tickPrices.forEach(function (price) {
       var px = x(price);
       svgParts.push('<line x1="' + px + '" y1="' + (padT + plotH) + '" x2="' + px + '" y2="' + (padT + plotH + 5) + '" stroke="#3a3f4d"/>');
       svgParts.push('<text x="' + px + '" y="' + (padT + plotH + 20) + '" fill="#9aa0ad" font-size="11" text-anchor="middle">' + price + '₽</text>');
-    }
+    });
 
     // y ticks
     var yTickCount = 4;
@@ -496,59 +757,122 @@
     els.chart.innerHTML = svgParts.join("\n");
   }
 
+  function setPlaceholderResults() {
+    els.marginOut.textContent = "—";
+    els.marginPctOut.textContent = "—";
+    els.volOut.textContent = "—";
+    els.volCi.textContent = "±20%: —";
+    els.totalMarginOut.textContent = "—";
+    els.totalMarginCi.textContent = "±20%: —";
+    els.baseMarginLabel.textContent = "—";
+    els.deltaMarginOut.textContent = "—";
+    els.deltaMarginOut.className = "value";
+    els.revenueRefOut.textContent = "—";
+    els.breakevenOut.textContent = "—";
+    els.breakevenOut.className = "value";
+  }
+
   function render() {
     els.baseVolumeLabel.textContent = fmtVol(state.baseVolume);
-    els.priceLabel.textContent = Math.round(state.price) + " ₽";
-    els.elasticityLabel.textContent = state.elasticity.toFixed(1);
+    els.priceLabel.textContent = hasValidBasePrice() ? (Math.round(state.price) + " ₽") : "—";
 
     if (!hasValidBasePrice()) {
-      els.volOut.textContent = "—";
-      els.volCi.textContent = "±20%: —";
-      els.revOut.textContent = "—";
-      els.revCi.textContent = "±20%: —";
-      els.baseRevLabel.textContent = "—";
-      els.deltaOut.textContent = "—";
-      els.deltaOut.className = "value";
-
+      setPlaceholderResults();
       els.chart.style.display = "none";
       els.chartCaption.style.display = "none";
+      els.zoneLegend.style.display = "none";
       els.chartPlaceholder.style.display = "block";
+      els.experimentSuggestion.textContent = "Сначала укажите текущую цену";
+      els.experimentResult.textContent = "";
       return;
     }
 
     els.chart.style.display = "block";
     els.chartCaption.style.display = "block";
+    els.zoneLegend.style.display = "flex";
     els.chartPlaceholder.style.display = "none";
 
-    var newVolume = forecastVolume(state.price, state.basePrice, state.baseVolume, state.elasticity);
-    var newRevenue = state.price * newVolume;
+    var newPrice = state.price;
+    var newVolume = piecewiseVolume(newPrice);
+
+    var newMarginUnit = newPrice - state.cost;
+    var newMarginPct = newPrice > 0 ? (newMarginUnit / newPrice * 100) : 0;
+    var baseMarginUnit = state.basePrice - state.cost;
+    var baseMarginPct = state.basePrice > 0 ? (baseMarginUnit / state.basePrice * 100) : 0;
+
+    var baseMarginTotal = baseMarginUnit * state.baseVolume;
+    var newMarginTotal = newMarginUnit * newVolume;
+    var deltaMarginTotal = newMarginTotal - baseMarginTotal;
+    var deltaMarginPct = baseMarginTotal !== 0 ? (deltaMarginTotal / Math.abs(baseMarginTotal) * 100) : 0;
+
+    var newRevenue = newPrice * newVolume;
     var baseRevenue = state.basePrice * state.baseVolume;
     var deltaRevenue = newRevenue - baseRevenue;
-    var deltaPct = baseRevenue > 0 ? (deltaRevenue / baseRevenue) * 100 : 0;
+    var deltaRevenuePct = baseRevenue !== 0 ? (deltaRevenue / baseRevenue * 100) : 0;
+
+    els.marginOut.textContent = fmtRub(newMarginUnit) + " / порция";
+    els.marginPctOut.textContent = "маржа " + fmt1(newMarginPct) + "% · база: " + fmtRub(baseMarginUnit) + " (" + fmt1(baseMarginPct) + "%)";
 
     els.volOut.textContent = fmtVol(newVolume);
     els.volCi.textContent = "±20%: " + fmtVol(newVolume * 0.8) + " — " + fmtVol(newVolume * 1.2);
 
-    els.revOut.textContent = fmtRub(newRevenue);
-    els.revCi.textContent = "±20%: " + fmtRub(newRevenue * 0.8) + " — " + fmtRub(newRevenue * 1.2);
+    els.totalMarginOut.textContent = fmtRub(newMarginTotal);
+    els.totalMarginCi.textContent = "±20%: " + fmtRub(newMarginTotal * 0.8) + " — " + fmtRub(newMarginTotal * 1.2);
 
-    els.baseRevLabel.textContent = fmtRub(baseRevenue) + "/нед";
-    els.deltaOut.textContent = fmtRub(deltaRevenue) + " (" + fmtPct(deltaPct) + ")";
-    els.deltaOut.className = "value delta " + (deltaRevenue >= 0 ? "pos" : "neg");
+    els.baseMarginLabel.textContent = fmtRub(baseMarginTotal) + "/нед";
+    els.deltaMarginOut.textContent = fmtRub(deltaMarginTotal) + " (" + fmtPct(deltaMarginPct) + ")";
+    els.deltaMarginOut.className = "value delta " + (deltaMarginTotal >= 0 ? "pos" : "neg");
+    els.revenueRefOut.textContent = "выручка (справочно): " + fmtRub(newRevenue) + "/нед (" + fmtPct(deltaRevenuePct) + " vs база)";
+
+    var be = computeBreakeven(newPrice);
+    if (!isFinite(be.requiredVolume)) {
+      els.breakevenOut.textContent = "Цена не покрывает себестоимость — маржа отрицательна";
+      els.breakevenOut.className = "value delta neg";
+    } else {
+      var safe = newVolume >= be.requiredVolume;
+      var badge = '<span class="' + (safe ? "status-ok" : "status-warn") + '">' +
+        (safe ? "✅ прогноз внутри безопасной зоны" : "⚠️ прогноз ниже точки безубыточности") + '</span>';
+      var text;
+      if (be.allowedDropPct >= 0) {
+        text = "Объём может упасть до " + fmtVol(be.requiredVolume) + " (-" + fmt1(be.allowedDropPct) + "%) — маржа останется не ниже базовой.";
+      } else {
+        text = "Нужен рост объёма на " + fmt1(Math.abs(be.allowedDropPct)) + "%, иначе маржа ниже базовой даже без оттока.";
+      }
+      els.breakevenOut.innerHTML = text + "<br>" + badge;
+      els.breakevenOut.className = "value";
+    }
+
+    // эксперимент
+    var experimentPrice = state.basePrice + 10;
+    var predicted = piecewiseVolume(experimentPrice);
+    els.experimentSuggestion.textContent = "Подними цену до " + Math.round(experimentPrice) + "₽, держи 3 недели, замерь объём. Прогноз модели: " + fmtVol(predicted) + ".";
+
+    var actual = parseFloat(els.experimentVolume.value);
+    if (!isNaN(actual) && actual > 0) {
+      var realE = Math.log(actual / state.baseVolume) / Math.log(experimentPrice / state.basePrice);
+      els.experimentResult.textContent = "Реальная E по эксперименту: " + realE.toFixed(2) + " (сейчас в зелёной зоне: " + state.zoneElasticity.green.toFixed(1) + ")";
+    } else {
+      els.experimentResult.textContent = "";
+    }
 
     drawChart();
   }
 
   populatePositions();
-  applyPositionDefaults(true);
+  resetForPosition();
 
   els.position.addEventListener("change", onPositionChange);
-  els.seasonNormal.addEventListener("click", function () { onSeasonChange("normal"); });
-  els.seasonHoliday.addEventListener("click", function () { onSeasonChange("holiday"); });
-  els.basePrice.addEventListener("input", onBasePriceChange);
+  els.basePrice.addEventListener("input", onBasePriceInput);
+  els.basePrice.addEventListener("change", onBasePriceCommit);
+  els.cost.addEventListener("input", onCostChange);
   els.baseVolume.addEventListener("input", onBaseVolumeChange);
   els.price.addEventListener("input", onPriceChange);
-  els.elasticity.addEventListener("input", onElasticityChange);
+  els.zoneYellowStart.addEventListener("input", onZoneChange);
+  els.zoneRedStart.addEventListener("input", onZoneChange);
+  els.eGreen.addEventListener("input", onElasticityChange);
+  els.eYellow.addEventListener("input", onElasticityChange);
+  els.eRed.addEventListener("input", onElasticityChange);
+  els.experimentVolume.addEventListener("input", onExperimentVolumeChange);
 
   render();
 })();
