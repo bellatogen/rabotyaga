@@ -1,20 +1,13 @@
 // Синхронизация расписания барменов из Google Sheets.
 // Обновляет только даты >= сегодня (прошлое не трогает).
 // Вызывается: при старте, каждые 12 ч, по кнопке в админке.
+//
+// Парсинг CSV вынесен в scheduleParse.js — используется и здесь, и в
+// scripts/manual-schedule-import.js (ручной импорт в обход блокировки Google, см. там).
+
+const { RU_MONTHS_NAME, parseScheduleCSV } = require('./scheduleParse');
 
 const SHEET_ID = process.env.SCHEDULE_SHEET_ID || '1qu2vBtdSboXhFUCvCjs9XZJOqWeBfo-0';
-
-// Колонка (0-based) → имя в приложении
-const COL_NAME = { 3:'Александр', 6:'Павел', 9:'Евгений', 12:'Тимофей', 15:'Ярослав' };
-const GUEST_COL = 18;
-
-const RU_MONTHS = {
-  'января':1,'февраля':2,'марта':3,'апреля':4,'мая':5,'июня':6,
-  'июля':7,'августа':8,'сентября':9,'октября':10,'ноября':11,'декабря':12,
-};
-
-const RU_MONTHS_NAME = ['','Январь','Февраль','Март','Апрель','Май','Июнь',
-                        'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
 
 // Стандартный режим: текущий месяц + следующий
 function sheetsToFetch() {
@@ -43,39 +36,6 @@ function sheetsForRange(fromDate) {
   return sheets;
 }
 
-function parseDate(cell, year) {
-  const m = String(cell).trim().match(/^(\d+)\s+([а-яё]+)$/i);
-  if (!m) return null;
-  const mon = RU_MONTHS[m[2].toLowerCase()];
-  if (!mon) return null;
-  return `${year}-${String(mon).padStart(2,'0')}-${m[1].padStart(2,'0')}`;
-}
-
-function parseDuration(cell) {
-  const m = String(cell||'').trim().match(/^(\d+):(\d+)$/);
-  if (!m) return null;
-  const h = parseInt(m[1]), min = parseInt(m[2]);
-  return min ? String(h + min/60) : String(h);
-}
-
-function isWorking(cell) {
-  const v = String(cell||'').trim().toLowerCase();
-  return v && v !== 'выходной' && v !== 'отпуск' && v !== 'б/л' && v !== 'больничный';
-}
-
-function parseCSV(csv) {
-  return csv.split('\n').map(line => {
-    const cols = []; let cur = '', inQ = false;
-    for (let i = 0; i < line.length; i++) {
-      if (line[i] === '"') { inQ = !inQ; continue; }
-      if (line[i] === ',' && !inQ) { cols.push(cur); cur = ''; continue; }
-      cur += line[i];
-    }
-    cols.push(cur);
-    return cols;
-  });
-}
-
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // Ограничение параллелизма для запросов к gviz.
@@ -97,13 +57,12 @@ async function allSettledLimit(items, limit, fn) {
   return results;
 }
 
-// Замечено: Google gviz иногда отвечает 401/429 на всплеск параллельных запросов
-// (например, при холодном старте контейнера, когда scheduleSync и revenueSync бьют в Google
-// одновременно) — транзиентно, повторный запрос через пару секунд обычно проходит.
-// Даём один ретрай с бэкоффом, чтобы синк сам восстанавливался без ручного повторного клика.
-// Node отправляет User-Agent: 'node' по умолчанию — классический триггер анти-бот защиты Google
-// на анонимном gviz-экспорте (проверено на проде: одиночные запросы проходили, а вызов внутри
-// syncSchedule иногда ловил 401). Подставляем браузерный UA, чтобы не выглядеть как бот.
+// Замечено: Google gviz иногда отвечает 401/429 — не только на всплеск параллельных запросов,
+// но и вероятностно (похоже на балансировку между разными фронтендами Google — часть отдаёт
+// 200, часть 401 на один и тот же документ в одну и ту же секунду). Ретраи с бэкоффом+джиттером
+// помогают чаще, чем без них, но НЕ гарантируют успех — см. docs/investigations/ (если заведён)
+// и scripts/manual-schedule-import.js как resilient fallback, когда автосинк не проходит совсем.
+// Node отправляет User-Agent: 'node' по умолчанию — подставляем браузерный UA (не панацея, но и не вредит).
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
 async function fetchSheet(sheetName, attempt = 1) {
@@ -149,64 +108,16 @@ async function syncSchedule(data, saveData, opts = {}) {
       return;
     }
 
-    const rows = parseCSV(result.value);
-
-    // Google Sheets gviz не возвращает ошибку на несуществующий лист (всегда HTTP 200) —
-    // вместо этого молча отдаёт данные другого (первого/дефолтного) листа. Сверяемся по
-    // первой распознанной дате в самом контенте: если месяц не совпадает с тем, что мы просили —
-    // значит, листа с таким именем ещё нет — пропускаем весь лист, чтобы не задвоить данные чужого месяца.
-    const expectedMonth = String(RU_MONTHS_NAME.indexOf(sheetName.split(' ')[0])).padStart(2, '0');
-    const firstIso = rows.slice(2).map(r => parseDate(r[0], year)).find(Boolean);
-    if (firstIso && firstIso.slice(5, 7) !== expectedMonth) {
-      const msg = `${sheetName}: лист не найден (gviz вернул другой месяц — ${firstIso})`;
-      console.warn(`[scheduleSync] ⚠️ ${msg}`);
-      errors.push(msg);
+    const { schedule: daySchedule, events: dayEvents, error } = parseScheduleCSV(result.value, { sheetName, year, backfill, today });
+    if (error) {
+      console.warn(`[scheduleSync] ⚠️ ${sheetName}: ${error}`);
+      errors.push(`${sheetName}: ${error}`);
       return;
     }
 
-    // Строки 0 и 1 — шапка
-    for (let ri = 2; ri < rows.length; ri++) {
-      const row = rows[ri];
-      const iso = parseDate(row[0], year);
-      if (!iso) continue;
-      if (!backfill && iso < today) continue; // обычный режим: только будущее
-
-      const event = (row[2] || '').trim();
-      if (event) events[iso] = event;
-      else if (events[iso] === undefined) {} // не трогать если не было
-
-      const dayShifts = [];
-
-      for (const [colStr, appName] of Object.entries(COL_NAME)) {
-        const col = Number(colStr);
-        const status = row[col] || '';
-        if (!isWorking(status)) continue;
-        const start    = (row[col+1] || '').trim();
-        const duration = parseDuration(row[col+2] || '');
-        dayShifts.push({
-          name:   appName,
-          start:  start || '',
-          end:    duration || '12',
-          report: /\(отчёт\)/i.test(status),
-          sub:    false,
-          guest:  false,
-        });
-      }
-
-      // Гостевые смены
-      const guestCell  = (row[GUEST_COL] || '').trim();
-      const guestStart = (row[GUEST_COL+1] || '').trim();
-      if (guestCell) {
-        const names  = guestCell.split('/').map(s => s.trim()).filter(Boolean);
-        const starts = guestStart.split('/').map(s => s.trim());
-        names.forEach((gName, i) => {
-          dayShifts.push({ name: gName, start: starts[i]||starts[0]||'', end:'10', report:false, sub:true, guest:true });
-        });
-      }
-
-      schedule[iso] = dayShifts;
-      daysUpdated++;
-    }
+    Object.assign(schedule, daySchedule);
+    Object.assign(events, dayEvents);
+    daysUpdated += Object.keys(daySchedule).length;
   });
 
   data.kv['schedule:v1'] = JSON.stringify(schedule);
