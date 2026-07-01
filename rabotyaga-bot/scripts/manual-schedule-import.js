@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 // scripts/manual-schedule-import.js — ручной импорт расписания из Google Sheets в обход
-// автосинка, когда gviz блокирует запросы именно с прод-сервера (см.
-// docs/investigations/schedule-sync-401-2026-07-01.md).
+// автосинка (см. docs/investigations/schedule-sync-401-2026-07-01.md).
 //
-// Компенсирует ДВА независимых сбоя автосинка:
-//  1) Google gviz иногда 401'ит запросы конкретно с IP прод-сервера (вероятностно,
-//     похоже на балансировку между фронтендами) — с другой машины (ноутбук, другой сервер)
-//     обычно проходит нормально. Этот скрипт запускают С ЛЮБОЙ рабочей машины.
+// Использует тот же фетч, что и автосинк (src/sync/sheetsFetch.js): Sheets API v4 основной
+// путь, анонимный gviz CSV-экспорт — автоматический фолбэк. Полезен, когда:
+//  1) На проде сбоит сеть/квота/конфиг (неверный SHEET_ID в .env, протухший ключ и т.п.) —
+//     этот скрипт запускают С ЛЮБОЙ рабочей машины, не завися от состояния прод-сервера.
 //  2) Лист месяца может ещё не существовать в самой Google-таблице — тогда скрипт
 //     явно скажет "лист не найден", а не молча подставит данные другого месяца.
 //
@@ -34,9 +33,10 @@
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 
 const readline = require('readline');
-const { parseScheduleCSV, RU_MONTHS_NAME } = require('../src/sync/scheduleParse');
+const { parseScheduleRows, RU_MONTHS_NAME } = require('../src/sync/scheduleParse');
+const { fetchSheetRows } = require('../src/sync/sheetsFetch');
 
-const SHEET_ID = process.env.SCHEDULE_SHEET_ID || '1qu2vBtdSboXhFUCvCjs9XZJOqWeBfo-0';
+const SHEET_ID = process.env.SCHEDULE_SHEET_ID || '1HhVU_AkD4lzHKq4nJtUjlzrutnAiNSFNh-BLBN5bQzI';
 
 function parseArgs(argv) {
   const out = { backfill: false };
@@ -56,13 +56,6 @@ function ask(question) {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     rl.question(question, answer => { rl.close(); resolve(answer); });
   });
-}
-
-async function fetchSheetCSV(sheetName) {
-  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
-  if (!res.ok) throw new Error(`Sheets HTTP ${res.status} for "${sheetName}" (запущено с этой машины — если тоже 401, проблема не в прод-сервере)`);
-  return res.text();
 }
 
 async function login(host, account, password) {
@@ -134,16 +127,17 @@ async function main() {
 
   for (const sheetName of sheetNames) {
     console.log(`\n📄 Лист "${sheetName}"...`);
-    let csv;
+    let rows, source;
     try {
-      csv = await fetchSheetCSV(sheetName);
+      ({ rows, source } = await fetchSheetRows(SHEET_ID, sheetName));
+      console.log(`  ℹ️  источник: ${source}`);
     } catch (e) {
-      console.error(`  ❌ Не удалось скачать: ${e.message}`);
+      console.error(`  ❌ Не удалось скачать (ни через API v4, ни через gviz-фолбэк): ${e.message}`);
       errors.push(`${sheetName}: ${e.message}`);
       continue;
     }
 
-    const { schedule, events, error } = parseScheduleCSV(csv, { sheetName, year, backfill: !!args.backfill, today });
+    const { schedule, events, error } = parseScheduleRows(rows, { sheetName, year, backfill: !!args.backfill, today });
     if (error) {
       console.error(`  ❌ ${error}`);
       errors.push(`${sheetName}: ${error}`);

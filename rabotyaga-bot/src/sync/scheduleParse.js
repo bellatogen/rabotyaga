@@ -51,9 +51,14 @@ function parseCSV(csv) {
 }
 
 /**
- * Разбирает CSV одного листа («Июль 2026» и т.п.) в { schedule, events, error }.
+ * Разбирает уже готовую матрицу строк (rows[i][col] — строка ячейки) одного листа
+ * («Июль 2026» и т.п.) в { schedule, events, error }.
  *
- * @param {string} csvText   — сырой CSV-текст листа
+ * Источник rows не важен — это может быть результат parseCSV(gviz-текста) ИЛИ
+ * values-массив из ответа Google Sheets API v4 (values.get: response.values) —
+ * оба представления идентичны по форме (массив массивов строк, 0-based колонки).
+ *
+ * @param {Array<Array<string>>} rows
  * @param {object} opts
  * @param {string} opts.sheetName — имя листа, напр. "Июль 2026" (для guard-проверки месяца)
  * @param {number} opts.year      — год листа
@@ -61,10 +66,9 @@ function parseCSV(csv) {
  * @param {string}  [opts.today]  — YYYY-MM-DD, порог для !backfill (по умолчанию — реальное "сегодня")
  * @returns {{ schedule: object, events: object, error: string|null }}
  */
-function parseScheduleCSV(csvText, opts) {
+function parseScheduleRows(rows, opts) {
   const { sheetName, year, backfill = false } = opts;
   const today = opts.today || new Date().toISOString().slice(0, 10);
-  const rows = parseCSV(csvText);
 
   // Google Sheets gviz не возвращает ошибку на несуществующий лист (всегда HTTP 200) —
   // вместо этого молча отдаёт данные другого (первого/дефолтного) листа. Сверяемся по
@@ -124,7 +128,15 @@ function parseScheduleCSV(csvText, opts) {
   return { schedule, events, error: null };
 }
 
+/**
+ * Тонкая обёртка над parseScheduleRows для источника-CSV (gviz-экспорт).
+ * Сигнатура сохранена как раньше — существующие вызовы не трогаем.
+ */
+function parseScheduleCSV(csvText, opts) {
+  return parseScheduleRows(parseCSV(csvText), opts);
+}
+
 module.exports = {
   COL_NAME, GUEST_COL, RU_MONTHS, RU_MONTHS_NAME,
-  parseDate, parseDuration, isWorking, parseCSV, parseScheduleCSV,
+  parseDate, parseDuration, isWorking, parseCSV, parseScheduleRows, parseScheduleCSV,
 };
