@@ -60,7 +60,7 @@ export function TodayTab({isManager,ds,todayTasks,doneMap,pct,doneTodayCount,tod
     {showDataBanner&&<div className="sec" style={{paddingBottom:4}}>
       <div className="alert warn" style={{fontSize:12,lineHeight:1.5}}>
         <AlertTriangle size={14} style={{flexShrink:0,marginTop:1}}/>
-        <span>Данные за этот месяц не загружены. Перейдите в <b>Кабинет → Управление → Синхронизация</b> и нажмите <b>«Восстановить данные»</b>.</span>
+        <span>Данные за этот месяц не загружены. Нажмите на значок профиля (справа вверху) → <b>Администрирование → Синхронизация</b> и нажмите <b>«Восстановить данные»</b>.</span>
       </div>
     </div>}
 

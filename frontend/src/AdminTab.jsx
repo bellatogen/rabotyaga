@@ -189,6 +189,9 @@ export function AdminTab({ auth, members, ds, onReloadData }) {
         revenueUpdated: revenue.updated ?? null,
         revenueError:   revenue.error   ?? null,
       });
+      // Бэкенд обновил KV — перечитываем schedule/revenue в React-стейт приложения,
+      // иначе UI (календарь) остаётся со старыми данными до перезагрузки страницы.
+      if (onReloadData) await onReloadData();
     } catch (e) {
       setSyncStatus({ lastRun: new Date().toISOString(), daysUpdated: 0, error: e.message });
     } finally {

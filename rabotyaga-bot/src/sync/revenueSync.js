@@ -71,23 +71,37 @@ async function syncRevenuePlan(data, saveData, opts = {}) {
   const updatedSheets = [];
   const errors        = [];
 
-  for (const { name: sheetName } of sheets) {
-    let csv;
-    try {
-      csv = await fetchPlanSheet(sheetName);
-    } catch (e) {
-      const msg = `${sheetName}: ${e.message}`;
+  // Сетевые запросы — параллельно (было последовательно — тот же эффект, что и в scheduleSync).
+  const fetched = await Promise.allSettled(sheets.map(s => fetchPlanSheet(s.name)));
+
+  sheets.forEach(({ name: sheetName }, i) => {
+    const result = fetched[i];
+    if (result.status === 'rejected') {
+      const msg = `${sheetName}: ${result.reason.message}`;
       console.warn(`[revenueSync] ⚠️ ${msg}`);
       errors.push(msg);
-      continue;
+      return;
     }
 
-    const planData = parseCSV(csv);
+    const planData = parseCSV(result.value);
     const count    = Object.keys(planData).length;
 
     if (count === 0) {
       console.warn(`[revenueSync] Лист "${sheetName}" пуст или не распознан`);
-      continue;
+      return;
+    }
+
+    // gviz не возвращает ошибку на несуществующий лист — может тихо отдать другой месяц
+    // (см. такую же проверку в scheduleSync.js). Здесь даты в ячейках уже полные (DD.MM.YYYY),
+    // поэтому просто сверяем YYYY-MM первой даты с ожидаемым из имени листа.
+    const [expMonthName, expYear] = sheetName.split(' ');
+    const expMonth = String(RU_MONTHS_NAME.indexOf(expMonthName)).padStart(2, '0');
+    const firstDate = Object.keys(planData).sort()[0];
+    if (firstDate.slice(0, 7) !== `${expYear}-${expMonth}`) {
+      const msg = `${sheetName}: лист не найден (gviz вернул другой месяц — ${firstDate})`;
+      console.warn(`[revenueSync] ⚠️ ${msg}`);
+      errors.push(msg);
+      return;
     }
 
     for (const [date, { plan, planGuests }] of Object.entries(planData)) {
@@ -97,7 +111,7 @@ async function syncRevenuePlan(data, saveData, opts = {}) {
       daysUpdated++;
     }
     updatedSheets.push(`${sheetName} (${count})`);
-  }
+  });
 
   data.kv['revenue:v1'] = JSON.stringify(revenue);
 

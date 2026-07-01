@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Plus, User, Lock, Shield, Inbox, ChevronLeft, Sun, Moon, MonitorSmartphone } from "lucide-react";
 import { AdminTab } from "./AdminTab.jsx";
 import './styles/app.css';
@@ -152,14 +152,25 @@ export default function App(){
     setLoading(false);
   })();},[]);
   const ready=!loading;
-  // Перезагружает revenue + schedule из KV после backfill (AdminTab вызывает после успеха)
+  // Флаги «next usePersist-эффект не пиши это значение обратно» — ставим перед setState в reloadAfterBackfill,
+  // иначе свежепрочитанные с сервера данные тут же уедут обратно лишним PUT.
+  const scheduleSkipRef=useRef(false);
+  const revenueSkipRef=useRef(false);
+  const eventsSkipRef=useRef(false);
+  // Перезагружает revenue + schedule + events из KV после sync/backfill
+  // (AdminTab вызывает после успеха — иначе календарь остаётся со старыми данными до перезагрузки страницы)
   async function reloadAfterBackfill(){
-    const[rev,sch]=await Promise.all([
+    const[rev,sch,ev]=await Promise.all([
       ld("revenue:v1",{}),
       ld("schedule:v1",EMBEDDED_SCHEDULE),
+      ld("events:v1",EMBEDDED_EVENTS),
     ]);
+    scheduleSkipRef.current=true;
+    revenueSkipRef.current=true;
+    eventsSkipRef.current=true;
     setRevenue(rev);
     setSchedule(sch);
+    setEventsData(ev);
   }
   // Спред-сеттеры — не затираем другие записи
   const setMonthPlanFor=(ym,n)=>setMonthPlan(p=>({...p,[ym]:n}));
@@ -169,7 +180,7 @@ export default function App(){
   usePersist("profiles:v1",profiles,ready);
   usePersist("cards:v1",cards,ready);
   usePersist("status_overrides:v1",statusOverrides,ready);
-  usePersist("revenue:v1",revenue,ready);
+  usePersist("revenue:v1",revenue,ready,revenueSkipRef);
   usePersist("month_plan:v1",monthPlan,ready);
   usePersist("hour_norms:v1",hourNorms,ready);
   usePersist("handovers:v1",handovers,ready);
@@ -182,9 +193,9 @@ export default function App(){
   usePersist("acl:v1",acl,ready);
   usePersist("task_order:v1",taskOrder,ready);
   usePersist("members:v1",members,ready);
-  usePersist("schedule:v1",schedule,ready);
+  usePersist("schedule:v1",schedule,ready,scheduleSkipRef);
   usePersist("golist:v1",goList,ready);
-  usePersist("events:v1",eventsData,ready);
+  usePersist("events:v1",eventsData,ready,eventsSkipRef);
   usePersist("events:v2",eventsV2,ready);
   usePersist("leave_requests:v1",leaveRequests,ready);
   usePersist("task_comments:v1",taskComments,ready);
