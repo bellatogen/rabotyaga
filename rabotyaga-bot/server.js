@@ -481,13 +481,28 @@ app.post('/api/sync/schedule', requireManager, async (req, res) => {
 });
 
 // Авто-синхронизация раз в 12 часов: расписание + план выручки из Google Sheets
-// Стартовый sync: задержка 25с после старта (было 10с).
-// Замечено на проде: сразу после старта контейнера выходящие запросы к Google иногда ловят
-// 401 (сетевой стек Docker/DNS ещё не до конца прогрелся) — даже с ретраями в fetchSheet/fetchPlanSheet.
-// Расписание и план выручки читаются из разных таблиц, но обе через тот же анонимный
-// gviz-эндпоинт Google — разносим их по времени тоже, чтобы не создавать залповый всплеск.
+//
+// Замечено на проде: сразу после старта контейнера выходящие запросы к Google иногда ловят 401
+// (сетевой стек Docker/DNS прогревается дольше, чем кажется) — даже с ретраями внутри
+// fetchSheet/fetchPlanSheet и задержкой старта. Точное время прогрева непредсказуемо, поэтому вместо
+// подбора магического числа секунд — просто повторяем стартовый syncSchedule, пока он не
+// принёсёт хоть один день без ошибки или пока не исчерпает попытки — вместо того чтобы
+// молча ждать следующего планового запуска через 12ч.
+async function scheduleSyncWithRetry(maxAttempts = 4, delayMs = 20000) {
+  for (let i = 1; i <= maxAttempts; i++) {
+    try {
+      const status = await syncSchedule(data, saveData);
+      if (status.daysUpdated > 0) return status;
+      console.warn(`[scheduleSync] попытка ${i}/${maxAttempts}: 0 дней обновлено (${status.error || 'без ошибки, но пусто'})`);
+    } catch (e) {
+      console.error(`[scheduleSync] попытка ${i}/${maxAttempts} упала с ошибкой:`, e.message);
+    }
+    if (i < maxAttempts) await new Promise(r => setTimeout(r, delayMs));
+  }
+}
+
 setTimeout(() => {
-  syncSchedule(data, saveData).catch(e => console.error('[scheduleSync] startup error:', e.message));
+  scheduleSyncWithRetry().catch(e => console.error('[scheduleSync] startup retry-loop error:', e.message));
   setTimeout(() => {
     syncRevenuePlan(data, saveData).catch(e => console.error('[revenueSync] startup error:', e.message));
   }, 5000);
