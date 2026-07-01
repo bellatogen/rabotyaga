@@ -86,8 +86,8 @@ async function fetchSheet(sheetName, attempt = 1) {
   const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
   if (!res.ok) {
-    if ((res.status === 401 || res.status === 429 || res.status >= 500) && attempt < 2) {
-      await sleep(2000 * attempt);
+    if ((res.status === 401 || res.status === 429 || res.status >= 500) && attempt < 3) {
+      await sleep(4000 * attempt);
       return fetchSheet(sheetName, attempt + 1);
     }
     throw new Error(`Sheets HTTP ${res.status} for "${sheetName}"`);

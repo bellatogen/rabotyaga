@@ -481,10 +481,11 @@ app.post('/api/sync/schedule', requireManager, async (req, res) => {
 });
 
 // Авто-синхронизация раз в 12 часов: расписание + план выручки из Google Sheets
-// Стартовый sync: задержка 10с после старта.
+// Стартовый sync: задержка 25с после старта (было 10с).
+// Замечено на проде: сразу после старта контейнера выходящие запросы к Google иногда ловят
+// 401 (сетевой стек Docker/DNS ещё не до конца прогрелся) — даже с ретраями в fetchSheet/fetchPlanSheet.
 // Расписание и план выручки читаются из разных таблиц, но обе через тот же анонимный
-// gviz-эндпоинт Google — запуск их в один момент даёт залповый всплеск запросов и иногда
-// ловит временный 401/429 (см. ретрай в fetchSheet/fetchPlanSheet) — разносим их по времени.
+// gviz-эндпоинт Google — разносим их по времени тоже, чтобы не создавать залповый всплеск.
 setTimeout(() => {
   syncSchedule(data, saveData).catch(e => console.error('[scheduleSync] startup error:', e.message));
   setTimeout(() => {
@@ -496,7 +497,7 @@ setTimeout(() => {
       syncRevenuePlan(data, saveData).catch(e => console.error('[revenueSync] interval error:', e.message));
     }, 5000);
   }, 12 * 60 * 60 * 1000);
-}, 10000);
+}, 25000);
 
 // SEC-8 WI-6: Per-tenant sync провайдеров выручки (iiko + mozg) через реестр провайдеров.
 // Заменяет глобальные env-синки: mozgSyncWithDriftCheck() + iiko.syncRevenue(data,saveData).
