@@ -82,9 +82,14 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 // (например, при холодном старте контейнера, когда scheduleSync и revenueSync бьют в Google
 // одновременно) — транзиентно, повторный запрос через пару секунд обычно проходит.
 // Даём один ретрай с бэкоффом, чтобы синк сам восстанавливался без ручного повторного клика.
+// Node отправляет User-Agent: 'node' по умолчанию — классический триггер анти-бот защиты Google
+// на анонимном gviz-экспорте (проверено на проде: одиночные запросы проходили, а вызов внутри
+// syncSchedule иногда ловил 401). Подставляем браузерный UA, чтобы не выглядеть как бот.
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
 async function fetchSheet(sheetName, attempt = 1) {
   const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  const res = await fetch(url, { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': BROWSER_UA } });
   if (!res.ok) {
     if ((res.status === 401 || res.status === 429 || res.status >= 500) && attempt < 3) {
       await sleep(4000 * attempt);
