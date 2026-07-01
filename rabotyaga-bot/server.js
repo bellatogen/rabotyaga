@@ -33,6 +33,8 @@ const { syncSchedule }    = require('./src/sync/scheduleSync');
 const { syncRevenuePlan } = require('./src/sync/revenueSync');
 const { syncMozgDashboard } = require('./src/sync/mozgSync');
 const { requireAuth, requireManager } = require('./src/middleware/auth');
+const authzCache = require('./src/authz/cache');                 // P0 «Привилегии/ACL» Ф1
+const { ensureUsersForTenant } = require('./src/authz/ensureUsers');
 const { getTenantSecret, DEFAULT_TENANT } = require('./src/config/secrets');
 const { createProviderRegistry } = require('./src/providers/index'); // SEC-8 WI-6
 
@@ -428,6 +430,28 @@ async function buildTokenMap() {
     // Fallback: дефолтный тенант через env (до применения миграции 004)
     const fallback = process.env.TELEGRAM_TOKEN;
     if (fallback) _tokenMap = { [fallback]: DEFAULT_TENANT };
+  }
+}
+
+// ── P0 «Привилегии/ACL» Ф1: ролевой кэш ──────────────────────────────────────
+// Идемпотентная миграция аккаунтов в users + загрузка ролей/прав в in-memory кэш.
+// Вызывается на старте ПОСЛЕ hydrate. Полностью деградирует: если миграция 005 не
+// применена или PG недоступен — кэш пуст, requireAuth уходит в legacy-фолбэк
+// (manager/developer = admin), поведение прода не меняется.
+async function buildRoleCache() {
+  try {
+    const tenants = await adapter.listActiveTenants();
+    const ids = tenants.map(t => t.tenant_id);
+    let totalUsers = 0;
+    for (const tid of ids) {
+      const res = await ensureUsersForTenant(tid, getTenantData(tid), adapter);
+      totalUsers += res.migrated || 0;
+    }
+    await authzCache.loadFromAdapter(adapter, ids);
+    console.log(`[roleCache] загружен: ${ids.length} тенантов, ${totalUsers} пользователей смигрировано`);
+  } catch (e) {
+    console.warn('[roleCache] недоступен (миграция 005 не применена / PG down?):', e.message);
+    // Кэш остаётся пустым → requireAuth уходит в legacy-фолбэк. Прод не залочивается.
   }
 }
 
@@ -1031,6 +1055,8 @@ let httpServer;
   await migrateAuthPasswords();
   // SEC-8: token map строится после hydrate (нужны данные из tenant_integrations)
   await buildTokenMap();
+  // P0 «Привилегии/ACL» Ф1: миграция аккаунтов в users + загрузка ролевого кэша.
+  await buildRoleCache();
   // Единая модель пушей: при отсутствии push:v1 — одноразовая миграция из
   // push_settings:v1 + data.pushSettings + profiles:v1 (после hydrate, чтобы
   // мигрировать актуальные данные, а не файловый снимок).

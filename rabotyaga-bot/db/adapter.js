@@ -184,6 +184,49 @@ class DataAdapter {
     );
   }
 
+  // ── Роли / права / пользователи (P0 «Привилегии/ACL», Ф1) ─────────────────
+
+  async getRoles(tenantId) {
+    const res = await pool.query(
+      'SELECT id, name, parent_role_id, is_system FROM roles WHERE tenant_id = $1',
+      [tenantId]
+    );
+    return res.rows;
+  }
+
+  // Собственные (не унаследованные) гранты всех ролей тенанта.
+  async getRolePermissions(tenantId) {
+    const res = await pool.query(
+      `SELECT rp.role_id, rp.permission_key
+         FROM role_permissions rp
+         JOIN roles r ON r.id = rp.role_id
+        WHERE r.tenant_id = $1`,
+      [tenantId]
+    );
+    return res.rows;
+  }
+
+  async getUsers(tenantId) {
+    const res = await pool.query(
+      'SELECT account, telegram_id, role_id, active FROM users WHERE tenant_id = $1',
+      [tenantId]
+    );
+    return res.rows;
+  }
+
+  // Идемпотентный upsert пользователя. role_id ставится ТОЛЬКО при первой вставке —
+  // ручное переназначение роли не затирается при рестарте (обновляем лишь telegram_id/active).
+  async upsertUser(tenantId, account, telegramId, roleId) {
+    await pool.query(
+      `INSERT INTO users (tenant_id, account, telegram_id, role_id, active)
+       VALUES ($1, $2, $3, $4, true)
+       ON CONFLICT (tenant_id, account) DO UPDATE
+         SET telegram_id = COALESCE(EXCLUDED.telegram_id, users.telegram_id),
+             active = true`,
+      [tenantId, account, telegramId, roleId]
+    );
+  }
+
   // ── Задачи (мёртвые таблицы — не мигрируем, не трогаем структуру) ────────
 
   async getTasks() {

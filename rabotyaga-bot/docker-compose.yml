@@ -40,6 +40,9 @@ services:
       # 004 — мультитенантность (SEC-8). Только на ПУСТОМ volume (развёртывание с нуля);
       # на существующем боевом volume миграцию гонят вручную. Идемпотентна.
       - ./db/004_multitenancy.sql:/docker-entrypoint-initdb.d/004.sql
+      # 005 — ролевая модель (P0 «Привилегии/ACL»). На существующем volume applies
+      # через `node db/migrate.js` (идемпотентный runner). Идемпотентна.
+      - ./db/005_roles.sql:/docker-entrypoint-initdb.d/005.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U rabotyaga"]
       interval: 5s

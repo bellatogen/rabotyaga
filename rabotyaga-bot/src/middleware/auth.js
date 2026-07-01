@@ -1,6 +1,9 @@
 // Middleware авторизации: JWT в httpOnly cookie
 'use strict';
 const jwt = require('jsonwebtoken');
+// P0 «Привилегии/ACL» Ф1: ролевой кэш (in-memory, синхронный резолв — без PG в пути запроса).
+const authzCache = require('../authz/cache');
+const { permsSatisfy, WILDCARD, LEGACY_ADMIN_ACCOUNTS } = require('../authz/permissions');
 
 // Секрет берём из окружения. Если не задан — предупреждение, дефолт только для dev.
 // SEC-1: В продакшене без JWT_SECRET запуск невозможен — иначе все токены подписаны
@@ -55,8 +58,21 @@ function clearAuthCookie(res) {
   });
 }
 
+/** P0 «Привилегии/ACL» Ф1: разрешить эффективные права запроса.
+ *  Порядок резолва: по roleId из токена → по account из ролевого кэша → legacy-фолбэк.
+ *  Legacy-фолбэк (кэш пуст: миграция 005 не применена / PG down) сохраняет старое
+ *  поведение — manager/developer как admin ('*'), остальные — без прав. Прод не залочивается. */
+function resolvePermissions(req) {
+  let perms = null;
+  if (req.roleId) perms = authzCache.resolvePermissionsForRole(req.tenantId, req.roleId);
+  if (!perms)     perms = authzCache.resolvePermissionsForAccount(req.tenantId, req.account);
+  if (!perms)     perms = LEGACY_ADMIN_ACCOUNTS.has(req.account) ? new Set([WILDCARD]) : new Set();
+  return perms;
+}
+
 /** Middleware: требует валидный JWT cookie. Кладёт account в req.account.
- *  SEC-8: извлекает req.tenantId из токена (fallback 'pivnaya_karta' для старых токенов). */
+ *  SEC-8: извлекает req.tenantId из токена (fallback 'pivnaya_karta' для старых токенов).
+ *  P0 Ф1: кладёт req.permissions (Set эффективных прав) — источник для requirePermission. */
 function requireAuth(req, res, next) {
   const token = req.cookies?.[COOKIE_NAME];
   if (!token) return res.status(401).json({ error: 'Не авторизован' });
@@ -65,7 +81,27 @@ function requireAuth(req, res, next) {
   req.account    = payload.account;
   req.tgVerified = !!payload.tgVerified;            // SEC-7: подтверждена ли личность через Telegram
   req.tenantId   = payload.tenantId || 'pivnaya_karta'; // SEC-8: тенант (fallback для старых токенов)
+  req.roleId     = payload.roleId || null;          // P0 Ф1: роль (если в токене; иначе резолв по account)
+  req.permissions = resolvePermissions(req);
   next();
+}
+
+/** Есть ли у запроса требуемое право (учитывая WILDCARD '*'). */
+function hasPermission(req, key) {
+  return permsSatisfy(req.permissions, key);
+}
+
+/** Middleware-фабрика: требует конкретное право. Всегда ПОСЛЕ requireAuth-цепочки.
+ *  Единая точка проверки прав — заменяет разбросанные req.account === 'manager'. */
+function requirePermission(key) {
+  return (req, res, next) => {
+    requireAuth(req, res, () => {
+      if (!hasPermission(req, key)) {
+        return res.status(403).json({ error: 'Недостаточно прав' });
+      }
+      next();
+    });
+  };
 }
 
 /** SEC-8: требует, чтобы req.tenantId совпадал с переданным (или был manager/developer).
@@ -92,10 +128,14 @@ function requireTgVerified(req, res, next) {
   });
 }
 
-/** Middleware: требует manager или developer */
+/** Middleware: требует manager или developer.
+ *  P0 «Привилегии/ACL» Ф1: COMPAT-ШИМ поверх ролевой модели — проверяет суперправо '*'
+ *  (в Ф1 роли Менеджер/developer держат '*', как и было). Call-sites не меняются;
+ *  точечная замена на requirePermission(...) по маршрутам — в Ф2+. Legacy-фолбэк в
+ *  resolvePermissions гарантирует идентичное старому поведение, если кэш недоступен. */
 function requireManager(req, res, next) {
   requireAuth(req, res, () => {
-    if (req.account !== 'manager' && req.account !== 'developer') {
+    if (!hasPermission(req, WILDCARD)) {
       return res.status(403).json({ error: 'Нет прав — требуется менеджер' });
     }
     next();
@@ -105,5 +145,6 @@ function requireManager(req, res, next) {
 module.exports = {
   signToken, verifyToken, setAuthCookie, clearAuthCookie,
   requireAuth, requireManager, requireTgVerified, requireTenant,
+  requirePermission, hasPermission,   // P0 «Привилегии/ACL» Ф1
   COOKIE_NAME, JWT_SECRET,
 };
