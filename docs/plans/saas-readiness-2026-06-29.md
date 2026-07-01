@@ -29,8 +29,8 @@ _Создан: 2026-06-29. Статус: черновик. Владелец: —
 
 ## 2. Безопасность (P0)
 
-- [ ] 🔴 **`/api/bind` подделка.** telegramId берётся из тела → перехват чужих пушей/выдача за менеджера. Брать id только из подписанного Telegram `initData` (validate hash по bot token); bind только своего аккаунта. **← начать отсюда.**
-- [ ] 🔴 **XSS в пушах.** `parse_mode:'HTML'` + неэкранированные имена/задачи (`sender.js substVars/renderPush`). Экранировать все подстановки. **← начать отсюда.**
+- [x] 🔴 **`/api/bind` подделка.** telegramId берётся из тела → перехват чужих пушей/выдача за менеджера. Брать id только из подписанного Telegram `initData` (validate hash по bot token); bind только своего аккаунта. **Закрыто 2026-07-01**: логика вынесена в `src/api/bind.js`, telegramId только из проверенного initData, bind только своего аккаунта (`name === req.account`); фронт (`tgBind`) переведён на отправку `initData`; тест `tests/bind.test.js`.
+- [x] 🔴 **XSS в пушах.** `parse_mode:'HTML'` + неэкранированные имена/задачи (`sender.js substVars/renderPush`). Экранировать все подстановки. **Закрыто 2026-07-01**: добавлен `escapeHtml()`, применён в `substVars` (имя), `renderPush` (тексты задач/сэтов) и `buildShiftClosedText` (имена сотрудников в пуше «Смена закрыта»); тесты в `tests/push.test.js`.
 - [ ] **KV-запись без схемы.** Любой авторизованный пишет произвольные ключи/значения. → Валидация по схеме (zod/ajv) на ключ; whitelist ключей вместо blacklist; лимит размера значения.
 - [ ] **CSRF.** Cookie-auth → `SameSite=Strict/Lax` + CSRF-токен на всех мутациях.
 - [ ] **Секреты per-tenant.** iiko/mozg/telegram-креды из общего `.env` → шифрованное хранилище на тенант (`pgcrypto`/KMS).
