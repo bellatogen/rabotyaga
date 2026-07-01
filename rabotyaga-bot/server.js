@@ -18,6 +18,7 @@ const makeManualRevenueRouter  = require('./src/api/revenue/manual');
 const dataSources = require('./src/api/dataSources');
 const makeAdminApi  = require('./src/api/admin');
 const makeAuthApi   = require('./src/api/auth');
+const makeBindApi   = require('./src/api/bind');
 const makeQuestsApi  = require('./src/api/quests');
 const makeRewardsApi = require('./src/api/rewards');
 const makeXpApi      = require('./src/api/xp');
@@ -755,26 +756,8 @@ app.get('/api/roster', (req, res) => {
   res.json({ members, hasPassword });
 });
 
-// ── Bind: привязка Telegram — только авторизованные ──
-app.post('/api/bind', requireAuth, (req, res) => {
-  const { name, telegramId } = req.body;
-  if (!name || !telegramId) return res.status(400).json({ error: 'name и telegramId обязательны' });
-  data.bindings[name] = telegramId;
-  saveData();
-  console.log(`✅ Привязан: ${name} -> ID ${telegramId}`);
-  bot.telegram.sendMessage(telegramId, `👋 Привет, ${name}! Ты подключён к «Работяге».`).catch(err => console.error('Ошибка отправки:', err));
-  res.json({ success: true });
-});
-
-app.delete('/api/bind/:name', requireManager, (req, res) => {
-  const { name } = req.params;
-  if (data.bindings[name]) {
-    delete data.bindings[name];
-    saveData();
-    return res.json({ success: true });
-  }
-  res.status(404).json({ error: 'Сотрудник не найден' });
-});
+// ── Bind: привязка Telegram — SEC: telegramId только из подписанного initData ──
+app.use('/api/bind', makeBindApi(data, saveData, bot, getTokenMap, TOKEN));
 
 app.get('/api/bindings', requireManager, (req, res) => {
   res.json({ success: true, bindings: data.bindings });

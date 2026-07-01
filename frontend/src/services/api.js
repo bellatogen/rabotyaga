@@ -156,14 +156,15 @@ export async function authResetPassword(account) {
 }
 
 // ── Telegram bind ──
-export async function tgBind(name, telegramId) {
-  if (!telegramId) return;
+// SEC: telegramId сервер извлекает сам из подписанного initData — сюда его не передаём.
+export async function tgBind(name, initData) {
+  if (!initData) return;
   try {
     await fetch(`${API_BASE}/bind`, {
       ...FETCH_OPTS,
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, telegramId }),
+      body: JSON.stringify({ name, initData }),
     });
   } catch {}
 }

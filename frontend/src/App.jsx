@@ -36,6 +36,8 @@ import { AuthModal } from './modals/AuthModal.jsx';
 // Telegram Mini App
 const TG=(typeof window!=="undefined"&&window.Telegram)?window.Telegram.WebApp:null;
 function tgUserId(){try{return TG?.initDataUnsafe?.user?.id||null;}catch{return null;}}
+// SEC: только подписанная строка initData — сервер проверяет HMAC сам, initDataUnsafe для бэка не годится.
+function tgInitData(){try{return TG?.initData||null;}catch{return null;}}
 export default function App(){
   const[who,setWho]=useState(null);
   const[picking,setPicking]=useState(false);
@@ -350,7 +352,7 @@ export default function App(){
     if(createTask&&taskTitle){const nt={id:uid(),title:`[Перенос] ${taskTitle}`,repeat:"once",date:forDate,time:"",assignee:"смена",notes:text,isReport:false};setTasks(p=>[...p,nt]);}
     logEvent("handover",`на ${fmtDate(forDate)}: ${text.slice(0,40)}`);
   };
-  const doLogin=name=>{setWho(name);setPicking(false);setAuthPending(null);logEvent("login",accountLabel(name));tgBind(name, tgUserId());};
+  const doLogin=name=>{setWho(name);setPicking(false);setAuthPending(null);logEvent("login",accountLabel(name));tgBind(name, tgInitData());};
   const requestLogin=async account=>{
     // Проверяем наличие пароля на сервере перед показом модалки
     const has=await authHasPassword(account);
