@@ -31,11 +31,11 @@ _Создан: 2026-06-29. Статус: черновик. Владелец: —
 
 - [x] 🔴 **`/api/bind` подделка.** telegramId берётся из тела → перехват чужих пушей/выдача за менеджера. Брать id только из подписанного Telegram `initData` (validate hash по bot token); bind только своего аккаунта. **Закрыто 2026-07-01**: логика вынесена в `src/api/bind.js`, telegramId только из проверенного initData, bind только своего аккаунта (`name === req.account`); фронт (`tgBind`) переведён на отправку `initData`; тест `tests/bind.test.js`.
 - [x] 🔴 **XSS в пушах.** `parse_mode:'HTML'` + неэкранированные имена/задачи (`sender.js substVars/renderPush`). Экранировать все подстановки. **Закрыто 2026-07-01**: добавлен `escapeHtml()`, применён в `substVars` (имя), `renderPush` (тексты задач/сэтов) и `buildShiftClosedText` (имена сотрудников в пуше «Смена закрыта»); тесты в `tests/push.test.js`.
-- [ ] **KV-запись без схемы.** Любой авторизованный пишет произвольные ключи/значения. → Валидация по схеме (zod/ajv) на ключ; whitelist ключей вместо blacklist; лимит размера значения.
-- [ ] **CSRF.** Cookie-auth → `SameSite=Strict/Lax` + CSRF-токен на всех мутациях.
-- [ ] **Секреты per-tenant.** iiko/mozg/telegram-креды из общего `.env` → шифрованное хранилище на тенант (`pgcrypto`/KMS).
-- [ ] **Аудит.** `audit_log(tenant, actor, action, key, before, after, ts)` — серверный, не клиентский `events_log`.
-- [ ] **Привилегии.** Пересмотреть `MANAGER_ONLY_KV` → единый ролевой ACL, проверяемый по `req.user.role`, а не по строке аккаунта.
+- [ ] **KV-запись без схемы.** Любой авторизованный пишет произвольные ключи/значения. → Валидация по схеме (zod/ajv) на ключ; whitelist ключей вместо blacklist; лимит размера значения. **Диагностика 2026-07-01: не начато.** `PUT /api/kv/:key` (`server.js:723`) пишет `data.kv[key] = req.body.value` без схемы; защита — только `KV_BLACKLIST`/`KV_FORBIDDEN`/`MANAGER_ONLY_KV`, ни zod/ajv, ни whitelist-вместо-blacklist, ни лимита размера нет.
+- [ ] **CSRF.** Cookie-auth → `SameSite=Strict/Lax` + CSRF-токен на всех мутациях. **Диагностика 2026-07-01: частично.** `sameSite:'strict'` на auth-cookie (`auth.js:42,53`) + CORS origin-whitelist с `credentials:true` (`server.js:99-113`) уже есть; отдельного CSRF-токена на мутациях нет.
+- [ ] **Секреты per-tenant.** iiko/mozg/telegram-креды из общего `.env` → шифрованное хранилище на тенант (`pgcrypto`/KMS). **Диагностика 2026-07-01: не начато.** `getTenantSecret` (`src/config/secrets.js`) — это соглашение об именовании (`<TENANT>_<NAME>`) поверх того же общего `.env`, без изоляции и без шифрования при хранении.
+- [ ] **Аудит.** `audit_log(tenant, actor, action, key, before, after, ts)` — серверный, не клиентский `events_log`. **Диагностика 2026-07-01: не начато.** Таблицы/миграции `audit_log` нет; единственный лог — клиентский `events_log:v1` (`frontend/src/App.jsx`), пишется через обычный KV и полностью подконтролен клиенту.
+- [ ] **Привилегии.** Пересмотреть `MANAGER_ONLY_KV` → единый ролевой ACL, проверяемый по `req.user.role`, а не по строке аккаунта. **Диагностика 2026-07-01: не начато.** Гейтинг в `server.js:729` по-прежнему `req.account !== 'manager' && req.account !== 'developer'`; JWT (`signToken` в `auth.js`) поля `role` не содержит — ролей как сущности в системе нет.
 
 ## 3. Hardening / анти-DDoS (P1)
 
