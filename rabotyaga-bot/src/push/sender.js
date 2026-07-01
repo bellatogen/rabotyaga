@@ -22,6 +22,18 @@ function readLog() {
   try { return JSON.parse(fs.readFileSync(LOG_FILE, 'utf8')); } catch { return []; }
 }
 
+// SEC: экранирование пользовательских данных перед вставкой в HTML-шаблон пуша
+// (parse_mode:'HTML') — имя, тексты задач и т.п. приходят от сотрудников/менеджеров
+// через UI и не должны интерпретироваться Telegram как HTML-разметка.
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // Подстановка переменных в шаблоне: {{имя}}, {{дата}}, {{день_недели}}.
 // Дата/день считаются в PUSH_TZ (дефолт Москва), а не в локали сервера (UTC на хостинге).
 const PUSH_TZ = process.env.PUSH_TZ || 'Europe/Moscow';
@@ -40,7 +52,7 @@ function substVars(tpl, userName) {
   for (const part of fmt.formatToParts(new Date())) p[part.type] = part.value;
   const wd = WEEKDAYS_RU[WD_FROM_EN[p.weekday] ?? 0];
   return String(tpl || '')
-    .replace(/\{\{имя\}\}/g, userName || '')
+    .replace(/\{\{имя\}\}/g, escapeHtml(userName || ''))
     .replace(/\{\{дата\}\}/g, `${p.day}.${p.month}.${p.year}`)
     .replace(/\{\{день_недели\}\}/g, wd);
 }
@@ -116,20 +128,22 @@ module.exports = function makeSender(data, saveData, adapter = null, tenantId = 
     let msg = substVars(tpl, name);
     switch (def.contentSource) {
       case 'tasks_tomorrow':
-        msg = msg.replace('{tasks}', shared.tasksText || '');
+        // SEC: tasksText собран из t.title (вводит сотрудник/менеджер) — экранируем.
+        msg = msg.replace('{tasks}', escapeHtml(shared.tasksText || ''));
         break;
       case 'tasks_today_personal': {
         const tasks = (shared.personalByName && shared.personalByName[name]) || [];
         if (!tasks.length) return null; // личных задач нет — не шлём
+        // SEC: title/assignedBy/deadline/context — пользовательский ввод, экранируем каждое поле.
         const text = tasks.map(t =>
-          `📌 ${t.title}\n👤 ${t.assignedBy || '—'}\n⏰ ${t.deadline || '—'}\n📝 ${t.context || ''}`
+          `📌 ${escapeHtml(t.title)}\n👤 ${escapeHtml(t.assignedBy || '—')}\n⏰ ${escapeHtml(t.deadline || '—')}\n📝 ${escapeHtml(t.context || '')}`
         ).join('\n\n');
         msg = msg.replace('{tasks}', text);
         break;
       }
       case 'sets':
         if (!shared.setsText) return null; // корзина пуста / iiko недоступна
-        msg = msg.replace('{sets}', shared.setsText);
+        msg = msg.replace('{sets}', escapeHtml(shared.setsText));
         break;
       case 'close_checklist':
       case 'static':
@@ -221,4 +235,5 @@ module.exports = function makeSender(data, saveData, adapter = null, tenantId = 
 
 // Экспорт чистых хелперов для тестов (не зависят от data/factory).
 module.exports.substVars = substVars;
+module.exports.escapeHtml = escapeHtml;
 module.exports.DEFAULT_CONTENT = DEFAULT_CONTENT;

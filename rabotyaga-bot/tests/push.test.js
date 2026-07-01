@@ -15,6 +15,7 @@ async function test(name, fn) {
 }
 
 const makeSender = require('../src/push/sender');
+const { escapeHtml } = require('../src/push/sender');
 const { defDue, runDef } = require('../src/push/scheduler');
 
 // data-заглушка для фабрики sender (profiles/bindings из памяти).
@@ -91,6 +92,41 @@ function mkData(extra = {}) {
   });
   await test('static с пустым шаблоном → null (слать нечего)', () => {
     assert.strictEqual(s.renderPush({ contentSource: 'static', template: '' }, 'Павел', {}), null);
+  });
+
+  // ─── SEC: экранирование пользовательских данных (XSS в parse_mode:'HTML') ───
+  process.stdout.write('\n── SEC: escapeHtml в substVars/renderPush ──\n');
+
+  await test('escapeHtml экранирует &, <, >, ", \'', () => {
+    assert.strictEqual(escapeHtml(`<b>&"'</b>`), '&lt;b&gt;&amp;&quot;&#39;&lt;/b&gt;');
+  });
+
+  await test('{{имя}} с HTML-разметкой в имени → экранируется', () => {
+    const def = { contentSource: 'static', template: 'Привет, {{имя}}!' };
+    const msg = s.renderPush(def, '<a href="evil">Павел</a>', {});
+    assert.ok(!msg.includes('<a href'));
+    assert.ok(msg.includes('&lt;a href=&quot;evil&quot;&gt;Павел&lt;/a&gt;'));
+  });
+
+  await test('tasks_tomorrow: HTML в названии задачи → экранируется', () => {
+    const def = { contentSource: 'tasks_tomorrow', template: '' };
+    const msg = s.renderPush(def, 'Павел', { tasksText: '1. <script>alert(1)</script>' });
+    assert.ok(!msg.includes('<script>'));
+    assert.ok(msg.includes('&lt;script&gt;'));
+  });
+
+  await test('tasks_today_personal: HTML в полях задачи → экранируется', () => {
+    const def = { contentSource: 'tasks_today_personal', template: '' };
+    const shared = { personalByName: { 'Павел': [{ title: '<b>Касса</b>', assignedBy: 'Шеф<i>х</i>', context: '<a href="x">тут</a>' }] } };
+    const msg = s.renderPush(def, 'Павел', shared);
+    assert.ok(!/<b>|<i>|<a /.test(msg));
+    assert.ok(msg.includes('&lt;b&gt;Касса&lt;/b&gt;'));
+  });
+
+  await test('sets: HTML в setsText → экранируется', () => {
+    const msg = s.renderPush({ contentSource: 'sets', template: '' }, 'Павел', { setsText: '<u>Пиво</u> + Чипсы' });
+    assert.ok(!msg.includes('<u>'));
+    assert.ok(msg.includes('&lt;u&gt;'));
   });
 
   // ─── defDue (расписание) ────────────────────────────────────────────────────
