@@ -10,6 +10,7 @@ const iiko = require('../api/iiko');
 const { isToday } = require('../shift/isToday');            // единый бэкенд-модуль (дедуп копий)
 const { getShiftStatusFromData } = require('../shift/status'); // статус-гейтинг
 const { PUSH_KEY } = require('./model');                    // ключ единой модели push:v1
+const { checkScheduleReminder } = require('./scheduleReminder'); // напоминание о вкладке след. месяца
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10);
@@ -265,6 +266,9 @@ function startScheduler(bot, data, sender, saveData) {
 
     // Макросы рассылки — собственный дедуп по lastRunDate внутри tickMacros.
     try { await tickMacros(bot, data, saveData); } catch (e) { console.error('[macros] tick error:', e.message); }
+
+    // Напоминание о вкладке след. месяца в таблице расписания — собственный дедуп по дате.
+    try { await checkScheduleReminder(bot, data, saveData); } catch (e) { console.error('[scheduleReminder] tick error:', e.message); }
   }, 30000); // каждые 30 секунд
 }
 
