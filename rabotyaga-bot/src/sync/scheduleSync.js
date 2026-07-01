@@ -76,10 +76,22 @@ function parseCSV(csv) {
   });
 }
 
-async function fetchSheet(sheetName) {
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// Замечено: Google gviz иногда отвечает 401/429 на всплеск параллельных запросов
+// (например, при холодном старте контейнера, когда scheduleSync и revenueSync бьют в Google
+// одновременно) — транзиентно, повторный запрос через пару секунд обычно проходит.
+// Даём один ретрай с бэкоффом, чтобы синк сам восстанавливался без ручного повторного клика.
+async function fetchSheet(sheetName, attempt = 1) {
   const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
-  if (!res.ok) throw new Error(`Sheets HTTP ${res.status} for "${sheetName}"`);
+  if (!res.ok) {
+    if ((res.status === 401 || res.status === 429 || res.status >= 500) && attempt < 2) {
+      await sleep(2000 * attempt);
+      return fetchSheet(sheetName, attempt + 1);
+    }
+    throw new Error(`Sheets HTTP ${res.status} for "${sheetName}"`);
+  }
   return res.text();
 }
 

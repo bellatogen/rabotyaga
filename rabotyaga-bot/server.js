@@ -481,13 +481,20 @@ app.post('/api/sync/schedule', requireManager, async (req, res) => {
 });
 
 // Авто-синхронизация раз в 12 часов: расписание + план выручки из Google Sheets
-// Стартовый sync: задержка 10с после старта
+// Стартовый sync: задержка 10с после старта.
+// Расписание и план выручки читаются из разных таблиц, но обе через тот же анонимный
+// gviz-эндпоинт Google — запуск их в один момент даёт залповый всплеск запросов и иногда
+// ловит временный 401/429 (см. ретрай в fetchSheet/fetchPlanSheet) — разносим их по времени.
 setTimeout(() => {
   syncSchedule(data, saveData).catch(e => console.error('[scheduleSync] startup error:', e.message));
-  syncRevenuePlan(data, saveData).catch(e => console.error('[revenueSync] startup error:', e.message));
+  setTimeout(() => {
+    syncRevenuePlan(data, saveData).catch(e => console.error('[revenueSync] startup error:', e.message));
+  }, 5000);
   setInterval(() => {
     syncSchedule(data, saveData).catch(e => console.error('[scheduleSync] interval error:', e.message));
-    syncRevenuePlan(data, saveData).catch(e => console.error('[revenueSync] interval error:', e.message));
+    setTimeout(() => {
+      syncRevenuePlan(data, saveData).catch(e => console.error('[revenueSync] interval error:', e.message));
+    }, 5000);
   }, 12 * 60 * 60 * 1000);
 }, 10000);
 

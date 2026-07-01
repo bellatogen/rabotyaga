@@ -48,11 +48,20 @@ function parseCSV(text) {
   return result;
 }
 
-async function fetchPlanSheet(sheetName) {
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// См. комментарий к fetchSheet в scheduleSync.js — та же защита от транзиентных 401/429 gviz.
+async function fetchPlanSheet(sheetName, attempt = 1) {
   const url = `https://docs.google.com/spreadsheets/d/${REVENUE_PLAN_SHEET_ID}/gviz/tq`
     + `?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
-  if (!res.ok) throw new Error(`Sheets HTTP ${res.status} for "${sheetName}"`);
+  if (!res.ok) {
+    if ((res.status === 401 || res.status === 429 || res.status >= 500) && attempt < 2) {
+      await sleep(2000 * attempt);
+      return fetchPlanSheet(sheetName, attempt + 1);
+    }
+    throw new Error(`Sheets HTTP ${res.status} for "${sheetName}"`);
+  }
   return res.text();
 }
 
