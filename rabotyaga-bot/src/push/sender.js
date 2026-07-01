@@ -57,6 +57,24 @@ function substVars(tpl, userName) {
     .replace(/\{\{день_недели\}\}/g, wd);
 }
 
+// Текст пуша «Смена закрыта» — чистая функция (без побочных эффектов, для тестируемости).
+// SEC: workers — имена сотрудников с фронта (пользовательский ввод), экранируем перед HTML-пушем.
+function buildShiftClosedText({ dateStr, done, total, revenueFact, revenuePlan, workers }) {
+  // YYYY-MM-DD → DD.MM.YYYY
+  const parts = String(dateStr || '').split('-');
+  const dateFmt = parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : (dateStr || '?');
+
+  const revLine = (revenueFact != null && Number(revenueFact) > 0)
+    ? `Выручка: ${Number(revenueFact).toLocaleString('ru-RU')} ₽ (план ${Number(revenuePlan || 0).toLocaleString('ru-RU')} ₽)`
+    : 'Выручка: не указана';
+
+  const workersLine = (Array.isArray(workers) && workers.length)
+    ? `Смена: ${workers.map(escapeHtml).join(', ')}`
+    : 'Смена: не указана';
+
+  return `✅ Смена закрыта — ${dateFmt}\nЗадачи: ${done}/${total}\n${revLine}\n${workersLine}`;
+}
+
 // Дефолтные тексты по contentSource — используются когда у def пустой template.
 // (Соответствуют 4 старым захардкоженным джобам.)
 const DEFAULT_CONTENT = {
@@ -192,26 +210,14 @@ module.exports = function makeSender(data, saveData, adapter = null, tenantId = 
   // Триггерный (не по расписанию), в defs не входит. Идёт МИМО гейта
   // recipients.enabled / suppressStatuses — управляющий не должен его mute'ить.
   // Аудитория — общий резолвер {roles:['manager']}, доставка — общий sendPush.
-  async function sendShiftClosedToManagers(bot, { dateStr, done, total, revenueFact, revenuePlan, workers }) {
+  async function sendShiftClosedToManagers(bot, opts) {
     const managers = resolveAudienceNames({ roles: ['manager'] });
     if (!managers.length) {
       console.log('[shiftClosed] нет пользователей с ролью manager');
       return { sent: 0, failed: 0 };
     }
 
-    // YYYY-MM-DD → DD.MM.YYYY
-    const parts = String(dateStr || '').split('-');
-    const dateFmt = parts.length === 3 ? `${parts[2]}.${parts[1]}.${parts[0]}` : (dateStr || '?');
-
-    const revLine = (revenueFact != null && Number(revenueFact) > 0)
-      ? `Выручка: ${Number(revenueFact).toLocaleString('ru-RU')} ₽ (план ${Number(revenuePlan || 0).toLocaleString('ru-RU')} ₽)`
-      : 'Выручка: не указана';
-
-    const workersLine = (Array.isArray(workers) && workers.length)
-      ? `Смена: ${workers.join(', ')}`
-      : 'Смена: не указана';
-
-    const text = `✅ Смена закрыта — ${dateFmt}\nЗадачи: ${done}/${total}\n${revLine}\n${workersLine}`;
+    const text = buildShiftClosedText(opts);
 
     let sent = 0, failed = 0;
     for (const name of managers) {
@@ -236,4 +242,5 @@ module.exports = function makeSender(data, saveData, adapter = null, tenantId = 
 // Экспорт чистых хелперов для тестов (не зависят от data/factory).
 module.exports.substVars = substVars;
 module.exports.escapeHtml = escapeHtml;
+module.exports.buildShiftClosedText = buildShiftClosedText;
 module.exports.DEFAULT_CONTENT = DEFAULT_CONTENT;

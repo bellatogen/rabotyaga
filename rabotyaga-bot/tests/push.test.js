@@ -15,7 +15,7 @@ async function test(name, fn) {
 }
 
 const makeSender = require('../src/push/sender');
-const { escapeHtml } = require('../src/push/sender');
+const { escapeHtml, buildShiftClosedText } = require('../src/push/sender');
 const { defDue, runDef } = require('../src/push/scheduler');
 
 // data-заглушка для фабрики sender (profiles/bindings из памяти).
@@ -127,6 +127,24 @@ function mkData(extra = {}) {
     const msg = s.renderPush({ contentSource: 'sets', template: '' }, 'Павел', { setsText: '<u>Пиво</u> + Чипсы' });
     assert.ok(!msg.includes('<u>'));
     assert.ok(msg.includes('&lt;u&gt;'));
+  });
+
+  await test('buildShiftClosedText: HTML в имени сотрудника → экранируется', () => {
+    const text = buildShiftClosedText({
+      dateStr: '2026-07-01', done: 3, total: 3,
+      revenueFact: null, revenuePlan: null,
+      workers: ['<b>Аня</b>', 'Петя'],
+    });
+    assert.ok(!/<b>/.test(text));
+    assert.ok(text.includes('&lt;b&gt;Аня&lt;/b&gt;'));
+    assert.ok(text.includes('Петя'));
+  });
+
+  await test('buildShiftClosedText: без сотрудников → «не указана», выручка/дата не трогаются', () => {
+    const text = buildShiftClosedText({ dateStr: '2026-07-01', done: 1, total: 2, revenueFact: 15000, revenuePlan: 20000, workers: [] });
+    assert.ok(text.includes('01.07.2026'));
+    assert.ok(text.includes('Смена: не указана'));
+    assert.ok(/Выручка: 15.?000 ₽ \(план 20.?000 ₽\)/.test(text));
   });
 
   // ─── defDue (расписание) ────────────────────────────────────────────────────
