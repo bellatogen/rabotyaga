@@ -78,6 +78,25 @@ function parseCSV(csv) {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// Ограничение параллелизма для запросов к gviz.
+// gviz с серверных IP (особенно на холодном старте контейнера) чувствителен к «залпам»:
+// одновременная пачка запросов провоцирует 401/429. Гоним не более POOL запросов разом.
+// Порядок результатов сохраняется по items, семантика — как у Promise.allSettled.
+const POOL = 3;
+async function allSettledLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < items.length) {
+      const i = cursor++;
+      try { results[i] = { status: 'fulfilled', value: await fn(items[i], i) }; }
+      catch (reason) { results[i] = { status: 'rejected', reason }; }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 // Замечено: Google gviz иногда отвечает 401/429 на всплеск параллельных запросов
 // (например, при холодном старте контейнера, когда scheduleSync и revenueSync бьют в Google
 // одновременно) — транзиентно, повторный запрос через пару секунд обычно проходит.
@@ -91,8 +110,10 @@ async function fetchSheet(sheetName, attempt = 1) {
   const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(15000), headers: { 'User-Agent': BROWSER_UA } });
   if (!res.ok) {
-    if ((res.status === 401 || res.status === 429 || res.status >= 500) && attempt < 3) {
-      await sleep(4000 * attempt);
+    if ((res.status === 401 || res.status === 429 || res.status >= 500) && attempt < 4) {
+      // Экспоненциальный бэкофф + джиттер: одинаковые синхронные ретраи сами по себе
+      // выглядят как «залп» и провоцируют 401/429 — джиттер их размазывает во времени.
+      await sleep(3000 * attempt + Math.floor(Math.random() * 1500));
       return fetchSheet(sheetName, attempt + 1);
     }
     throw new Error(`Sheets HTTP ${res.status} for "${sheetName}"`);
@@ -112,7 +133,7 @@ async function syncSchedule(data, saveData, opts = {}) {
   // через 12-19 листов мог тянуться минутами). Порядок обработки результатов
   // сохраняется по sheets (не по скорости ответа), чтобы поведение «позже перезаписывает
   // раньше» осталось детерминированным, как и раньше.
-  const fetched = await Promise.allSettled(sheets.map(s => fetchSheet(s.name)));
+  const fetched = await allSettledLimit(sheets, POOL, s => fetchSheet(s.name));
 
   let daysUpdated = 0;
   const errors = [];

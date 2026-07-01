@@ -489,16 +489,21 @@ app.post('/api/sync/schedule', requireManager, async (req, res) => {
 // принёсёт хоть один день без ошибки или пока не исчерпает попытки — вместо того чтобы
 // молча ждать следующего планового запуска через 12ч.
 async function scheduleSyncWithRetry(maxAttempts = 4, delayMs = 20000) {
+  let lastStatus = null;
   for (let i = 1; i <= maxAttempts; i++) {
     try {
       const status = await syncSchedule(data, saveData);
-      if (status.daysUpdated > 0) return status;
-      console.warn(`[scheduleSync] попытка ${i}/${maxAttempts}: 0 дней обновлено (${status.error || 'без ошибки, но пусто'})`);
+      lastStatus = status;
+      // Ретраим, пока остаются ошибки хоть по одному листу (не только когда всё пусто) —
+      // иначе успешный текущий месяц маскирует 401 на следующем до планового прогона через 12ч.
+      if (!status.error) return status;
+      console.warn(`[scheduleSync] попытка ${i}/${maxAttempts}: обновлено ${status.daysUpdated} дней, есть ошибки: ${status.error}`);
     } catch (e) {
       console.error(`[scheduleSync] попытка ${i}/${maxAttempts} упала с ошибкой:`, e.message);
     }
     if (i < maxAttempts) await new Promise(r => setTimeout(r, delayMs));
   }
+  return lastStatus;
 }
 
 setTimeout(() => {

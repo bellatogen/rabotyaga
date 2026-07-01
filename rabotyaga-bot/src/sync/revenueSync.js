@@ -50,6 +50,23 @@ function parseCSV(text) {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// Ограничение параллелизма для запросов к gviz (см. такой же allSettledLimit в scheduleSync.js).
+// gviz на серверных IP чувствителен к «залпам» — синкаем не более POOL листов одновременно.
+const POOL = 3;
+async function allSettledLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < items.length) {
+      const i = cursor++;
+      try { results[i] = { status: 'fulfilled', value: await fn(items[i], i) }; }
+      catch (reason) { results[i] = { status: 'rejected', reason }; }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 // См. комментарий к fetchSheet в scheduleSync.js — та же защита от транзиентных 401/429 gviz.
 // См. комментарий к fetchSheet в scheduleSync.js — браузерный User-Agent против анти-бот защиты Google.
 const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -59,8 +76,9 @@ async function fetchPlanSheet(sheetName, attempt = 1) {
     + `?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(12000), headers: { 'User-Agent': BROWSER_UA } });
   if (!res.ok) {
-    if ((res.status === 401 || res.status === 429 || res.status >= 500) && attempt < 3) {
-      await sleep(4000 * attempt);
+    if ((res.status === 401 || res.status === 429 || res.status >= 500) && attempt < 4) {
+      // Бэкофф + джиттер (см. коммент в scheduleSync.js).
+      await sleep(3000 * attempt + Math.floor(Math.random() * 1500));
       return fetchPlanSheet(sheetName, attempt + 1);
     }
     throw new Error(`Sheets HTTP ${res.status} for "${sheetName}"`);
@@ -84,7 +102,7 @@ async function syncRevenuePlan(data, saveData, opts = {}) {
   const errors        = [];
 
   // Сетевые запросы — параллельно (было последовательно — тот же эффект, что и в scheduleSync).
-  const fetched = await Promise.allSettled(sheets.map(s => fetchPlanSheet(s.name)));
+  const fetched = await allSettledLimit(sheets, POOL, s => fetchPlanSheet(s.name));
 
   sheets.forEach(({ name: sheetName }, i) => {
     const result = fetched[i];
